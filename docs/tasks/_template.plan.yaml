@@ -1,0 +1,30 @@
+# <plan-id>.plan.yaml. One story: one deliverable, one branch, one coder, one review.
+# The architect writes it. The senior architect validates it. The coder never edits it.
+schema_version: 1
+plan_id: <plan-id>                       # lowercase kebab-case, the same spelling everywhere
+title: "<a title a person reads>"
+revision: 1                              # bumped by the architect on every change after validation
+branch: <branch the coder works on>
+from: main
+compare_with: none                       # another branch that did the same work another way, or none
+architect: <agent>                       # different from reviewer, different vendors when possible
+reviewer: <agent>
+coder: <agent>
+role: general-coder                      # general-coder | entry-coder; a card may lower it, never raise it
+adrs: [docs/adrs/NNNN-<slug>.md]         # accepted ADRs only
+story: "<who asks for what, and what they get>"
+success:
+  - "<an observable outcome, checkable>"
+acceptance:
+  - "<a command, and what it must print>"
+  - "the reviewer's verdict for the plan is APPROVE"
+constraints:
+  - "<what holds across every card>"
+stop_line:
+  - "a card needs an edit outside its scope"
+  - "two focused repairs failed on one card"
+tasks:                                   # execution order; loaded verbatim into the coder's todo tool
+  - {id: <plan-id>-01, title: "<the smallest change that ends in a green commit>", status: todo}
+  - {id: <plan-id>-02, title: "<...>", status: todo}
+status: proposed                         # proposed | validated | in-progress | done | abandoned
+validated_by: ""                         # "<name>, YYYY-MM-DD", written by the senior architect

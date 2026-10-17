@@ -1,0 +1,57 @@
+# <plan-id>-NN.yaml. One card: the smallest change that ends in a green commit.
+# The architect writes it. The coder reads it, runs the seven steps, and never edits it.
+# Omit a section that would be empty.
+schema_version: 1
+task_id: <plan-id>-NN
+plan: <plan-id>
+title: "<the change, in one line>"
+revision: 1
+role: general-coder                      # general-coder | entry-coder
+depends_on: []                           # cards that must be pass first
+adr: docs/adrs/NNNN-<slug>.md            # when one applies
+objective: "<one sentence of observable behaviour>"
+out_of_scope:
+  - "<what this card must not touch, even when it looks easy>"
+context:
+  read_first:
+    - <path, in reading order>
+  reference_pattern: <a file that already does it the right way>
+  verified:
+    - "<a fact the architect checked, and where: a signature, a path, a fixture>"
+preconditions:
+  - "<what must be true before the first edit>"
+behavior:
+  - {given: "<state or input>", expect: "<observable result>"}
+  - {given: "<a counterexample>", expect: "<the refusal or the error>"}
+invariants:
+  - "<what stays true across normal and failure paths>"
+decisions:
+  architect:
+    - "<a decision already made; not reopened>"
+  coder:
+    - "<a local choice left to the coder>"
+scope:
+  writable:
+    - <the only paths the diff may touch>
+  protected:
+    - "<paths the coder never writes>"
+  forbidden:
+    - "<changes the coder never makes, whatever the path>"
+do:
+  - "<an exact instruction for this card>"
+dont:
+  - "<an exact prohibition for this card>"
+verification:
+  baseline: "<the command run in preflight, before any edit>"
+  targeted: "<the command that proves this card>"
+  gate: "<the project's gate, in order>"
+  diff_policy: "changed paths are in scope.writable"
+stop_line:
+  - "a precondition cannot be verified"
+  - "correctness needs an edit outside scope.writable"
+  - "<a stop line specific to this card>"
+repair_budget: 2
+completion:
+  - "docs/llm-context/<plan-id>-NN-report.md holds the preflight and completion blocks"
+  - "one commit on <branch>, message starting with <plan-id>-NN"
+  - "status PASS, BLOCKED or ESCALATED in the report"
