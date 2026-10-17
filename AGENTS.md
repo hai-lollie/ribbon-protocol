@@ -72,9 +72,10 @@ planning task. Keep it.
 | `docs/tasks/` | the architect | `<plan-id>.plan.yaml` and its cards `<plan-id>-NN.yaml` |
 | `docs/llm-context/` | the coders, the reviewer | `<task-id>-report.md` for every card; `<task-id>-<slug>.md` on a block, a misleading card or a question; `<plan-id>-handoff.md` at the end of every session; `<plan-id>-review.md` by the reviewer |
 
-Ids are lowercase everywhere: file names, prose, commit messages. A coder never edits
-`docs/adrs/`, `docs/diagrams/` or `docs/tasks/`. Only the architect revises a card, and
-bumps its `revision` when it does.
+Ids are lowercase everywhere: file names, prose, commit messages. A YAML line is at most
+150 characters: fold a longer string with `>-`. A coder never edits `docs/adrs/`,
+`docs/diagrams/` or `docs/tasks/`. Only the architect revises a card, and bumps its
+`revision` when it does.
 
 ## A plan and its cards
 

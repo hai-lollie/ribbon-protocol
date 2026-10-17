@@ -12,6 +12,9 @@ one instruction per line, exact, no adjectives.
   Its file is `<plan-id>-NN.yaml`. Numbers are never reused; repair cards take the next
   numbers.
 - The same spelling everywhere: file names, prose, commit messages, report names.
+- **A line is at most 150 characters.** Fold a longer string with `>-`, wrapped at
+  about 120, and write a long `{given, expect}` row as a block map with one folded
+  value per key.
 
 ## A plan
 
