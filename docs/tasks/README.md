@@ -32,7 +32,6 @@ and the reviewer and the senior architect check the result against it.
 | `revision` | yes | `1`, bumped by the architect on every change after validation |
 | `branch`, `from` | yes | the branch the coder works on, and what it starts from |
 | `compare_with` | no | another branch that did the same work another way |
-| `arms` | no | when the same plan runs more than once for comparison, one row per run: `{coder, branch, from, started, status, review}`; the top-level `coder` and `branch` name the arm in flight, and an arm never reads another arm's branch |
 | `architect`, `reviewer` | yes | two different agents, different vendors when possible |
 | `coder`, `role` | yes | the coder, and the hat the plan needs: `general-coder` or `entry-coder`. A card may lower it, never raise it |
 | `adrs` | yes | the accepted ADRs this plan implements |

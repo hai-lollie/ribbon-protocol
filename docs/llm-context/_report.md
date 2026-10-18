@@ -24,7 +24,6 @@ verified_invariants: ["<invariant, and the test that covers it>"]
 checks:
   - {command: "<verification.targeted>", exit_code: 0, artifact: "<the last lines of its output>"}
   - {command: "<each gate command>", exit_code: 0, artifact: "<...>"}
-  - {command: "<the per-file check the project's AGENTS.md names after every edit>", exit_code: 0, artifact: "<one line per edited file>"}
 repair_attempts: 0
 failure_class: NONE                      # NONE | SEMANTIC | SCOPE | TEST | CONTEXT
 unresolved_risks: []
@@ -43,8 +42,4 @@ first_pass_accepted: true
 repair_attempts: 0
 failure_codes: []
 human_minutes: 0                         # the senior architect fills this in, when known
-tokens_in: 0                             # this card's share, from the session's usage view; 0 when the provider shows none
-tokens_out: 0
-wall_minutes: 0                          # the preflight timestamp to the completion timestamp
-cost_usd: null                           # null on a subscription plan; then the tokens and the minutes are the cost
 ```

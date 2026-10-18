@@ -9,7 +9,7 @@ is where the detail that a card cannot hold goes.
 | `<task-id>-report.md` | the coder | every card: the preflight block before any edit, the completion block before the commit | `_report.md` |
 | `<task-id>-<slug>.md` | the coder | only on a block, a misleading card or a question | `_note.md` |
 | `<plan-id>-handoff.md` | the coder | at the end of every session, appended | `_handoff.md` |
-| `<plan-id>-review.md` | the reviewer | after the plan's last card, over the branch's commit range; one per arm, committed on the arm's branch, when a plan runs more than once | `_review.md` |
+| `<plan-id>-review.md` | the reviewer | after the plan's last card, over the branch's commit range | `_review.md` |
 
 ## Rules
 
