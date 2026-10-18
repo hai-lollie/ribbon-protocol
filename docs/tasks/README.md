@@ -19,7 +19,11 @@ one instruction per line, exact, no adjectives.
 ## A plan
 
 A story: one deliverable, one branch, one coder, one architect, one reviewer. Copy
-`_template.plan.yaml`.
+`_template.plan.yaml`. Beside it, `<plan-id>.acceptance.yaml` names every acceptance
+test of the story before any code exists: a test name, the input and the expected
+output, in plain English, each tagged with the card that implements it. Copy
+`_template.acceptance.yaml`. The coder implements that list test name for test name,
+and the reviewer and the senior architect check the result against it.
 
 | Field | Required | Meaning |
 |---|---|---|

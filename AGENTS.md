@@ -86,6 +86,11 @@ one item per card, and marks each card as it goes, so the senior architect sees 
 the coder is without asking. The coder never adds an item: a step the plan does not
 list is a question, not a todo.
 
+Beside the plan, `<plan-id>.acceptance.yaml` names every acceptance test of the story
+before any code exists: a test name, the input and the expected output, in plain
+English, each tagged with the card that implements it. The coder implements that list
+test name for test name, and the reviewer checks the result against it.
+
 The schemas, every field explained, are `docs/tasks/README.md`,
 `docs/tasks/_template.plan.yaml` and `docs/tasks/_template.task.yaml`. A card carries
 the objective and what is out of scope; the verified context (files, signatures,
@@ -103,7 +108,10 @@ and what completion means.
 2. **Authorize.** Proceed only when the preflight says `READY`.
 3. **Implement.** The smallest change inside `scope.writable`, in the way the project's
    own rules ask (test first where they say so).
-4. **Verify.** The targeted command, then the gate. Keep the actual output.
+4. **Verify.** The targeted command, then the gate, then the whole suite as regression:
+   everything that was green stays green. A new test comes from the acceptance file or
+   from the card's behaviour rows, never from the implementation's own output. Keep the
+   actual output.
 5. **Repair or escalate.** A mechanical failure gets a focused repair, at most
    `repair_budget` times. A semantic failure (an ambiguous behaviour, a fixture that
    disagrees with the contract, a missing API) is escalated at once.
@@ -132,8 +140,10 @@ architect revises a card.
 The reviewer reads the plan, its cards, the reports, the ADRs and the branch's commit
 range, and writes `docs/llm-context/<plan-id>-review.md`: one verdict per card and one
 for the plan, `APPROVE`, `CHANGES` or `ESCALATE`, every finding with a counterexample or
-a concrete path, never praise. The reviewer never edits code, never regenerates a
-fixture, and never reviews a plan it architected. `CHANGES` means the architect cuts
+a concrete path, never praise. A test that restates its implementation is a finding.
+The reviewer checks coverage: every new namespace at or above 95 percent line coverage,
+and the project total not lower than before the plan. The reviewer never edits code,
+never regenerates a fixture, and never reviews a plan it architected. `CHANGES` means the architect cuts
 repair cards with the next numbers.
 
 ## Evidence

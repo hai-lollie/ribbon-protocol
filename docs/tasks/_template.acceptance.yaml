@@ -1,0 +1,14 @@
+# <plan-id>.acceptance.yaml. Every acceptance test of the story, named before any code exists.
+# The architect writes it. The senior architect validates it with the plan. The coder implements it
+# test name for test name, through the real entry point (HTTP, a command line), never a unit seam.
+# The reviewer checks the result against it. Plain English, one test per entry, exact where the
+# contract is exact. A test the coder invents from its own implementation does not belong here.
+schema_version: 1
+plan_id: <plan-id>
+tests:
+  - id: <plan-id>-a01                  # a01, a02, ...: the acceptance numbering, separate from the cards
+    card: <plan-id>-01                 # the card that makes it pass
+    test: "<the test name: the behaviour as a sentence, not the mechanism>"
+    given: "<the state of the world, and the input>"
+    when: "<the action, usually one request>"
+    then: "<the observable output, exact where the contract is exact>"

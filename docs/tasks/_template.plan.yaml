@@ -12,11 +12,14 @@ reviewer: <agent>
 coder: <agent>
 role: general-coder                      # general-coder | entry-coder; a card may lower it, never raise it
 adrs: [docs/adrs/NNNN-<slug>.md]         # accepted ADRs only
+acceptance_tests: docs/tasks/<plan-id>.acceptance.yaml   # every acceptance test named before any code
 story: "<who asks for what, and what they get>"
 success:
   - "<an observable outcome, checkable>"
 acceptance:
   - "<a command, and what it must print>"
+  - "the whole suite green before and after every card: regression, not only the targeted namespace"
+  - "line coverage at or above 95 percent on every new namespace; the project total not lower than before"
   - "the reviewer's verdict for the plan is APPROVE"
 constraints:
   - "<what holds across every card>"
