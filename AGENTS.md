@@ -107,7 +107,11 @@ and what completion means.
    missing facts. Never fill in a precondition.
 2. **Authorize.** Proceed only when the preflight says `READY`.
 3. **Implement.** The smallest change inside `scope.writable`, in the way the project's
-   own rules ask (test first where they say so).
+   own rules ask (test first where they say so). Source is edited with the editor tool
+   or the language's own tooling, one file at a time, never with a text-munging script.
+   The project's root `AGENTS.md` names the tools per language and what runs after every
+   edited file (TODO(belt): for Clojure, `clj-paren-repair`, a `load-file` through the
+   nREPL, clojure-lsp diagnostics and clj-kondo).
 4. **Verify.** The targeted command, then the gate, then the whole suite as regression:
    everything that was green stays green. A new test comes from the acceptance file or
    from the card's behaviour rows, never from the implementation's own output. Keep the
