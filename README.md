@@ -81,8 +81,8 @@ Two example belts:
 | Senior architect | Lollie | Ana |
 | Architect | Kuro-chan, `claude-opus-5-5` | Claude Opus 5.5 |
 | Independent reviewer | Kodo-chan, `gpt-6.1-sol` | GPT 6.1 Sol |
-| General coder | Lyn-chan, `glm-5.3`; Kimi-chan, `k3` | GLM 5.3 |
-| Entry-level coder | Lyn-chan flash, `glm-5.3-flash` | GLM 5.3 Flash, Claude Haiku |
+| General coder | Lyn-chan, `glm-5.3`; Kimi-chan, `kimi-for-coding` at high effort | GLM 5.3 |
+| Entry-level coder | Lyn-chan flash, `glm-5.3-flash`; Kimi-chan K2.8, `kimi-for-coding` at low effort | GLM 5.3 Flash, Claude Haiku |
 | Trusted verifier | `clj-kondo`, `lein nsorg`, `lein splint`, `lein test` | `make check` |
 
 Model names are candidate assignments, not quality rankings. Route by measured task
