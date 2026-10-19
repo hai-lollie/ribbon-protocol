@@ -75,7 +75,9 @@ planning task. Keep it.
 Ids are lowercase everywhere: file names, prose, commit messages. A YAML line is at most
 150 characters: fold a longer string with `>-`. A coder never edits `docs/adrs/`,
 `docs/diagrams/` or `docs/tasks/`. Only the architect revises a card, and bumps its
-`revision` when it does.
+`revision` when it does. A revised card lives on the main branch; a coder whose branch
+has diverged reads it there (`git show main:docs/tasks/<task-id>.yaml`), and the branch
+rebases only when the architect says so, after a gate.
 
 ## A plan and its cards
 
@@ -146,7 +148,10 @@ range, and writes `docs/llm-context/<plan-id>-review.md`: one verdict per card a
 for the plan, `APPROVE`, `CHANGES` or `ESCALATE`, every finding with a counterexample or
 a concrete path, never praise. A test that restates its implementation is a finding.
 The reviewer checks coverage: every new namespace at or above 95 percent line coverage,
-and the project total not lower than before the plan. The reviewer never edits code,
+and the project total not lower than before the plan. The plan names, when the senior
+architect validates it, what that measure excludes, by name: a process entry, a socket
+bind, a line no test may reach under the plan's own invariants. An exclusion found after
+the fact is a regroup by the architect, never a lowered number. The reviewer never edits code,
 never regenerates a fixture, and never reviews a plan it architected. `CHANGES` means the architect cuts
 repair cards with the next numbers.
 

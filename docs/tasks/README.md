@@ -86,7 +86,8 @@ sections are omitted, not left blank.
   updates the plan's `tasks` from the reports; the coder's todo tool shows the live
   state.
 - **Revision:** the architect bumps `revision` when a card changes after a note. The
-  coder runs preflight again on a revised card.
+  coder runs preflight again on a revised card, reading it from the main branch when its
+  own branch has diverged (`git show main:docs/tasks/<task-id>.yaml`).
 
 ## The todo list
 
