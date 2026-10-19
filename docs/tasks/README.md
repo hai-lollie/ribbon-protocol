@@ -35,6 +35,7 @@ and the reviewer and the senior architect check the result against it.
 | `architect`, `reviewer` | yes | two different agents, different vendors when possible |
 | `coder`, `role` | yes | the coder, and the hat the plan needs: `general-coder` or `entry-coder`. A card may lower it, never raise it |
 | `adrs` | yes | the accepted ADRs this plan implements |
+| `decisions` | yes | the entries of the project's decision log that bind this plan, by id, for example `[D-067, D-073]`; `[]` when none. The coder reads those entries and no other |
 | `story` | yes | one sentence: who asks for what, and what they get |
 | `success` | yes | observable outcomes, each one checkable |
 | `acceptance` | yes | the commands and verdicts that close the plan |
@@ -57,7 +58,7 @@ sections are omitted, not left blank.
 | `adr` | no | the ADR this card implements, when one applies |
 | `objective` | yes | one sentence of observable behaviour |
 | `out_of_scope` | yes | what this card must not touch, even when it looks easy |
-| `context.read_first` | yes | files to read before anything, in order |
+| `context.read_first` | yes | what to read before anything, in order, and nothing else: a file, with its section or line range when the file is long; a decision by id, never its whole log. The architect keeps the list to what the card needs |
 | `context.reference_pattern` | no | a file that already does it the right way |
 | `context.verified` | yes | facts the architect checked, with where: a signature, a path, a fixture. The coder re-checks them in preflight |
 | `preconditions` | yes | what must be true before the first edit |
@@ -65,6 +66,7 @@ sections are omitted, not left blank.
 | `invariants` | yes | what must stay true across normal and failure paths |
 | `decisions.architect` | yes | the decisions already made; the coder does not reopen them |
 | `decisions.coder` | yes | the local choices left to the coder |
+| `moves` | no | when the card moves, splits or renames files: one `{from, to}` row per file, computed by the architect. The coder moves and never classifies |
 | `scope.writable` | yes | the only paths the diff may touch |
 | `scope.protected` | yes | paths the coder never writes |
 | `scope.forbidden` | yes | changes the coder never makes, whatever the path |

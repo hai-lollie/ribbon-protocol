@@ -14,7 +14,7 @@ out_of_scope:
   - "<what this card must not touch, even when it looks easy>"
 context:
   read_first:
-    - <path, in reading order>
+    - <path, in reading order; the section or the line range when the file is long>
   reference_pattern: <a file that already does it the right way>
   verified:
     - "<a fact the architect checked, and where: a signature, a path, a fixture>"
@@ -30,6 +30,8 @@ decisions:
     - "<a decision already made; not reopened>"
   coder:
     - "<a local choice left to the coder>"
+moves:                                   # only when the card moves, splits or renames files; every file, computed by the architect
+  - {from: <path>, to: <path>}
 scope:
   writable:
     - <the only paths the diff may touch>

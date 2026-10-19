@@ -1,6 +1,7 @@
 # <plan-id> handoff
 
-Append-only. One section per session, newest last.
+Append-only. One section per session, newest last. Five lines per section; detail
+belongs in the card's report.
 
 ## <YYYY-MM-DD HH:MM>, <agent>, <model id>
 

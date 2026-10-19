@@ -1,8 +1,9 @@
 # llm-context
 
 The coders' and the reviewer's home. The architect and the senior architect read here.
-A file here is evidence, committed with the work it describes. A file may be long: this
-is where the detail that a card cannot hold goes.
+A file here is evidence, committed with the work it describes. A report may be long:
+this is where the detail that a card cannot hold goes, and the reviewer reads it whole.
+A coder reads a report only when a card's `read_first` names it, with the section.
 
 | File | Who writes | When | Template |
 |---|---|---|---|
@@ -19,7 +20,9 @@ is where the detail that a card cannot hold goes.
   dated, under the first.
 - **A note is answered by the architect**, appended under `## Answer`, with the card
   revision it produced. A note is never deleted or rewritten.
-- **A handoff is append-only:** one section per session, newest last.
+- **A handoff is append-only:** one section per session, newest last. A section is the
+  five lines of `_handoff.md`; detail belongs in the card's report. A coder resuming a
+  plan reads the newest section, then the plan, and nothing older.
 - **Questions never block the plan.** Write the note, then continue on the next card
   that does not depend on the answer. Stop when every remaining card does.
 - **No praise in a review.** A finding has a counterexample or a concrete path, a class,
