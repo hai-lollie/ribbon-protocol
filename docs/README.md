@@ -3,7 +3,8 @@ Seeded from the Ribbon Protocol, <ribbon-version>.
 # docs
 
 The homes of the belt. The protocol itself is the "Ribbon Protocol" section of the root
-`AGENTS.md`; this file says who writes where and who reads what.
+`AGENTS.md`; this file says who writes where and who reads what. The senior architect is
+a person and never an LLM; "the architect" alone is the LLM seat.
 
 | Path | Who writes | What | Who reads |
 |---|---|---|---|

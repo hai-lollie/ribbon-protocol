@@ -25,4 +25,4 @@ Date: <YYYY-MM-DD>
 - Where: <path:line>
 - Counterexample: <the input or state, and the wrong output or missing refusal>
 - Evidence: <the command you ran, and what it printed>
-- Next owner: architect                  # architect | coder | human
+- Next owner: architect                  # architect | coder | senior architect

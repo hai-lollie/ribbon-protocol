@@ -27,7 +27,7 @@ checks:
 repair_attempts: 0
 failure_class: NONE                      # NONE | SEMANTIC | SCOPE | TEST | CONTEXT
 unresolved_risks: []
-next_owner: reviewer                     # reviewer | architect | human
+next_owner: reviewer                     # reviewer | architect | senior architect
 commit: <hash, filled in the next commit when it cannot be known yet>
 ```
 

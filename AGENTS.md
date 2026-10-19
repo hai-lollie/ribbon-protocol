@@ -10,8 +10,9 @@ live under `docs/`.
 
 ## The belt
 
-Six roles. The senior architect is a person; the others are LLMs, named by a nickname or
-by a vendor and a model id.
+Six roles. The senior architect is a person and never an LLM; "the architect" alone always
+means the LLM seat, so neither a coder nor a reviewer confuses the two. The other roles are
+LLMs, named by a nickname or by a vendor and a model id.
 
 | Role | Agent | Model | Writes | Never |
 |---|---|---|---|---|
