@@ -1,4 +1,4 @@
-# NNNN. The decision in one sentence
+# NNNN. The proposal in one small line, in the user's words
 
 Status: proposed
 Implemented by: none yet
@@ -13,6 +13,14 @@ gives us, what it costs.
 
 Why we are here: the contract, the constraint, the review or the failure that raised the
 question, with enough of the history that a reader new to the project follows.
+
+## Glossary
+
+At most six rows, only the project's own words; a term a reader can look up stays out.
+
+| Word | Meaning |
+|---|---|
+| <a word of this project> | <its meaning in one line> |
 
 ## Problem at hand
 

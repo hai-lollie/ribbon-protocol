@@ -59,7 +59,7 @@ files lists every file and its destination under `moves`, and the coder moves th
 | Path | Who writes | What |
 |---|---|---|
 | `docs/` | the architects | most of the project's prose |
-| `docs/adrs/` | the architect | one ADR per design problem: markdown under 3000 words, the eight sections of `docs/adrs/README.md` in order, its diagrams embedded; the senior architect validates, and again after every edit |
+| `docs/adrs/` | the architect | one ADR per design problem: markdown of 1000 to 4500 words, the nine sections of `docs/adrs/README.md` in order, its diagrams embedded; the senior architect validates, and again after every edit |
 | `docs/diagrams/` | the architect | `<adr-id>-<diagram-name>.mmd` (mermaid): a flow is a sequence diagram with `alt` paths and notes that carry the call or the schema; another kind only when the idea is not a flow; `.puml` only when mermaid cannot draw it |
 | `docs/tasks/` | the architect | `<plan-id>.plan.yaml` and its cards `<plan-id>-NN.yaml` |
 | `docs/llm-context/` | the coders, the reviewer | `<task-id>-report.md` per card; `<task-id>-<slug>.md` on a block or a question; `<plan-id>-handoff.md` per session, five lines; `<plan-id>-review.md` by the reviewer |
