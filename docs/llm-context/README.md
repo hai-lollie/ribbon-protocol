@@ -25,6 +25,10 @@ review or a journal. What a card needs from one, the architect copies into the c
 - **A handoff is five lines, rewritten at the end of every session.** The previous handoff
   is in git history; the detail is in the card's report. A coder resuming a plan reads
   it, then the plan, and nothing else in this folder.
+- **`history/` is the architect's attic:** the files of a plan once it merges or is
+  abandoned, outside reviews, comparisons, the journals of closed work. The architect
+  moves them there with `git mv` at every clean-up, in one commit with the references
+  that name them. A coder never opens it.
 - **Questions never block the plan.** Write the note, then continue on the next card
   that does not depend on the answer. Stop when every remaining card does.
 - **No praise in a review.** A finding has a counterexample or a concrete path, a class,

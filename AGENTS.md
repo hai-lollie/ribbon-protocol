@@ -76,6 +76,11 @@ diverged reads it there (`git show main:docs/tasks/<task-id>.yaml`) and rebases 
 when the architect says so, after a gate. Proof is a command, its exit code and its
 output, on disk under `docs/llm-context/`, committed with the work; nothing an LLM
 decided lives only in its context window.
+`docs/llm-context/history/` holds what no live plan reads: the journals of closed work,
+outside reviews, comparisons, and the reports, notes, handoff and review of a plan once
+it merges or is abandoned. The architect moves them there with `git mv` at every
+clean-up, in one commit with the references that name them, so the listing a coder sees
+holds the templates, the README and the live plan's files.
 
 ## A plan and its cards
 
