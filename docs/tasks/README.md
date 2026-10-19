@@ -58,7 +58,7 @@ sections are omitted, not left blank.
 | `adr` | no | the ADR this card implements, when one applies |
 | `objective` | yes | one sentence of observable behaviour |
 | `out_of_scope` | yes | what this card must not touch, even when it looks easy |
-| `context.read_first` | yes | what to read before anything, in order, and nothing else: a file, with its section or line range when the file is long; a decision by id, never its whole log. The architect keeps the list to what the card needs |
+| `context.read_first` | yes | what to read before anything, in order, and nothing else: a file, with its section or line range when the file is long; a decision by id, never its whole log; never a report, a note or a journal, whose facts the architect copies into `verified`. The architect keeps the list to what the card needs |
 | `context.reference_pattern` | no | a file that already does it the right way |
 | `context.verified` | yes | facts the architect checked, with where: a signature, a path, a fixture. The coder re-checks them in preflight |
 | `preconditions` | yes | what must be true before the first edit |

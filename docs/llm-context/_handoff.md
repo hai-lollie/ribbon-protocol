@@ -1,7 +1,7 @@
 # <plan-id> handoff
 
-Append-only. One section per session, newest last. Five lines per section; detail
-belongs in the card's report.
+Five lines, rewritten at the end of every session. The previous handoff is in git
+history; the detail is in the card's report.
 
 ## <YYYY-MM-DD HH:MM>, <agent>, <model id>
 

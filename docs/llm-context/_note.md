@@ -25,4 +25,4 @@ The assumption taken, tagged `TODO(contract)` in the code, or "stopped, no edits
 
 ## Answer
 
-<the architect writes here: the decision, the card revision it produced, the date>
+<the architect writes one line: the card revision and the decision-log entry, the date; or "no change", and why>

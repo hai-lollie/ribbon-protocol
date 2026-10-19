@@ -26,9 +26,10 @@ LLMs, named by a nickname or by a vendor and a model id.
 - The architect and the reviewer of one plan are different models, from different
   vendors when possible; they may swap roles between plans, and every plan names both.
 - A coder reads its plan, its cards, and what they name: the root `AGENTS.md` once per
-  session, the decision-log entries under the plan's `decisions`, each card's
-  `read_first`; nothing else before the first edit. What the architect left undecided
-  is a note for the architect, not a guess.
+  session, the five-line handoff, the decision-log entries under the plan's `decisions`,
+  each card's `read_first`; nothing else before the first edit, and never a report, a
+  note, a review or a journal. What the architect left undecided is a note for the
+  architect, not a guess.
 - Route by task class and risk, never by price: the entry-level coder for low ambiguity
   and a small blast radius, the general coder for multi-file work on known interfaces,
   the architect, before any code, for ambiguous correctness or risky architecture.
@@ -53,7 +54,9 @@ compatibility; the coder decides local naming, formatting, minor decomposition a
 mechanics inside those bounds. If the coder would have to invent a domain policy, design
 an abstraction, decide the correctness criteria, or read a tree to classify its files,
 the task is still a planning task: keep it. A card that moves, splits or reshapes many
-files lists every file and its destination under `moves`, and the coder moves them.
+files lists every file and its destination under `moves`, and the coder moves them. A
+card never sends the coder to a report, a note or a journal: what it needs from one, the
+architect copies into `context.verified`.
 
 ## The homes
 
@@ -64,7 +67,7 @@ files lists every file and its destination under `moves`, and the coder moves th
 | `docs/diagrams/` | the architect | `<adr-id>-<diagram-name>.mmd` (mermaid): a flow is a sequence diagram with `alt` paths and notes that carry the call or the schema; another kind only when the idea is not a flow; `.puml` only when mermaid cannot draw it |
 | `docs/tasks/` | the architect | `<plan-id>.plan.yaml` and its cards `<plan-id>-NN.yaml` |
 | the decision log (`CHANGELOG.md`) | the architect | one entry per decision or regroup; the newest ten in full, every older one three lines under 200 characters (`What:`, `Why:`, `Now:`), compressed by the commit that appends the eleventh |
-| `docs/llm-context/` | the coders, the reviewer | `<task-id>-report.md` per card; `<task-id>-<slug>.md` on a block or a question; `<plan-id>-handoff.md` per session, five lines; `<plan-id>-review.md` by the reviewer |
+| `docs/llm-context/` | the coders, the reviewer | `<task-id>-report.md` per card; `<task-id>-<slug>.md` on a block or a question; `<plan-id>-handoff.md`, five lines, rewritten each session; `<plan-id>-review.md` by the reviewer |
 
 Ids are lowercase everywhere; a YAML line is at most 150 characters, folded with `>-`. A
 coder never edits `docs/adrs/`, `docs/diagrams/` or `docs/tasks/`. Only the architect
@@ -88,8 +91,8 @@ are `docs/tasks/README.md` and the two `_template` files.
 
 A session is as many cards as the coder's window holds with the card still in context;
 the senior architect names that number per coder, one at 256K tokens or less. The
-handoff bridges sessions in five lines: the next session reloads the plan and its card,
-not the history.
+handoff bridges sessions in five lines, rewritten each session: the next session reloads
+the plan and its card, not the history, which is in git.
 
 ## The coder's seven steps, per card
 
