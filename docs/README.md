@@ -17,6 +17,12 @@ a person and never an LLM; "the architect" alone is the LLM seat.
 Each folder has a `README.md` with its rules and a `_template` file to copy. Ids are
 lowercase everywhere.
 
+The project's decision log, `CHANGELOG.md` at the root, is the architect's: one entry per
+decision or regroup, with what changed, why, and what to do now. The newest ten entries
+stay in full; every older one is its header line and three lines under 200 characters
+together, `What:`, `Why:` and `Now:`, compressed by the commit that appends the eleventh.
+A plan names the entries that bind it under `decisions`, and the coder reads those only.
+
 `field-guide.md` is the long-form guide, the reference PDF as text. An architect new to
 the protocol reads the root `AGENTS.md`, this file, and then the field guide. That is
 the full context.
