@@ -109,9 +109,9 @@ the plan and its card, not the history, which is in git.
 2. **Authorize.** Proceed only on `READY`.
 3. **Implement.** The smallest change inside `scope.writable`, as the project's rules ask
    (test first where they say so), reading what the change touches. Source is edited
-   with the editor tool or the language's own tooling, one file at a time, never with a
-   text-munging script; the root `AGENTS.md` names the tools per language and what runs
-   after every edited file (TODO(belt)).
+   with the tools the root `AGENTS.md` names per language, one file at a time, never with
+   a text-munging script; when a required tool fails, the coder stops and says where
+   (step 5), and does not fall back to another writer (TODO(belt)).
 4. **Verify.** The targeted command, the gate, then the whole suite: everything green
    stays green. A new test comes from the acceptance file or the behaviour rows, never
    from the implementation's output. Every command's output goes to a file the report
@@ -123,8 +123,8 @@ the plan and its card, not the history, which is in git.
    a protected path or a forbidden change; the contract is silent on a shape, a policy
    or a failure mode the card must answer; a semantic failure (an ambiguous behaviour, a
    fixture against the contract, a missing API) appears, or persists after one repair,
-   or the budget is spent; a file, an API or a signature the card names does not exist.
-   `BLOCKED` is progress; an invented answer is not. Only the architect or the senior
+   or the budget is spent; a file, an API or a signature the card names does not exist; a
+   required tool fails. `BLOCKED` is progress; an invented answer is not. Only the architect or the senior
    architect revises a card.
 6. **Report.** The completion block of `_report.md`: changed files, verified invariants,
    each check with its command, exit code and artifact, the repair count, the failure
