@@ -65,7 +65,7 @@ architect copies into `context.verified`.
 | `docs/` | the architects | most of the project's prose |
 | `docs/adrs/` | the architect | one ADR per design problem: markdown of 1000 to 4500 words, the nine sections of `docs/adrs/README.md` in order, its diagrams embedded; the senior architect validates, and again after every edit |
 | `docs/diagrams/` | the architect | `<adr-id>-<diagram-name>.mmd` (mermaid): a flow is a sequence diagram with `alt` paths and notes that carry the call or the schema; another kind only when the idea is not a flow; `.puml` only when mermaid cannot draw it |
-| `docs/tasks/` | the architect | `<plan-id>.plan.yaml` and its cards `<plan-id>-NN.yaml` |
+| `docs/tasks/` | the architect | `<plan-id>.plan.yaml` and its cards `<story-id>-NN.yaml`; a story larger than one review is phase plans, `<story-id>-pN.plan.yaml` |
 | the decision log (`CHANGELOG.md`) | the architect | one entry per decision or regroup; the newest ten in full, every older one three lines under 200 characters (`What:`, `Why:`, `Now:`), compressed by the commit that appends the eleventh |
 | `docs/llm-context/` | the coders, the reviewer | `<task-id>-report.md` per card; `<task-id>-<slug>.md` on a block or a question; `<plan-id>-handoff.md`, five lines, rewritten each session; `<plan-id>-review.md` by the reviewer |
 
@@ -98,6 +98,15 @@ A session is as many cards as the coder's window holds with the card still in co
 the senior architect names that number per coder, one at 256K tokens or less. The
 handoff bridges sessions in five lines, rewritten each session: the next session reloads
 the plan and its card, not the history, which is in git.
+
+A story larger than one review is cut into phases, each a plan with its own branch,
+review and handoff: a phase stays `proposed` until the plan under `after` is `done`, and
+merging is optional at every APPROVE, since every phase is a deliverable on its own,
+green and whole, its `title`, `story` and `success` the pull request's title and body.
+Every card carries `size`, the architect's estimate of its inserted lines under one unit
+(`git diff -M -I'^\(ns ' --shortstat`, no markdown, no `docs/llm-context`); a phase is
+400 to 900 lines, 400 the target, under 400 joined, over 900 split and recut until each
+half is a story. The rules are `docs/tasks/README.md`, "The phases of a story".
 
 ## The coder's seven steps, per card
 
@@ -137,13 +146,16 @@ the plan and its card, not the history, which is in git.
 The reviewer reads the plan, its cards, the reports, the ADRs and the commit range, and
 writes `docs/llm-context/<plan-id>-review.md`: a verdict per card and one for the plan
 (`APPROVE`, `CHANGES` or `ESCALATE`), every finding with a counterexample or a concrete
-path, never praise; a test that restates its implementation is a finding. Coverage: every
-new namespace at or above 95 percent of lines and the project total not lower, with what
-the measure excludes named in the plan at validation (a process entry, a socket bind, a
-line no test may reach under the plan's own invariants); an exclusion found later is a
-regroup by the architect, never a lowered number. The reviewer never edits code, never
-regenerates a fixture, never reviews a plan it architected. `CHANGES` means the architect
-cuts repair cards with the next numbers.
+path, never praise; a test that restates its implementation is a finding. The plan's
+verdict measures the range with the unit against the cards' `size`, a measure over 900 a
+finding of class SIZE on the plan and never on the coder, and says in one line whether
+the plan is a deliverable on its own. Coverage: every new namespace at or above 95
+percent of lines and the project total not lower, with what the measure excludes named
+in the plan at validation (a process entry, a socket bind, a line no test may reach under
+the plan's own invariants); an exclusion found later is a regroup by the architect, never
+a lowered number. The reviewer never edits code, never regenerates a fixture, never
+reviews a plan it architected. `CHANGES` means the architect cuts repair cards with the
+next numbers.
 
 ## Security
 

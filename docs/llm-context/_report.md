@@ -42,4 +42,5 @@ first_pass_accepted: true
 repair_attempts: 0
 failure_codes: []
 human_minutes: 0                         # the senior architect fills this in, when known
+lines: 0                                 # inserted lines under the unit (docs/tasks/README.md, The phases of a story), on this card's commit
 ```

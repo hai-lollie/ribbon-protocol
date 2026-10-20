@@ -6,11 +6,13 @@ one instruction per line, exact, no adjectives.
 
 ## Ids and files
 
-- A **plan id** is lowercase kebab-case, for example `msq2-era-api`. Its file is
-  `<plan-id>.plan.yaml`.
-- A **card id** is the plan id plus a two-digit sequence, for example `msq2-era-api-02`.
-  Its file is `<plan-id>-NN.yaml`. Numbers are never reused; repair cards take the next
-  numbers.
+- A **story id** is lowercase kebab-case, for example `msq2-era-api`: one problem to solve,
+  and one acceptance file, `<story-id>.acceptance.yaml`. A story that fits one review is one
+  plan, `<story-id>.plan.yaml`, and its plan id is the story id. A larger story is cut
+  into phases, each a plan, `<story-id>-pN.plan.yaml`, in order.
+- A **card id** is the story id plus a two-digit sequence, for example `msq2-era-api-02`.
+  Its file is `<story-id>-NN.yaml`. Numbers run once across the phases of a story and are
+  never reused; repair cards take the next numbers.
 - The same spelling everywhere: file names, prose, commit messages, report names.
 - **A line is at most 150 characters.** Fold a longer string with `>-`, wrapped at
   about 120, and write a long `{given, expect}` row as a block map with one folded
@@ -18,8 +20,9 @@ one instruction per line, exact, no adjectives.
 
 ## A plan
 
-A story: one deliverable, one branch, one coder, one architect, one reviewer. Copy
-`_template.plan.yaml`. Beside it, `<plan-id>.acceptance.yaml` names every acceptance
+One deliverable, one branch, one coder, one architect, one reviewer: a whole story, or
+one phase of a story too large for one review (see "The phases of a story"). Copy
+`_template.plan.yaml`. Beside it, `<story-id>.acceptance.yaml` names every acceptance
 test of the story before any code exists: a test name, the input and the expected
 output, in plain English, each tagged with the card that implements it. Copy
 `_template.acceptance.yaml`. The coder implements that list test name for test name,
@@ -27,21 +30,22 @@ and the reviewer and the senior architect check the result against it.
 
 | Field | Required | Meaning |
 |---|---|---|
-| `schema_version` | yes | `1` |
-| `plan_id`, `title` | yes | the id above; a title a person reads |
+| `schema_version` | yes | `2`; `1` on a plan written before the phases rule, whose cards have no `size` |
+| `plan_id`, `title` | yes | the id above; the pull request's title, which a person reads and which stands without the next phase |
+| `story_id`, `after` | no | on a phase only: the story this plan is one phase of, and the plan that must be `done` before this one is validated |
 | `revision` | yes | `1`, bumped by the architect on every change after validation |
-| `branch`, `from` | yes | the branch the coder works on, and what it starts from |
+| `branch`, `from` | yes | the branch the coder works on, and what it starts from: `main`, or the approved head of the plan under `after` |
 | `compare_with` | no | another branch that did the same work another way |
 | `architect`, `reviewer` | yes | two different agents, different vendors when possible |
 | `coder`, `role` | yes | the coder, and the hat the plan needs: `general-coder` or `entry-coder`. A card may lower it, never raise it |
 | `adrs` | yes | the accepted ADRs this plan implements |
 | `decisions` | yes | the entries of the project's decision log that bind this plan, by id, for example `[D-067, D-073]`; `[]` when none. The coder reads those entries and no other |
-| `story` | yes | one sentence: who asks for what, and what they get |
+| `story` | yes | one sentence: who asks for what, and what they get; with `success`, the pull request's body |
 | `success` | yes | observable outcomes, each one checkable |
 | `acceptance` | yes | the commands and verdicts that close the plan |
 | `constraints` | yes | what holds across every card |
 | `stop_line` | yes | plan-level stop lines, in addition to each card's |
-| `tasks` | yes | the cards in execution order: `{id, title, status}`. Loaded verbatim into the coder's todo tool |
+| `tasks` | yes | the cards in execution order: `{id, title, size, status}`, `size` copied from the card. Loaded verbatim into the coder's todo tool |
 | `status` | yes | `proposed`, `validated`, `in-progress`, `done`, `abandoned` |
 | `validated_by` | yes | empty until the senior architect writes a name and a date |
 
@@ -54,6 +58,7 @@ sections are omitted, not left blank.
 |---|---|---|
 | `schema_version`, `task_id`, `plan`, `title`, `revision` | yes | as for a plan |
 | `role` | yes | `general-coder` or `entry-coder` |
+| `size` | yes | the architect's estimate of the card's inserted lines under the unit of "The phases of a story"; a card over 900 splits |
 | `depends_on` | yes | the cards that must be `pass` first; `[]` when none |
 | `adr` | no | the ADR this card implements, when one applies |
 | `objective` | yes | one sentence of observable behaviour |
@@ -79,11 +84,67 @@ sections are omitted, not left blank.
 | `repair_budget` | yes | focused repairs allowed before escalating; `2` by default |
 | `completion` | yes | what done means: the report, the commit, the status |
 
+## The phases of a story
+
+A story larger than one review is cut into phases, each a plan with its own branch, its
+own review and its own handoff. The cards keep the story id and one numbering, and
+the acceptance file is the story's.
+
+**The unit.** Inserted lines under the plan's writable roots, measured with
+
+```
+git diff -M -I'^\(ns ' --shortstat <from>..<head> -- <writable roots> ':(exclude)*.md'
+```
+
+Insertions only: tests count, deletions do not, markdown does not, `docs/llm-context` is
+never a root. `-M` counts a file moved whole as zero; `-I'^\(ns '` counts a hunk made only
+of `ns` lines as zero, the lines a Clojure move always changes. A project in another
+language puts its own pure-rename pattern after `-I`.
+
+**The size.** Every card carries `size`, the architect's estimate under the unit, and the
+plan's `tasks` rows copy it. The project's first plans are the scale: the numbers the
+reviewer measures calibrate the next estimates.
+
+**The range.** A phase is 400 to 900 estimated lines, and 400 is the target.
+
+| The phase's estimated lines | Rule |
+|---|---|
+| under 400 | join the next phase, unless the join passes 900 or breaks either story |
+| 400 to 900 | in range |
+| over 900 | split; when the halves are not each a story, recut the cards until they are |
+| one card over 900 | the card splits |
+
+The reviewer measures the range with the unit and writes the number beside the estimate.
+A measure over 900 is a finding of class `SIZE` on the plan, never on the coder, and the
+architect re-estimates the phases left before the next validation. The card count is no
+rule: five cards under 400 lines is a smell of thin cards.
+
+**The deliverable.** Every phase is a deliverable on its own, deployable from its last
+commit:
+
+- Its `title`, `story` and `success` are the pull request's title and body, written
+  before any code. A title that needs the next phase to make sense is not a phase: part,
+  half, step, move one, transit, prepare and scaffold are the red flags.
+- Its acceptance subset is closed: every test tagged to its cards is green at its last
+  commit, and no test of a later phase exists yet.
+- Nothing dangles: every production namespace it adds has a caller or is an entry point
+  at its end; a namespace born to be deleted by a later phase is forbidden; coverage holds
+  at its end, not only at the story's.
+- The gate is green at its last commit, and the trusted verifier on the push.
+- The reviewer's plan verdict carries one line: "deliverable on its own: yes, because the
+  story holds with nothing from the next phase", or a finding.
+
+A refactor is a deliverable when its story stands alone (the test tree moves home); it is
+not when its title needs the next step (move one of two).
+
 ## Lifecycle
 
 - **Plan:** `proposed`, then `validated` when the senior architect writes
   `validated_by`, then `in-progress` at the coder's first commit, then `done` when the
   review says `APPROVE` for the plan, or `abandoned`.
+- **Phase:** a phase plan stays `proposed` until the plan under `after` is `done`; the
+  senior architect validates it then, with the review's findings folded into its cards.
+  Merging is optional at every `APPROVE`: every phase is a deliverable on its own.
 - **Card:** `todo`, `in-progress`, then `pass`, `blocked` or `escalated`. The architect
   updates the plan's `tasks` from the reports; the coder's todo tool shows the live
   state.

@@ -1,12 +1,13 @@
-# <plan-id>-NN.yaml. One card: the smallest change that ends in a green commit.
+# <story-id>-NN.yaml. One card: the smallest change that ends in a green commit.
 # The architect writes it. The coder reads it, runs the seven steps, and never edits it.
 # Omit a section that would be empty.
-schema_version: 1
-task_id: <plan-id>-NN
+schema_version: 2
+task_id: <story-id>-NN
 plan: <plan-id>
 title: "<the change, in one line>"
 revision: 1
 role: general-coder                      # general-coder | entry-coder
+size: <lines>                            # inserted lines the architect estimates under the unit (docs/tasks/README.md); over 900, split the card
 depends_on: []                           # cards that must be pass first
 adr: docs/adrs/NNNN-<slug>.md            # when one applies
 objective: "<one sentence of observable behaviour>"
@@ -54,6 +55,6 @@ stop_line:
   - "<a stop line specific to this card>"
 repair_budget: 2
 completion:
-  - "docs/llm-context/<plan-id>-NN-report.md holds the preflight and completion blocks"
-  - "one commit on <branch>, message starting with <plan-id>-NN"
+  - "docs/llm-context/<story-id>-NN-report.md holds the preflight and completion blocks"
+  - "one commit on <branch>, message starting with <story-id>-NN"
   - "status PASS, BLOCKED or ESCALATED in the report"

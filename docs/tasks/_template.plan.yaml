@@ -1,11 +1,13 @@
-# <plan-id>.plan.yaml. One story: one deliverable, one branch, one coder, one review.
+# <plan-id>.plan.yaml. One deliverable, one branch, one coder, one review: a story, or one phase of it (<story-id>-pN).
 # The architect writes it. The senior architect validates it. The coder never edits it.
-schema_version: 1
+schema_version: 2                        # 2 since the phases rule: size on every card and tasks row
 plan_id: <plan-id>                       # lowercase kebab-case, the same spelling everywhere
-title: "<a title a person reads>"
+story_id: <story-id>                     # on a phase only: the story this plan is one phase of; the cards keep the story id
+after: <plan-id>                         # on a phase only: the plan that must be done, its review APPROVE, before this one is validated
+title: "<the pull request's title: a person reads it, and it stands without the next phase>"
 revision: 1                              # bumped by the architect on every change after validation
 branch: <branch the coder works on>
-from: main
+from: main                               # main, or the approved head of the plan under after
 compare_with: none                       # another branch that did the same work another way, or none
 architect: <agent>                       # different from reviewer, different vendors when possible
 reviewer: <agent>
@@ -14,13 +16,14 @@ role: general-coder                      # general-coder | entry-coder; a card m
 adrs: [docs/adrs/NNNN-<slug>.md]         # accepted ADRs only
 decisions: []                            # entries of the project's decision log that bind this plan, by id; the coder reads those only
 acceptance_tests: docs/tasks/<plan-id>.acceptance.yaml   # every acceptance test named before any code
-story: "<who asks for what, and what they get>"
+story: "<who asks for what, and what they get; with success, the pull request's body>"
 success:
   - "<an observable outcome, checkable>"
 acceptance:
   - "<a command, and what it must print>"
   - "the whole suite green before and after every card: regression, not only the targeted namespace"
   - "line coverage at or above 95 percent on every new namespace; the project total not lower than before"
+  - "the branch measures 400 to 900 lines under the unit of docs/tasks/README.md, The phases of a story; 900 is the cap"
   - "the reviewer's verdict for the plan is APPROVE"
 constraints:
   - "<what holds across every card>"
@@ -28,7 +31,7 @@ stop_line:
   - "a card needs an edit outside its scope"
   - "two focused repairs failed on one card"
 tasks:                                   # execution order; loaded verbatim into the coder's todo tool
-  - {id: <plan-id>-01, title: "<the smallest change that ends in a green commit>", status: todo}
-  - {id: <plan-id>-02, title: "<...>", status: todo}
+  - {id: <story-id>-01, title: "<the smallest change that ends in a green commit>", size: <lines>, status: todo}
+  - {id: <story-id>-02, title: "<...>", size: <lines>, status: todo}
 status: proposed                         # proposed | validated | in-progress | done | abandoned
 validated_by: ""                         # "<name>, YYYY-MM-DD", written by the senior architect
