@@ -13,7 +13,7 @@ architect: <agent>                       # different from reviewer, different ve
 reviewer: <agent>
 coder: <agent>
 role: general-coder                      # general-coder | entry-coder; a card may lower it, never raise it
-adrs: [docs/adrs/NNNN-<slug>.md]         # accepted ADRs only
+adrs: [docs/adrs/NNNN-<slug>.md]         # accepted ADRs only, none with a pending open question
 decisions: []                            # entries of the project's decision log that bind this plan, by id; the coder reads those only
 acceptance_tests: docs/tasks/<plan-id>.acceptance.yaml   # every acceptance test named before any code
 story: "<who asks for what, and what they get; with success, the pull request's body>"

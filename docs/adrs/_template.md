@@ -36,7 +36,7 @@ of <the consequences>.
 
 Then: the rules of the solution as a table; the flow as a sequence diagram, its relative
 path on the line above a mermaid block that is a copy of the file; the invariants a test
-must cover; what stays undecided and who decides it.
+must cover. What stays undecided goes under Open questions.
 
 docs/diagrams/NNNN-<name>.mmd
 
@@ -61,6 +61,21 @@ sequenceDiagram
 ## Reconsider when
 
 - <a condition that reopens this decision, one per bullet, checkable>
+
+## Open questions
+
+What the architect needs answered to finish the design, numbered from 1, at least one.
+A question keeps its number. A check mark in front means answered or closed; a question
+without one is pending. The architect writes no plan and no card while a question is
+pending. When the architect finds no question at all, this section is the single line:
+No open questions found. 👀
+
+1. <the question, pending: no check mark, no answer under it yet>
+2. ✅ <the question, answered>
+
+   A: <the answer, in one or two lines>. [YYYY-MM-DD]
+
+3. ✅ <del><the question, closed: it no longer matters></del>
 
 ## References
 

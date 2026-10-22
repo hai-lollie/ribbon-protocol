@@ -38,10 +38,11 @@ LLMs, named by a nickname or by a vendor and a model id.
 
 1. **Architect.** The senior architect states the problem, the constraints, what success
    looks like and when to stop and ask; the architect resolves semantics and risk, one
-   ADR per design problem; the senior architect validates the ADRs.
+   ADR per design problem, and brings what it cannot decide as open questions; the
+   senior architect validates the ADRs and their answers.
 2. **Contract.** The architect cuts the design into one plan (one deliverable, one
-   branch) and its cards (one green commit each), in dependency order; the senior
-   architect validates the plan.
+   branch) and its cards (one green commit each), in dependency order, never while an
+   ADR they rest on has a pending open question; the senior architect validates the plan.
 3. **Execute.** One coder runs the plan, card by card, inside each card's scope, and
    leaves evidence on disk after every card.
 4. **Verify.** The gate runs outside the coder's control; the reviewer reads the commit
@@ -63,7 +64,7 @@ architect copies into `context.verified`.
 | Path | Who writes | What |
 |---|---|---|
 | `docs/` | the architects | most of the project's prose |
-| `docs/adrs/` | the architect | one ADR per design problem: markdown of 1000 to 4500 words, the nine sections of `docs/adrs/README.md` in order, its diagrams embedded; the senior architect validates, and again after every edit |
+| `docs/adrs/` | the architect | one ADR per design problem: markdown of 1000 to 4500 words in Simplified Technical English, the ten sections of `docs/adrs/README.md` in order and none empty, its diagrams embedded, no plan while an open question is pending; the senior architect validates, and again after every edit |
 | `docs/diagrams/` | the architect | `<adr-id>-<diagram-name>.mmd` (mermaid): a flow is a sequence diagram with `alt` paths and notes that carry the call or the schema; another kind only when the idea is not a flow; `.puml` only when mermaid cannot draw it |
 | `docs/tasks/` | the architect | `<plan-id>.plan.yaml` and its cards `<story-id>-NN.yaml`; a story larger than one review is phase plans, `<story-id>-pN.plan.yaml` |
 | the decision log (`CHANGELOG.md`) | the architect | one entry per decision or regroup; the newest ten in full, every older one three lines under 200 characters (`What:`, `Why:`, `Now:`), compressed by the commit that appends the eleventh |

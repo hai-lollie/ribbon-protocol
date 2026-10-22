@@ -38,7 +38,7 @@ and the reviewer and the senior architect check the result against it.
 | `compare_with` | no | another branch that did the same work another way |
 | `architect`, `reviewer` | yes | two different agents, different vendors when possible |
 | `coder`, `role` | yes | the coder, and the hat the plan needs: `general-coder` or `entry-coder`. A card may lower it, never raise it |
-| `adrs` | yes | the accepted ADRs this plan implements |
+| `adrs` | yes | the accepted ADRs this plan implements, none with a pending open question |
 | `decisions` | yes | the entries of the project's decision log that bind this plan, by id, for example `[D-067, D-073]`; `[]` when none. The coder reads those entries and no other |
 | `story` | yes | one sentence: who asks for what, and what they get; with `success`, the pull request's body |
 | `success` | yes | observable outcomes, each one checkable |
