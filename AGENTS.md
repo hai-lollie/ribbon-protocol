@@ -29,7 +29,8 @@ LLMs, named by a nickname or by a vendor and a model id.
   session, the five-line handoff, the decision-log entries under the plan's `decisions`,
   each card's `read_first`; nothing else before the first edit, and never a report, a
   note, a review or a journal. What the architect left undecided is a note for the
-  architect, not a guess.
+  architect, not a guess; what the card's rules and the file answer together is the
+  coder's decision, written in the report.
 - Route by task class and risk, never by price: the entry-level coder for low ambiguity
   and a small blast radius, the general coder for multi-file work on known interfaces,
   the architect, before any code, for ambiguous correctness or risky architecture.
@@ -76,7 +77,9 @@ revises a card and bumps its `revision`, on the main branch: a coder whose branc
 diverged reads it there (`git show main:docs/tasks/<task-id>.yaml`) and rebases only
 when the architect says so, after a gate. Proof is a command, its exit code and its
 output, on disk under `docs/llm-context/`, committed with the work; nothing an LLM
-decided lives only in its context window.
+decided lives only in its context window. After the commit, the architect appends the
+card's measured cost to its report from the harness's own records, the model, the effort
+and the tokens as they ran, never retyped.
 `docs/llm-context/history/` holds what no live plan reads: the journals of closed work,
 outside reviews, comparisons, and the reports, notes, handoff and review of a plan once
 it merges or is abandoned. The architect moves them there with `git mv` at every
@@ -133,9 +136,12 @@ half is a story. The rules are `docs/tasks/README.md`, "The phases of a story".
    a protected path or a forbidden change; the contract is silent on a shape, a policy
    or a failure mode the card must answer; a semantic failure (an ambiguous behaviour, a
    fixture against the contract, a missing API) appears, or persists after one repair,
-   or the budget is spent; a file, an API or a signature the card names does not exist; a
-   required tool fails. `BLOCKED` is progress; an invented answer is not. Only the architect or the senior
-   architect revises a card.
+   or the budget is spent; a file, an API or a signature the card names does not exist and
+   its absence changes the meaning; a required tool fails. A doubt the card's rules and
+   the file answer together (a home a layer table gives, a schema for an argument that
+   exists) is the coder's: decided, written under `decisions` in the report with the rule
+   it followed, reviewed there. `BLOCKED` is progress; an invented answer is not. Only the
+   architect or the senior architect revises a card.
 6. **Report.** The completion block of `_report.md`: changed files, verified invariants,
    each check with its command, exit code and artifact, the repair count, the failure
    class, the risks, the next owner, and `PASS`, `BLOCKED` or `ESCALATED`.

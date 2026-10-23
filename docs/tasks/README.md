@@ -35,7 +35,7 @@ and the reviewer and the senior architect check the result against it.
 | `story_id`, `after` | no | on a phase only: the story this plan is one phase of, and the plan that must be `done` before this one is validated |
 | `revision` | yes | `1`, bumped by the architect on every change after validation |
 | `branch`, `from` | yes | the branch the coder works on, and what it starts from: `main`, or the approved head of the plan under `after` |
-| `compare_with` | no | another branch that did the same work another way |
+| `compare_with` | no | branches that did the same work another way, one or a list; the coder never reads them |
 | `architect`, `reviewer` | yes | two different agents, different vendors when possible |
 | `coder`, `role` | yes | the coder, and the hat the plan needs: `general-coder` or `entry-coder`. A card may lower it, never raise it |
 | `adrs` | yes | the accepted ADRs this plan implements, none with a pending open question |
