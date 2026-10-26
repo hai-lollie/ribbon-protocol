@@ -21,10 +21,11 @@ success:
   - "<an observable outcome, checkable>"
 acceptance:
   - "<a command, and what it must print>"
+  - "<the boot: the entry point a person runs, its smoke check and its stop; the command and its output on disk>"
   - "the whole suite green before and after every card: regression, not only the targeted namespace"
   - "line coverage at or above 95 percent on every new namespace; the project total not lower than before"
   - "the branch measures 400 to 900 lines under the unit of docs/tasks/README.md, The phases of a story; 900 is the cap"
-  - "the reviewer's verdict for the plan is APPROVE"
+  - "the reviewer's verdict for the plan is APPROVE, or CHANGES with every finding under debt"
 constraints:
   - "<what holds across every card>"
 stop_line:
@@ -33,5 +34,6 @@ stop_line:
 tasks:                                   # execution order; loaded verbatim into the coder's todo tool
   - {id: <story-id>-01, title: "<the smallest change that ends in a green commit>", size: <lines>, status: todo}
   - {id: <story-id>-02, title: "<...>", size: <lines>, status: todo}
+debt: []                                 # findings the last review left open that break none of the five of Done: {finding, line, owner}
 status: proposed                         # proposed | validated | in-progress | done | abandoned
 validated_by: ""                         # "<name>, YYYY-MM-DD", written by the senior architect

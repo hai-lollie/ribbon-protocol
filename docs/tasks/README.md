@@ -45,6 +45,7 @@ and the reviewer and the senior architect check the result against it.
 | `acceptance` | yes | the commands and verdicts that close the plan |
 | `constraints` | yes | what holds across every card |
 | `stop_line` | yes | plan-level stop lines, in addition to each card's |
+| `debt` | no | the findings the last review left open that break none of the five of "Done, and when the loop stops" (root `AGENTS.md`): `{finding, line, owner}` rows; the next plan on the same code opens with them |
 | `tasks` | yes | the cards in execution order: `{id, title, size, status}`, `size` copied from the card. Loaded verbatim into the coder's todo tool |
 | `status` | yes | `proposed`, `validated`, `in-progress`, `done`, `abandoned` |
 | `validated_by` | yes | empty until the senior architect writes a name and a date |
@@ -141,7 +142,8 @@ not when its title needs the next step (move one of two).
 
 - **Plan:** `proposed`, then `validated` when the senior architect writes
   `validated_by`, then `in-progress` at the coder's first commit, then `done` when the
-  review says `APPROVE` for the plan, or `abandoned`.
+  review says `APPROVE` for the plan, or `CHANGES` with every finding under `debt` and
+  the senior architect's merge, or `abandoned`. Two review rounds at most.
 - **Phase:** a phase plan stays `proposed` until the plan under `after` is `done`; the
   senior architect validates it then, with the review's findings folded into its cards.
   Merging is optional at every `APPROVE`: every phase is a deliverable on its own.

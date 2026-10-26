@@ -48,6 +48,8 @@ LLMs, named by a nickname or by a vendor and a model id.
    leaves evidence on disk after every card.
 4. **Verify.** The gate runs outside the coder's control; the reviewer reads the commit
    range against the plan and the cards; the senior architect reads verdicts, not diffs.
+   The plan is done by the five of "Done, and when the loop stops", never by a round
+   that finds nothing.
 
 ## The decision budget
 
@@ -118,13 +120,16 @@ half is a story. The rules are `docs/tasks/README.md`, "The phases of a story".
    the first edit (a line names a file, with a section or a line range when it is long);
    check every precondition and every line of `context.verified` against the files; run
    the baseline; write the preflight block, `READY` with the evidence or `BLOCKED` with
-   the missing facts. Never fill in a precondition.
-2. **Authorize.** Proceed only on `READY`.
+   the missing facts. Never fill in a precondition. Commit the block alone,
+   `<task-id>: preflight READY` or `BLOCKED`, before the first edit: git proves the
+   order, and a block written after the edits proves nothing.
+2. **Authorize.** Proceed only on `READY`, the preflight commit in the log.
 3. **Implement.** The smallest change inside `scope.writable`, as the project's rules ask
    (test first where they say so), reading what the change touches. Source is edited
    with the tools the root `AGENTS.md` names per language, one file at a time, never with
    a text-munging script; when a required tool fails, the coder stops and says where
-   (step 5), and does not fall back to another writer (TODO(belt)).
+   (step 5), and does not fall back to another writer (TODO(belt)). A probe is a command
+   or an evaluation, never a file written into the tree.
 4. **Verify.** The targeted command, the gate, then the whole suite: everything green
    stays green. A new test comes from the acceptance file or the behaviour rows, never
    from the implementation's output. Every command's output goes to a file the report
@@ -145,8 +150,9 @@ half is a story. The rules are `docs/tasks/README.md`, "The phases of a story".
 6. **Report.** The completion block of `_report.md`: changed files, verified invariants,
    each check with its command, exit code and artifact, the repair count, the failure
    class, the risks, the next owner, and `PASS`, `BLOCKED` or `ESCALATED`.
-7. **Commit and continue.** One commit per card, the task id first in the message, the
-   report inside it; then the next card, and at the end of the session the handoff.
+7. **Commit and continue.** One code commit per card after its preflight commit, the
+   task id first in the message, the report inside it; then the next card, and at the end
+   of the session the handoff.
 
 ## The reviewer's brief
 
@@ -161,8 +167,42 @@ percent of lines and the project total not lower, with what the measure excludes
 in the plan at validation (a process entry, a socket bind, a line no test may reach under
 the plan's own invariants); an exclusion found later is a regroup by the architect, never
 a lowered number. The reviewer never edits code, never regenerates a fixture, never
-reviews a plan it architected. `CHANGES` means the architect cuts repair cards with the
-next numbers.
+reviews a plan it architected. The reviewer runs the boot itself and writes the five of
+"Done, and when the loop stops" in the review, each with its evidence. `CHANGES` means
+the architect cuts repair cards with the next numbers for the findings that break one of
+the five, and lists the rest under `debt`; a `CHANGES` whose findings are all debt reads
+as `APPROVE` with debt.
+
+## Done, and when the loop stops
+
+A review finds something every round, so the loop converges by a rule, never by a round
+that finds nothing; the deliverable is a working product, not a perfect one. A plan is
+done when five things hold on its head, each proven by a command, its exit code and its
+output on disk, never by a sentence:
+
+1. the gate is green locally and on the trusted verifier;
+2. the application boots by its documented entry point, the one a person runs (a binary,
+   a `main`, a service command), answers its smoke check and stops, on a clean checkout;
+   a suite that starts the system in-process does not count as the boot;
+3. every test of the plan's acceptance file passes under its canonical name;
+4. coverage meets the plan's line;
+5. no open finding is `SEMANTIC` or `SCOPE` against production code: the behaviour, the
+   contract, the public interfaces.
+
+Every other open finding, the strength of a test, a test's lifecycle, a record, the
+process, goes under `debt` in the plan: the finding id, one line, the next owner. A
+`CHANGES` verdict whose findings are all debt reads as `APPROVE` with debt, and the
+senior architect merges on it. A plan gets at most two review rounds, the first review
+and one over its repair cards; what the second leaves is debt or the senior architect's
+disposition, never a third round. Debt opens the next plan on the same code as its first
+cards, reviewed with that plan.
+
+The limits, by seat. The reviewer reports every finding it can prove, classifies each,
+runs the boot itself and writes the five under "Done" in the review, each with its
+evidence; it never asks for a repair of a finding that breaks none of the five. The
+architect cuts a repair card only for a finding that breaks one of the five, lists the
+rest under `debt`, and never opens a third round. The senior architect decides what the
+second round leaves, merges on debt, and is the only seat that can ask for more.
 
 ## Security
 

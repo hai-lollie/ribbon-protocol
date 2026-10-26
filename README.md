@@ -25,7 +25,10 @@ invariants on the inside.
 
 The architect and the reviewer are different models, from different vendors when
 possible, and may swap roles between plans. The loop is Architect, Contract, Execute,
-Verify. The whole protocol is `AGENTS.md`, about 140 lines; read it first.
+Verify, and it stops by the five of "Done, and when the loop stops": a plan is done when
+the gate, the boot, the acceptance file, coverage and the absence of open semantic
+findings hold on its head; the rest is debt, and two review rounds are the most. The
+whole protocol is `AGENTS.md`, about 200 lines; read it first.
 
 ## What is in this repository
 
@@ -33,7 +36,7 @@ Verify. The whole protocol is `AGENTS.md`, about 140 lines; read it first.
 ribbon-protocol/
 ├── README.md                                  this file
 ├── AGENTS.md                                  the protocol: the belt, the loop, the decision budget, the homes,
-│                                              the plan and its cards, the seven steps, the reviewer's brief. Copied into every project
+│                                              the plan and its cards, the seven steps, the reviewer's brief, done. Copied into every project
 ├── VERSION                                    "ribbon N"
 ├── Ribbon-Protocol-Multi-LLM-FieldGuide.pdf   the reference guide, October 2026, working edition 1.0
 └── docs/                                      copied into every project
