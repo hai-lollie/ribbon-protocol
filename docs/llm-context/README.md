@@ -11,7 +11,8 @@ review or a journal. What a card needs from one, the architect copies into the c
 | `<task-id>-report.md` | the coder | every card: the preflight block before any edit, the completion block before the commit | `_report.md` |
 | `<task-id>-<slug>.md` | the coder | only on a block, a misleading card or a question | `_note.md` |
 | `<plan-id>-handoff.md` | the coder | at the end of every session, rewritten, five lines | `_handoff.md` |
-| `<plan-id>-review.md` | the reviewer | after the plan's last card, over the branch's commit range | `_review.md` |
+| `<plan-id>-done.md` | the coder | at the plan's last card: the five of "Done, and when the loop stops", each with its evidence, the boot run by the coder itself | `_done.md` |
+| `<plan-id>-review.md` | the reviewer | after the plan's last card, over the branch's commit range; it verifies the coder's five and runs the boot again | `_review.md` |
 
 ## Rules
 

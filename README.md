@@ -45,7 +45,7 @@ ribbon-protocol/
     ├── adrs/                                  README.md and _template.md: one ADR per design problem
     ├── diagrams/                              README.md: <adr-id>-<name>.mmd, mermaid first
     ├── tasks/                                 README.md, _template.plan.yaml, _template.task.yaml
-    └── llm-context/                           README.md, _report.md, _note.md, _handoff.md, _review.md
+    └── llm-context/                           README.md, _report.md, _note.md, _handoff.md, _done.md, _review.md
 ```
 
 ## Seed a project

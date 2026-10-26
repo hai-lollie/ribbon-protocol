@@ -32,12 +32,20 @@ and one over its repair cards; what the second leaves is debt or the senior arch
 disposition, never a third round. Debt opens the next plan on the same code as its first
 cards, reviewed with that plan.
 
-The limits, by seat. The reviewer reports every finding it can prove, classifies each,
-runs the boot itself and writes the five under "Done" in the review, each with its
-evidence; it never asks for a repair of a finding that breaks none of the five. The
-architect cuts a repair card only for a finding that breaks one of the five, lists the
-rest under `debt`, and never opens a third round. The senior architect decides what the
-second round leaves, merges on debt, and is the only seat that can ask for more.
+The coder reads the five too, and answers them first. At the plan's last card it runs
+the boot itself by the entry point a person runs, keeps the command, its output and its
+exit code under `docs/llm-context/evidence/<plan-id>-done/`, and writes
+`docs/llm-context/<plan-id>-done.md` from `_done.md`: the five, each with its evidence,
+and "the reviewer's" for the fifth. A plan whose coder cannot write the five is not ready
+for review; a coder who can is done, and asks for nothing more.
+
+The limits, by seat. The coder claims the five with evidence and stops. The reviewer
+verifies the coder's five, reports every finding it can prove, classifies each, runs the
+boot itself and writes the five under "Done" in the review, each with its evidence; it
+never asks for a repair of a finding that breaks none of the five. The architect cuts a
+repair card only for a finding that breaks one of the five, lists the rest under `debt`,
+and never opens a third round. The senior architect decides what the second round
+leaves, merges on debt, and is the only seat that can ask for more.
 
 ## The belt
 
@@ -102,7 +110,7 @@ architect copies into `context.verified`.
 | `docs/diagrams/` | the architect | `<adr-id>-<diagram-name>.mmd` (mermaid): a flow is a sequence diagram with `alt` paths and notes that carry the call or the schema; another kind only when the idea is not a flow; `.puml` only when mermaid cannot draw it |
 | `docs/tasks/` | the architect | `<plan-id>.plan.yaml` and its cards `<story-id>-NN.yaml`; a story larger than one review is phase plans, `<story-id>-pN.plan.yaml` |
 | the decision log (`CHANGELOG.md`) | the architect | one entry per decision or regroup; the newest ten in full, every older one three lines under 200 characters (`What:`, `Why:`, `Now:`), compressed by the commit that appends the eleventh |
-| `docs/llm-context/` | the coders, the reviewer | `<task-id>-report.md` per card; `<task-id>-<slug>.md` on a block or a question; `<plan-id>-handoff.md`, five lines, rewritten each session; `<plan-id>-review.md` by the reviewer |
+| `docs/llm-context/` | the coders, the reviewer | `<task-id>-report.md` per card; `<task-id>-<slug>.md` on a block or a question; `<plan-id>-handoff.md`, five lines, rewritten each session; `<plan-id>-done.md`, the coder's five of "Done" at the plan's last card; `<plan-id>-review.md` by the reviewer |
 
 Ids are lowercase everywhere; a YAML line is at most 150 characters, folded with `>-`. A
 coder never edits `docs/adrs/`, `docs/diagrams/` or `docs/tasks/`. Only the architect
@@ -183,7 +191,7 @@ half is a story. The rules are `docs/tasks/README.md`, "The phases of a story".
    class, the risks, the next owner, and `PASS`, `BLOCKED` or `ESCALATED`.
 7. **Commit and continue.** One code commit per card after its preflight commit, the
    task id first in the message, the report inside it; then the next card, and at the end
-   of the session the handoff.
+   of the session the handoff; at the plan's last card, the boot and `<plan-id>-done.md`.
 
 ## The reviewer's brief
 
