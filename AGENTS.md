@@ -8,6 +8,37 @@ project copies this file into its root `AGENTS.md` and replaces every `TODO(belt
 long-form guide is `docs/field-guide.md`, the PDF as text; the schemas and the templates
 live under `docs/`.
 
+## Done, and when the loop stops
+
+A review finds something every round, so the loop converges by a rule, never by a round
+that finds nothing; the deliverable is a working product, not a perfect one. A plan is
+done when five things hold on its head, each proven by a command, its exit code and its
+output on disk, never by a sentence:
+
+1. the gate is green locally and on the trusted verifier;
+2. the application boots by its documented entry point, the one a person runs (a binary,
+   a `main`, a service command), answers its smoke check and stops, on a clean checkout;
+   a suite that starts the system in-process does not count as the boot;
+3. every test of the plan's acceptance file passes under its canonical name;
+4. coverage meets the plan's line;
+5. no open finding is `SEMANTIC` or `SCOPE` against production code: the behaviour, the
+   contract, the public interfaces.
+
+Every other open finding, the strength of a test, a test's lifecycle, a record, the
+process, goes under `debt` in the plan: the finding id, one line, the next owner. A
+`CHANGES` verdict whose findings are all debt reads as `APPROVE` with debt, and the
+senior architect merges on it. A plan gets at most two review rounds, the first review
+and one over its repair cards; what the second leaves is debt or the senior architect's
+disposition, never a third round. Debt opens the next plan on the same code as its first
+cards, reviewed with that plan.
+
+The limits, by seat. The reviewer reports every finding it can prove, classifies each,
+runs the boot itself and writes the five under "Done" in the review, each with its
+evidence; it never asks for a repair of a finding that breaks none of the five. The
+architect cuts a repair card only for a finding that breaks one of the five, lists the
+rest under `debt`, and never opens a third round. The senior architect decides what the
+second round leaves, merges on debt, and is the only seat that can ask for more.
+
 ## The belt
 
 Six roles. The senior architect is a person and never an LLM; "the architect" alone always
@@ -48,8 +79,8 @@ LLMs, named by a nickname or by a vendor and a model id.
    leaves evidence on disk after every card.
 4. **Verify.** The gate runs outside the coder's control; the reviewer reads the commit
    range against the plan and the cards; the senior architect reads verdicts, not diffs.
-   The plan is done by the five of "Done, and when the loop stops", never by a round
-   that finds nothing.
+   The plan is done by the five of "Done, and when the loop stops" above, never by a
+   round that finds nothing.
 
 ## The decision budget
 
@@ -172,37 +203,6 @@ reviews a plan it architected. The reviewer runs the boot itself and writes the 
 the architect cuts repair cards with the next numbers for the findings that break one of
 the five, and lists the rest under `debt`; a `CHANGES` whose findings are all debt reads
 as `APPROVE` with debt.
-
-## Done, and when the loop stops
-
-A review finds something every round, so the loop converges by a rule, never by a round
-that finds nothing; the deliverable is a working product, not a perfect one. A plan is
-done when five things hold on its head, each proven by a command, its exit code and its
-output on disk, never by a sentence:
-
-1. the gate is green locally and on the trusted verifier;
-2. the application boots by its documented entry point, the one a person runs (a binary,
-   a `main`, a service command), answers its smoke check and stops, on a clean checkout;
-   a suite that starts the system in-process does not count as the boot;
-3. every test of the plan's acceptance file passes under its canonical name;
-4. coverage meets the plan's line;
-5. no open finding is `SEMANTIC` or `SCOPE` against production code: the behaviour, the
-   contract, the public interfaces.
-
-Every other open finding, the strength of a test, a test's lifecycle, a record, the
-process, goes under `debt` in the plan: the finding id, one line, the next owner. A
-`CHANGES` verdict whose findings are all debt reads as `APPROVE` with debt, and the
-senior architect merges on it. A plan gets at most two review rounds, the first review
-and one over its repair cards; what the second leaves is debt or the senior architect's
-disposition, never a third round. Debt opens the next plan on the same code as its first
-cards, reviewed with that plan.
-
-The limits, by seat. The reviewer reports every finding it can prove, classifies each,
-runs the boot itself and writes the five under "Done" in the review, each with its
-evidence; it never asks for a repair of a finding that breaks none of the five. The
-architect cuts a repair card only for a finding that breaks one of the five, lists the
-rest under `debt`, and never opens a third round. The senior architect decides what the
-second round leaves, merges on debt, and is the only seat that can ask for more.
 
 ## Security
 

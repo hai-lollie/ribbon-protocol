@@ -35,8 +35,8 @@ whole protocol is `AGENTS.md`, about 200 lines; read it first.
 ```
 ribbon-protocol/
 ├── README.md                                  this file
-├── AGENTS.md                                  the protocol: the belt, the loop, the decision budget, the homes,
-│                                              the plan and its cards, the seven steps, the reviewer's brief, done. Copied into every project
+├── AGENTS.md                                  the protocol: done and when the loop stops, the belt, the loop, the decision
+│                                              budget, the homes, the plan and its cards, the seven steps, the reviewer's brief. Copied into every project
 ├── VERSION                                    "ribbon N"
 ├── Ribbon-Protocol-Multi-LLM-FieldGuide.pdf   the reference guide, October 2026, working edition 1.0
 └── docs/                                      copied into every project
