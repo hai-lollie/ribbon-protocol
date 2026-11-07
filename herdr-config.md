@@ -99,8 +99,24 @@ the senior architect explicitly approves the specific mutation and is not AFK.
 ## Permissions and writable roots
 
 Before each spawn, the architect uses existing harness or sandbox controls to enforce the minimum
-access required by the card. A prompt is not a sandbox. If the available harness cannot enforce
-the boundary, the architect does not spawn the agent and asks the senior architect how to proceed.
+access required by the card, wherever the harness offers one. A prompt is not a sandbox, so a
+prompt-only boundary needs compensating controls. Many coding harnesses cannot enforce writable
+roots: an agent file may narrow an edit tool by path while the shell tool still writes anywhere.
+When the available harness cannot enforce the boundary, the architect still spawns the agent,
+under the senior architect's standing approval for every project (2026-11-07), with these
+compensating controls:
+
+1. the briefing names the writable paths, the scratch roots and the forbidden changes below;
+2. before accepting a card, the architect compares every path the card's commits changed
+   (`git diff --name-only <previous card's commit>..<this card's commit>`) and the coder's
+   uncommitted and untracked paths with the card's `scope.writable`, its report and its evidence
+   folder; a path outside them stops the card, and the architect reverts nothing on the coder's
+   behalf;
+3. the orchestration report records the mechanism as `prompt-only`, the reason the harness
+   cannot enforce it, and each card's diff check with its command and result.
+
+A harness control that does exist, such as an edit-tool path rule, is still applied; the
+compensating controls cover what it leaves open.
 
 A coder may write only:
 
