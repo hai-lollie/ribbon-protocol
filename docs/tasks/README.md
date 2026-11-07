@@ -20,10 +20,11 @@ one instruction per line, exact, no adjectives.
 
 ## A plan
 
-One deliverable, one branch, one coder, one architect, one reviewer: a whole story, or
-one phase of a story too large for one review (see "The phases of a story"). Copy
-`_template.plan.yaml`. Beside it, `<story-id>.acceptance.yaml` names every acceptance
-test of the story before any code exists: a test name, the input and the expected
+One deliverable, one branch, one coder by default, one architect, one reviewer: a whole story,
+or one phase of a story too large for one review (see "The phases of a story"). Only the root
+`herdr-config.md` overlay may assign several coders, with exclusive file ownership recorded in the
+orchestration report. Copy `_template.plan.yaml`. Beside it, `<story-id>.acceptance.yaml` names
+every acceptance test of the story before any code exists: a test name, the input and the expected
 output, in plain English, each tagged with the card that implements it. Copy
 `_template.acceptance.yaml`. The coder implements that list test name for test name,
 and the reviewer and the senior architect check the result against it.
@@ -37,7 +38,7 @@ and the reviewer and the senior architect check the result against it.
 | `branch`, `from` | yes | the branch the coder works on, and what it starts from: `main`, or the approved head of the plan under `after` |
 | `compare_with` | no | branches that did the same work another way, one or a list; the coder never reads them |
 | `architect`, `reviewer` | yes | two different agents, different vendors when possible |
-| `coder`, `role` | yes | the coder, and the hat the plan needs: `general-coder` or `entry-coder`. A card may lower it, never raise it |
+| `coder`, `role` | yes | the default coder, and the hat the plan needs: `general-coder` or `entry-coder`. A card may lower the role, never raise it; Herdr assignments name each visible coder in the orchestration report |
 | `adrs` | yes | the accepted ADRs this plan implements, none with a pending open question |
 | `decisions` | yes | the entries of the project's decision log that bind this plan, by id, for example `[D-067, D-073]`; `[]` when none. The coder reads those entries and no other |
 | `story` | yes | one sentence: who asks for what, and what they get; with `success`, the pull request's body |
@@ -46,7 +47,7 @@ and the reviewer and the senior architect check the result against it.
 | `constraints` | yes | what holds across every card |
 | `stop_line` | yes | plan-level stop lines, in addition to each card's |
 | `debt` | no | the findings the last review left open that break none of the five of "Done, and when the loop stops" (root `AGENTS.md`): `{finding, line, owner}` rows; the next plan on the same code opens with them |
-| `tasks` | yes | the cards in execution order: `{id, title, size, status}`, `size` copied from the card. Loaded verbatim into the coder's todo tool |
+| `tasks` | yes | the cards in execution order: `{id, title, size, status}`, `size` copied from the card. Assigned rows are loaded verbatim into each coder's todo tool; outside Herdr, one coder receives the whole list |
 | `status` | yes | `proposed`, `validated`, `in-progress`, `done`, `abandoned` |
 | `validated_by` | yes | empty until the senior architect writes a name and a date |
 
@@ -143,7 +144,9 @@ not when its title needs the next step (move one of two).
 - **Plan:** `proposed`, then `validated` when the senior architect writes
   `validated_by`, then `in-progress` at the coder's first commit, then `done` when the
   review says `APPROVE` for the plan, or `CHANGES` with every finding under `debt` and
-  the senior architect's merge, or `abandoned`. Two review rounds at most.
+  the senior architect's merge, or `abandoned`. Three review cycles at most. Only recorded
+  non-blocking debt may start a successor on the same code; unresolved blocking work needs the
+  senior architect's disposition, never a disguised fourth cycle.
 - **Phase:** a phase plan stays `proposed` until the plan under `after` is `done`; the
   senior architect validates it then, with the review's findings folded into its cards.
   Merging is optional at every `APPROVE`: every phase is a deliverable on its own.
@@ -156,6 +159,8 @@ not when its title needs the next step (move one of two).
 
 ## The todo list
 
-At session start the coder loads `tasks` verbatim into its todo tool, one item per
-card, in order, and marks each card as it starts and ends. The coder never adds an item.
-A step the plan does not list is a question, written as a note.
+At session start the coder loads its assigned rows of `tasks` verbatim into its todo tool, one
+item per card, in order, and marks each card as it starts and ends. Outside Herdr, one coder owns
+the whole list; under the Herdr overlay, the architect distributes the rows and only the architect
+writes an external task system. The coder never adds an item. A step the plan does not list is a
+question, written as a note.

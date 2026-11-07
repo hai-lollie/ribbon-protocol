@@ -1,4 +1,5 @@
-# <plan-id>.plan.yaml. One deliverable, one branch, one coder, one review: a story, or one phase of it (<story-id>-pN).
+# <plan-id>.plan.yaml. One deliverable, one branch: a story, or one phase of it (<story-id>-pN).
+# One coder by default; herdr-config.md may assign visible parallel coders with exclusive file ownership.
 # The architect writes it. The senior architect validates it. The coder never edits it.
 schema_version: 2                        # 2 since the phases rule: size on every card and tasks row
 plan_id: <plan-id>                       # lowercase kebab-case, the same spelling everywhere
@@ -11,7 +12,7 @@ from: main                               # main, or the approved head of the pla
 compare_with: none                       # another branch that did the same work another way, or none
 architect: <agent>                       # different from reviewer, different vendors when possible
 reviewer: <agent>
-coder: <agent>
+coder: <agent>                           # default coder; Herdr assignments live in the orchestration report
 role: general-coder                      # general-coder | entry-coder; a card may lower it, never raise it
 adrs: [docs/adrs/NNNN-<slug>.md]         # accepted ADRs only, none with a pending open question
 decisions: []                            # entries of the project's decision log that bind this plan, by id; the coder reads those only
@@ -30,8 +31,8 @@ constraints:
   - "<what holds across every card>"
 stop_line:
   - "a card needs an edit outside its scope"
-  - "two focused repairs failed on one card"
-tasks:                                   # execution order; loaded verbatim into the coder's todo tool
+  - "two focused repairs failed on one card; only herdr-config.md's single mechanical application may follow"
+tasks:                                   # execution order; assigned rows loaded verbatim into each coder's todo tool
   - {id: <story-id>-01, title: "<the smallest change that ends in a green commit>", size: <lines>, status: todo}
   - {id: <story-id>-02, title: "<...>", size: <lines>, status: todo}
 debt: []                                 # findings the last review left open that break none of the five of Done: {finding, line, owner}

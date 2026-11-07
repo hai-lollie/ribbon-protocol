@@ -1,6 +1,9 @@
 # <plan-id> review
 
 Reviewer: <agent>, <model id>
+Review cycle: 1                           # 1, 2 or 3; never greater than 3
+Previous review: <path and verdict, or "none: initial review">
+Repair range reviewed: <previous review head>..<head commit, or "not applicable">
 Range: <base commit>..<head commit>
 Read: the plan at revision N, cards 01 to NN, their reports, ADRs NNNN and NNNN
 Date: <YYYY-MM-DD>
@@ -16,7 +19,11 @@ Date: <YYYY-MM-DD>
 `APPROVE`, `CHANGES` or `ESCALATE`. `CHANGES` means the architect cuts repair cards for
 the findings that break one of the five of "Done" and lists the rest under the plan's
 `debt`; a `CHANGES` whose findings are all debt reads as `APPROVE` with debt.
-`ESCALATE` means the senior architect decides.
+`ESCALATE` means the senior architect decides. Cycle 1 is the initial review; cycles 2 and 3 cover
+repair cards and name the previous review and repair range. Cycle 3 is terminal: its non-blocking
+findings become debt and its blocking findings need the senior architect's disposition. A successor
+plan may address recorded debt but may not repeat the same findings or acceptance scope as a
+fourth cycle.
 
 ## Done
 

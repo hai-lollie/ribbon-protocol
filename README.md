@@ -27,8 +27,10 @@ The architect and the reviewer are different models, from different vendors when
 possible, and may swap roles between plans. The loop is Architect, Contract, Execute,
 Verify, and it stops by the five of "Done, and when the loop stops": a plan is done when
 the gate, the boot, the acceptance file, coverage and the absence of open semantic
-findings hold on its head; the rest is debt, and two review rounds are the most. The
-whole protocol is `AGENTS.md`, about 200 lines; read it first.
+findings hold on its head; the rest is debt, and three review cycles are the most. The
+whole core protocol is `AGENTS.md`; read it first. The optional `herdr-config.md` overlay adds
+visible coder orchestration, research-only subagents, exclusive file ownership and local-only AFK
+work when the architect runs inside Herdr.
 
 ## What is in this repository
 
@@ -37,6 +39,7 @@ ribbon-protocol/
 ├── README.md                                  this file
 ├── AGENTS.md                                  the protocol: done and when the loop stops, the belt, the loop, the decision
 │                                              budget, the homes, the plan and its cards, the seven steps, the reviewer's brief. Copied into every project
+├── herdr-config.md                            the optional Herdr orchestration overlay, copied beside AGENTS.md
 ├── VERSION                                    "ribbon N"
 ├── Ribbon-Protocol-Multi-LLM-FieldGuide.pdf   the reference guide, October 2026, working edition 1.0
 └── docs/                                      copied into every project
@@ -45,7 +48,8 @@ ribbon-protocol/
     ├── adrs/                                  README.md and _template.md: one ADR per design problem
     ├── diagrams/                              README.md: <adr-id>-<name>.mmd, mermaid first
     ├── tasks/                                 README.md, _template.plan.yaml, _template.task.yaml
-    └── llm-context/                           README.md, _report.md, _note.md, _handoff.md, _done.md, _review.md
+    └── llm-context/                           README.md, _report.md, _note.md, _handoff.md, _done.md, _review.md,
+                                               _orchestration.md
 ```
 
 ## Seed a project
@@ -54,16 +58,25 @@ From the root of your project, with this repository cloned at `~/dev/ribbon-prot
 
 ```sh
 RIBBON=~/dev/ribbon-protocol
-cp -r "$RIBBON/docs" docs                 # 1. the homes, the schemas, the templates
-cat "$RIBBON/AGENTS.md" >> AGENTS.md      # 2. the protocol, appended to your agent rules (or cp when none exist)
-printf '@AGENTS.md\n' > CLAUDE.md         # 3. only if your tool reads CLAUDE.md and the file does not exist
-cat "$RIBBON/VERSION"                     # 4. write this version into docs/README.md, first line
-git add AGENTS.md CLAUDE.md docs && git commit -m "Seed the Ribbon Protocol, ribbon 1"   # 5.
+cp -r "$RIBBON/docs" docs                       # 1. the homes, the schemas, the templates
+cat "$RIBBON/AGENTS.md" >> AGENTS.md            # 2. the protocol, appended to your agent rules (or cp when none exist)
+cp "$RIBBON/herdr-config.md" herdr-config.md    # 3. the optional Herdr overlay, beside AGENTS.md
+# 4. only for a tool that reads CLAUDE.md: create it or add the missing import without overwriting
+if [ ! -e CLAUDE.md ]; then printf '@AGENTS.md\n@herdr-config.md\n' > CLAUDE.md; fi
+if ! grep -qxF '@herdr-config.md' CLAUDE.md; then printf '\n@herdr-config.md\n' >> CLAUDE.md; fi
+cat "$RIBBON/VERSION"                           # 5. write this version into docs/README.md, first line
+git add AGENTS.md herdr-config.md docs           # 6.
+if [ -e CLAUDE.md ]; then git add CLAUDE.md; fi
+git commit -m "Seed the Ribbon Protocol, ribbon 1"
 ```
 
+An existing Claude-based project keeps its current `CLAUDE.md` and adds
+`@herdr-config.md`; do not overwrite that file during seeding.
+
 Then fill the belt (next section), and tell your architect to read `AGENTS.md`,
-`docs/README.md` and `docs/field-guide.md`, in that order. That is the full context: an
-architect who has never heard of the protocol can start from those three files.
+`docs/README.md` and `docs/field-guide.md`, in that order. An architect inside Herdr also reads
+`herdr-config.md` before execution. That is the full context: an architect who has never heard of
+the protocol can start from those files.
 
 ## Fill the belt
 
@@ -95,7 +108,8 @@ class and risk; see "Which LLM should do what?" in the field guide.
 
 `VERSION` holds `ribbon N`. A project writes the version it was seeded from on the first
 line of its `docs/README.md`. To re-seed, diff your `docs/` against the template's and
-copy what changed; the protocol text in `AGENTS.md` is replaced whole.
+copy what changed; the protocol text in `AGENTS.md` is replaced whole, and `herdr-config.md` is
+copied beside it again. Preserve an existing project's own `CLAUDE.md` imports.
 
 ## The reference guide
 

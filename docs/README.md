@@ -12,7 +12,7 @@ a person and never an LLM; "the architect" alone is the LLM seat.
 | `docs/adrs/` | the architect | one architecture decision record per design problem: markdown of 1000 to 4500 words in Simplified Technical English, ten sections in a fixed order and none empty, a glossary, open questions answered or closed before any plan, tables, its sequence diagrams embedded, a named pattern with its links, the edits counted | the senior architect, who validates it and every edit; the reviewer; the coder, through a card's `adr` line |
 | `docs/diagrams/` | the architect | `<adr-id>-<diagram-name>.mmd`, a sequence diagram for every flow, with notes; mermaid first, `.puml` only as a fallback; the ADR embeds a copy | whoever reads the ADR |
 | `docs/tasks/` | the architect | `<plan-id>.plan.yaml` and its cards `<story-id>-NN.yaml`; a story larger than one review is phase plans, `<story-id>-pN.plan.yaml`, each validated after the one before is reviewed | the senior architect, who validates the plan; the coder; the reviewer |
-| `docs/llm-context/` | the coders, the reviewer | reports, notes, handoffs, reviews; `history/` holds the files of closed plans and closed work, moved there by the architect at every clean-up | the architect, who answers; the senior architect, who reads verdicts |
+| `docs/llm-context/` | the architect, the coders, the reviewer | reports, notes, handoffs, reviews and the Herdr architect's orchestration record; `history/` holds the files of closed plans and closed work, moved there by the architect at every clean-up | the architect, who answers; the senior architect, who reads verdicts and timed-out decisions |
 
 Each folder has a `README.md` with its rules and a `_template` file to copy. Ids are
 lowercase everywhere.
@@ -24,5 +24,5 @@ together, `What:`, `Why:` and `Now:`, compressed by the commit that appends the 
 A plan names the entries that bind it under `decisions`, and the coder reads those only.
 
 `field-guide.md` is the long-form guide, the reference PDF as text. An architect new to
-the protocol reads the root `AGENTS.md`, this file, and then the field guide. That is
-the full context.
+the protocol reads the root `AGENTS.md`, this file, and then the field guide. An architect inside
+Herdr also reads the root `herdr-config.md` before execution. That is the full context.

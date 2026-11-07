@@ -6,7 +6,9 @@ makes it true inside agreed boundaries, and the harness verifies, independently,
 it became true. Nobody grades their own work, and "tests passed" is never proof. A
 project copies this file into its root `AGENTS.md` and replaces every `TODO(belt)`. The
 long-form guide is `docs/field-guide.md`, the PDF as text; the schemas and the templates
-live under `docs/`.
+live under `docs/`. The optional Herdr overlay is `herdr-config.md`, copied beside this file.
+An architect inside Herdr reads it before any Herdr execution; its rules govern orchestration
+only. A Claude-based project's `CLAUDE.md` includes it with `@herdr-config.md`.
 
 ## Done, and when the loop stops
 
@@ -27,10 +29,13 @@ output on disk, never by a sentence:
 Every other open finding, the strength of a test, a test's lifecycle, a record, the
 process, goes under `debt` in the plan: the finding id, one line, the next owner. A
 `CHANGES` verdict whose findings are all debt reads as `APPROVE` with debt, and the
-senior architect merges on it. A plan gets at most two review rounds, the first review
-and one over its repair cards; what the second leaves is debt or the senior architect's
-disposition, never a third round. Debt opens the next plan on the same code as its first
-cards, reviewed with that plan.
+senior architect merges on it. A plan gets at most three review cycles, the first review
+and at most two over its repair cards; what the third leaves is debt or the senior architect's
+disposition, never a fourth review. Recorded non-blocking debt may open the next plan on the same
+code. A successor may not repeat the same blocking findings or acceptance scope as a disguised
+fourth cycle; unresolved blocking work needs the senior architect's disposition. Acceptance
+criteria, executable behavior, the gate and the configured linters and validators define good
+enough; style-only polishing does not justify another cycle.
 
 The coder reads the five too, and answers them first. At the plan's last card it runs
 the boot itself by the entry point a person runs, keeps the command, its output and its
@@ -44,8 +49,8 @@ verifies the coder's five, reports every finding it can prove, classifies each, 
 boot itself and writes the five under "Done" in the review, each with its evidence; it
 never asks for a repair of a finding that breaks none of the five. The architect cuts a
 repair card only for a finding that breaks one of the five, lists the rest under `debt`,
-and never opens a third round. The senior architect decides what the second round
-leaves, merges on debt, and is the only seat that can ask for more.
+and never opens a fourth review. The senior architect decides what the third review leaves and
+merges on debt; only recorded non-blocking debt may start a new plan on the same code.
 
 ## The belt
 
@@ -56,7 +61,7 @@ LLMs, named by a nickname or by a vendor and a model id.
 | Role | Agent | Model | Writes | Never |
 |---|---|---|---|---|
 | Senior architect | TODO(belt): a person's name | human | the problem, the constraints, what success looks like, the acceptance criteria or test bodies; validates ADRs and plans | reads code line by line |
-| Architect | TODO(belt): "Kuro-chan" or "Claude Opus" | TODO(belt): claude-opus-5-5 | ADRs, plans, cards, answers to notes | production code for its own card |
+| Architect | TODO(belt): "Kuro-chan" or "Claude Opus" | TODO(belt): claude-opus-5-5 | ADRs, plans, cards, answers to notes | directly editing production code for its own card; a Herdr post-budget solution is contract text applied and verified by the coder |
 | Independent reviewer | TODO(belt): "Kodo-chan" or "GPT Sol" | TODO(belt): gpt-6.1-sol | findings and verdicts | code; a review of a plan it architected |
 | General coder | TODO(belt): "Lyn-chan" or "GLM 5.3" | TODO(belt): glm-5.3 | the patch and its evidence, inside scope | a shape the contract does not define; a protected path |
 | Entry-level coder | TODO(belt): "Lyn-chan flash" or "GLM 5.3 Flash" | TODO(belt): glm-5.3-flash | small patches inside the allowlist | a correctness decision |
@@ -84,7 +89,8 @@ LLMs, named by a nickname or by a vendor and a model id.
    branch) and its cards (one green commit each), in dependency order, never while an
    ADR they rest on has a pending open question; the senior architect validates the plan.
 3. **Execute.** One coder runs the plan, card by card, inside each card's scope, and
-   leaves evidence on disk after every card.
+   leaves evidence on disk after every card. Under the Herdr overlay, several visible coders
+   may execute independent cards in parallel only with exclusive file ownership.
 4. **Verify.** The gate runs outside the coder's control; the reviewer reads the commit
    range against the plan and the cards; the senior architect reads verdicts, not diffs.
    The plan is done by the five of "Done, and when the loop stops" above, never by a
@@ -110,7 +116,7 @@ architect copies into `context.verified`.
 | `docs/diagrams/` | the architect | `<adr-id>-<diagram-name>.mmd` (mermaid): a flow is a sequence diagram with `alt` paths and notes that carry the call or the schema; another kind only when the idea is not a flow; `.puml` only when mermaid cannot draw it |
 | `docs/tasks/` | the architect | `<plan-id>.plan.yaml` and its cards `<story-id>-NN.yaml`; a story larger than one review is phase plans, `<story-id>-pN.plan.yaml` |
 | the decision log (`CHANGELOG.md`) | the architect | one entry per decision or regroup; the newest ten in full, every older one three lines under 200 characters (`What:`, `Why:`, `Now:`), compressed by the commit that appends the eleventh |
-| `docs/llm-context/` | the coders, the reviewer | `<task-id>-report.md` per card; `<task-id>-<slug>.md` on a block or a question; `<plan-id>-handoff.md`, five lines, rewritten each session; `<plan-id>-done.md`, the coder's five of "Done" at the plan's last card; `<plan-id>-review.md` by the reviewer |
+| `docs/llm-context/` | the architect, the coders, the reviewer | `<task-id>-report.md` per card; `<task-id>-<slug>.md` on a block or a question; `<plan-id>-handoff.md`, five lines, rewritten each session; `<plan-id>-done.md`, the coder's five of "Done" at the plan's last card; `<plan-id>-review.md` by the reviewer; `<plan-id>-orchestration.md` by a Herdr architect |
 
 Ids are lowercase everywhere; a YAML line is at most 150 characters, folded with `>-`. A
 coder never edits `docs/adrs/`, `docs/diagrams/` or `docs/tasks/`. Only the architect
@@ -125,17 +131,19 @@ and the tokens as they ran, never retyped.
 outside reviews, comparisons, and the reports, notes, handoff and review of a plan once
 it merges or is abandoned. The architect moves them there with `git mv` at every
 clean-up, in one commit with the references that name them, so the listing a coder sees
-holds the templates, the README and the live plan's files.
+holds the templates, the README and the live plan's files. A Herdr orchestration report with an
+unacknowledged timed-out decision remains live until the senior architect's disposition.
 
 ## A plan and its cards
 
-A plan is a story: one deliverable, one branch, one coder, one architect, one reviewer,
-and under `decisions` the decision-log entries that bind it, which the coder reads and
-no other. A card is the smallest change that ends in a green commit. At session start
-the coder loads the plan's `tasks` verbatim into its todo tool, in order, and marks each
-card as it goes; it never adds an item, since a step the plan does not list is a
-question. `<plan-id>.acceptance.yaml` names every acceptance test before any code (the
-name, the input, the expected output, the card that implements it); the coder implements
+A plan is a story: one deliverable, one branch, one coder by default, one architect, one
+reviewer, and under `decisions` the decision-log entries that bind it, which the coder reads and
+no other. Only the Herdr overlay may assign several coders, under its exclusive-ownership rule.
+A card is the smallest change that ends in a green commit. At session start the coder loads its
+assigned rows of the plan's `tasks` verbatim into its todo tool, in order, and marks each card as
+it goes; outside Herdr, its assignment is the whole plan. It never adds an item, since a step the
+plan does not list is a question. `<plan-id>.acceptance.yaml` names every acceptance test before
+any code (the name, the input, the expected output, the card that implements it); the coder implements
 it name for name, and the reviewer checks against it. The schemas, every field explained,
 are `docs/tasks/README.md` and the two `_template` files.
 
@@ -185,7 +193,9 @@ half is a story. The rules are `docs/tasks/README.md`, "The phases of a story".
    the file answer together (a home a layer table gives, a schema for an argument that
    exists) is the coder's: decided, written under `decisions` in the report with the rule
    it followed, reviewed there. `BLOCKED` is progress; an invented answer is not. Only the
-   architect or the senior architect revises a card.
+   architect or the senior architect revises a card. The sole exception to "no edit" is the
+   Herdr overlay's single mechanical application of the architect's complete solution after the
+   repair budget is spent; every other stop line still applies.
 6. **Report.** The completion block of `_report.md`: changed files, verified invariants,
    each check with its command, exit code and artifact, the repair count, the failure
    class, the risks, the next owner, and `PASS`, `BLOCKED` or `ESCALATED`.
@@ -210,7 +220,8 @@ reviews a plan it architected. The reviewer runs the boot itself and writes the 
 "Done, and when the loop stops" in the review, each with its evidence. `CHANGES` means
 the architect cuts repair cards with the next numbers for the findings that break one of
 the five, and lists the rest under `debt`; a `CHANGES` whose findings are all debt reads
-as `APPROVE` with debt.
+as `APPROVE` with debt. The review names its cycle, the previous review and the repair range;
+cycle 3 is terminal.
 
 ## Security
 
