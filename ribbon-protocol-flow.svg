@@ -1,0 +1,215 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1440" viewBox="0 0 1280 1440" role="img" aria-labelledby="title description">
+  <title id="title">Ribbon Protocol: from a human's problem to an independently verified change</title>
+  <desc id="description">The senior architect states the problem. The architect drafts ADRs and diagrams.
+    A fresh security engineer reviews them and returns a report. The architect incorporates findings
+    in the current ADR or justified linked ADRs, then commits the design for human approval.
+    After ADR acceptance, the architect writes the plan, acceptance file and cards. The human validates
+    the contract, which merges to main. A general coder implements it, with optional entry-level help.
+    Tools verify the work; a different model independently reviews it. Blocking findings return to
+    architect-owned repair cards, with at most three implementation review cycles. The human decides
+    the merge when the five proofs hold. Each role shows recommended vendors and model versions.</desc>
+  <defs>
+    <style>
+      text { font-family: "DejaVu Sans", Arial, sans-serif; fill: #3c3550; }
+      .heading { font-size: 24px; font-weight: 700; }
+      .body { font-size: 20px; }
+      .model { font-size: 19px; fill: #4a5876; }
+      .small { font-size: 17px; fill: #625c77; }
+      .human { fill: url(#pink-satin); stroke: #d790b6; stroke-width: 2; filter: url(#card-shadow); }
+      .agent { fill: url(#blue-satin); stroke: #96bfdc; stroke-width: 2; filter: url(#card-shadow); }
+      .security { fill: url(#rose-satin); stroke: #c88cb4; stroke-width: 2; filter: url(#card-shadow); }
+      .tool { fill: #fffefe; stroke: #a6c6df; stroke-width: 2; filter: url(#card-shadow); }
+      .stitch { fill: none; stroke: #ffffff; stroke-width: 1.5; stroke-dasharray: 3 5; opacity: 0.95; }
+      .arrow { fill: none; stroke: #7289aa; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .repair { fill: none; stroke: #ad628f; stroke-width: 2.5; stroke-dasharray: 8 6; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#repair-arrow); }
+    </style>
+    <linearGradient id="pink-satin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff8fc"/>
+      <stop offset="0.5" stop-color="#fde9f3"/>
+      <stop offset="1" stop-color="#f9deed"/>
+    </linearGradient>
+    <linearGradient id="blue-satin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbfdff"/>
+      <stop offset="0.5" stop-color="#ecf7ff"/>
+      <stop offset="1" stop-color="#dfedf9"/>
+    </linearGradient>
+    <linearGradient id="rose-satin" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fffafd"/>
+      <stop offset="1" stop-color="#f9e6f2"/>
+    </linearGradient>
+    <linearGradient id="header-satin" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fde6f1"/>
+      <stop offset="0.6" stop-color="#f6eefb"/>
+      <stop offset="1" stop-color="#e4f2fc"/>
+    </linearGradient>
+    <pattern id="confetti" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="4" cy="4" r="1" fill="#e6d6e8" opacity="0.55"/>
+    </pattern>
+    <filter id="card-shadow" x="-5%" y="-10%" width="110%" height="130%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#8c6598" flood-opacity="0.09"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#7289aa"/>
+    </marker>
+    <marker id="repair-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#ad628f"/>
+    </marker>
+  </defs>
+
+  <rect width="1280" height="1440" fill="#fffafd"/>
+  <rect width="1280" height="1440" fill="url(#confetti)" aria-hidden="true"/>
+  <rect x="16" y="12" width="1248" height="1412" rx="26" fill="none" stroke="#eed7e8" stroke-width="2" stroke-dasharray="4 7" aria-hidden="true"/>
+
+  <g id="ribbon-banner" aria-hidden="true">
+    <path d="M 42 26 H 18 L 30 62 L 18 102 H 54 Z" fill="#edb8d4"/>
+    <path d="M 1238 26 H 1262 L 1250 62 L 1262 102 H 1226 Z" fill="#b8d8ef"/>
+    <rect x="34" y="18" width="1212" height="92" rx="18" fill="url(#header-satin)" stroke="#dfbfd8" stroke-width="1.5"/>
+    <path d="M 54 26 H 1226 M 54 102 H 1226" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="4 5"/>
+  </g>
+  <text x="58" y="57" font-size="38" font-weight="700">Ribbon Protocol</text>
+  <text x="58" y="91" font-size="22">Plan with intelligence. Implement with constraints. Verify with evidence.</text>
+
+  <g id="header-bow" transform="translate(1120 54)" aria-hidden="true">
+    <path d="M -12 7 C -13 29 -30 47 -43 68 L -16 59 L -3 79 C 5 49 10 29 8 9 Z" fill="url(#blue-satin)" stroke="#91bad9" stroke-width="1.5"/>
+    <path d="M 5 8 C 11 33 24 49 36 67 L 39 45 L 64 53 C 49 30 30 12 13 5 Z" fill="url(#pink-satin)" stroke="#d18aaf" stroke-width="1.5"/>
+    <path d="M -5 -1 C -26 -36 -88 -39 -76 1 C -67 29 -24 23 -5 9 Z" fill="url(#pink-satin)" stroke="#cb83aa" stroke-width="2"/>
+    <path d="M 5 -1 C 26 -36 88 -39 76 1 C 67 29 24 23 5 9 Z" fill="url(#blue-satin)" stroke="#8fb8d8" stroke-width="2"/>
+    <path d="M -13 2 Q -43 -16 -67 -10 M 13 2 Q 43 -16 67 -10" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+    <path d="M -20 12 Q -48 26 -68 9 M 20 12 Q 48 26 68 9" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="3 4"/>
+    <rect x="-12" y="-9" width="24" height="27" rx="8" fill="#fff7fc" stroke="#c58ab2" stroke-width="2"/>
+    <path d="M -5 -4 Q -8 4 -4 13" fill="none" stroke="#ecd3e7" stroke-width="2" stroke-linecap="round"/>
+  </g>
+
+  <g id="ribbon-sparkles" aria-hidden="true">
+    <path d="M 1006 28 Q 1008 39 1019 41 Q 1008 43 1006 54 Q 1004 43 993 41 Q 1004 39 1006 28 Z" fill="#d7a0c6"/>
+    <path d="M 1222 115 Q 1224 126 1235 128 Q 1224 130 1222 141 Q 1220 130 1209 128 Q 1220 126 1222 115 Z" fill="#a5cce7"/>
+    <path d="M 1014 162 Q 1016 176 1030 178 Q 1016 180 1014 194 Q 1012 180 998 178 Q 1012 176 1014 162 Z" fill="#d9afd0"/>
+    <path d="M 954 190 Q 955 197 962 198 Q 955 199 954 206 Q 953 199 946 198 Q 953 197 954 190 Z" fill="#a5cce7"/>
+    <circle cx="1202" cy="174" r="3" fill="#e0b0cf"/>
+    <circle cx="1044" cy="146" r="3" fill="#b7d8ed"/>
+  </g>
+
+  <g id="senior-brief">
+    <rect class="human" x="48" y="130" width="760" height="76" rx="18"/>
+    <rect class="stitch" x="54" y="136" width="748" height="64" rx="13"/>
+    <text class="heading" x="72" y="160">1 · Senior architect — human</text>
+    <text class="body" x="72" y="188">Problem, constraints, success and stop lines · Lollie in this belt</text>
+  </g>
+  <path class="arrow" d="M 428 206 V 236"/>
+
+  <g id="architect-draft">
+    <rect class="agent" x="48" y="236" width="760" height="96" rx="18"/>
+    <rect class="stitch" x="54" y="242" width="748" height="84" rx="13"/>
+    <text class="heading" x="72" y="265">2 · Architect — draft ADR + diagrams</text>
+    <text class="body" x="72" y="293">Resolve semantics, design choices and risk</text>
+    <text class="model" x="72" y="318">Anthropic Claude Opus 5.5 / OpenAI GPT Sol 6.1</text>
+  </g>
+  <path class="arrow" d="M 808 284 H 864"/>
+
+  <g id="security-engineer">
+    <rect class="security" x="864" y="236" width="368" height="168" rx="18"/>
+    <rect class="stitch" x="870" y="242" width="356" height="156" rx="13"/>
+    <text class="heading" x="884" y="267">3 · Security engineer</text>
+    <text class="small" x="884" y="295">Attack paths, exposure, design gaps</text>
+    <text class="model" x="884" y="325">OpenAI GPT Sol 6.1+ · xhigh/high</text>
+    <text class="model" x="884" y="353">Moonshot Kimi K3.1+ · high</text>
+    <text class="small" x="884" y="382">Fresh agent · coin flip if both eligible</text>
+  </g>
+  <g id="security-bow" transform="translate(1206 236)" aria-hidden="true">
+    <path d="M -3 0 C -15 -17 -29 -12 -22 2 C -18 11 -8 8 -3 4 Z" fill="#f5c5df" stroke="#cc8ab2" stroke-width="1.5"/>
+    <path d="M 3 0 C 15 -17 29 -12 22 2 C 18 11 8 8 3 4 Z" fill="#d4eaf9" stroke="#93bcd9" stroke-width="1.5"/>
+    <rect x="-4" y="-4" width="8" height="11" rx="3" fill="#fff7fc" stroke="#c58ab2" stroke-width="1.5"/>
+  </g>
+  <path class="arrow" d="M 1048 404 V 424 H 808"/>
+  <text class="small" x="876" y="452">Report back, then stop</text>
+
+  <g id="architect-incorporation">
+    <rect class="agent" x="48" y="362" width="760" height="100" rx="18"/>
+    <rect class="stitch" x="54" y="368" width="748" height="88" rx="13"/>
+    <text class="heading" x="72" y="391">4 · Architect — incorporate security findings</text>
+    <text class="body" x="72" y="419">Revise this ADR or add a justified, reciprocally linked ADR</text>
+    <text class="model" x="72" y="444">Record every disposition; then commit design + diagrams + report</text>
+  </g>
+  <path class="arrow" d="M 428 462 V 492"/>
+
+  <g id="senior-adr-approval">
+    <rect class="human" x="48" y="492" width="760" height="80" rx="18"/>
+    <rect class="stitch" x="54" y="498" width="748" height="68" rx="13"/>
+    <text class="heading" x="72" y="522">5 · Senior architect — accept ADRs</text>
+    <text class="body" x="72" y="551">Review the reconciled design; explicitly decide residual risks</text>
+  </g>
+  <path class="arrow" d="M 428 572 V 602"/>
+
+  <g id="architect-contract">
+    <rect class="agent" x="48" y="602" width="760" height="96" rx="18"/>
+    <rect class="stitch" x="54" y="608" width="748" height="84" rx="13"/>
+    <text class="heading" x="72" y="631">6 · Architect — prepare the contract</text>
+    <text class="body" x="72" y="659">Plan + acceptance file + cards in dependency order</text>
+    <text class="model" x="72" y="684">Accepted ADRs; no pending design questions; security rules in cards</text>
+  </g>
+  <path class="arrow" d="M 428 698 V 728"/>
+
+  <g id="senior-plan-validation">
+    <rect class="human" x="48" y="728" width="760" height="80" rx="18"/>
+    <rect class="stitch" x="54" y="734" width="748" height="68" rx="13"/>
+    <text class="heading" x="72" y="758">7 · Senior architect — validate the plan</text>
+    <text class="body" x="72" y="787">Then merge the contract branch to main; only now start coders</text>
+  </g>
+  <path class="arrow" d="M 428 808 V 838"/>
+
+  <g id="general-coder">
+    <rect class="agent" x="48" y="838" width="760" height="100" rx="18"/>
+    <rect class="stitch" x="54" y="844" width="748" height="88" rx="13"/>
+    <text class="heading" x="72" y="868">8 · General coder — implement scoped cards</text>
+    <text class="model" x="72" y="896">Z.ai GLM 5.3 / Moonshot Kimi K2.8 · high effort</text>
+    <text class="body" x="72" y="923">Preflight → RED → GREEN → REFACTOR; evidence per card</text>
+  </g>
+  <path class="arrow" d="M 808 876 H 864"/>
+  <path class="arrow" d="M 864 914 H 808"/>
+  <g id="entry-level-coder">
+    <rect class="agent" x="864" y="838" width="368" height="100" rx="18"/>
+    <rect class="stitch" x="870" y="844" width="356" height="88" rx="13"/>
+    <text x="884" y="868" font-size="21" font-weight="700">Entry-level coder · optional</text>
+    <text class="model" x="884" y="896">Z.ai GLM 5.3 Flash · high</text>
+    <text class="model" x="884" y="923">Moonshot Kimi K2.8 · low</text>
+  </g>
+  <path class="arrow" d="M 428 938 V 968"/>
+
+  <g id="trusted-verifier">
+    <rect class="tool" x="48" y="968" width="760" height="80" rx="18"/>
+    <rect class="stitch" x="54" y="974" width="748" height="68" rx="13" style="stroke: #e0ebf5"/>
+    <text class="heading" x="72" y="998">9 · Trusted verifier — tools / CI, not an LLM</text>
+    <text class="body" x="72" y="1027">Local + independent gates, acceptance and coverage evidence</text>
+  </g>
+  <path class="arrow" d="M 428 1048 V 1078"/>
+
+  <g id="independent-reviewer">
+    <rect class="security" x="48" y="1078" width="760" height="100" rx="18"/>
+    <rect class="stitch" x="54" y="1084" width="748" height="88" rx="13"/>
+    <text class="heading" x="72" y="1108">10 · Independent reviewer — verify the five proofs</text>
+    <text class="model" x="72" y="1136">OpenAI GPT Sol 6.1 / Anthropic Claude Opus 5.5</text>
+    <text class="body" x="72" y="1163">Different model from architect; findings + independent boot</text>
+  </g>
+  <path class="repair" d="M 808 1128 H 1252 V 650 H 808"/>
+  <text x="866" y="620" font-size="19" font-weight="700" fill="#ad527d">Blocking findings → repair cards</text>
+  <text class="small" x="866" y="681">At most 3 implementation review cycles</text>
+  <path class="arrow" d="M 428 1178 V 1208"/>
+
+  <g id="senior-merge">
+    <rect class="human" x="48" y="1208" width="760" height="80" rx="18"/>
+    <rect class="stitch" x="54" y="1214" width="748" height="68" rx="13"/>
+    <text class="heading" x="72" y="1238">11 · Senior architect — decide the merge</text>
+    <text class="body" x="72" y="1267">Five proofs hold; debt is explicit; cycle 3 needs disposition, not 4</text>
+  </g>
+
+  <g id="finish-bow" transform="translate(782 1208)" aria-hidden="true">
+    <path d="M -3 0 C -15 -17 -29 -12 -22 2 C -18 11 -8 8 -3 4 Z" fill="#f5c5df" stroke="#cc8ab2" stroke-width="1.5"/>
+    <path d="M 3 0 C 15 -17 29 -12 22 2 C 18 11 8 8 3 4 Z" fill="#d4eaf9" stroke="#93bcd9" stroke-width="1.5"/>
+    <rect x="-4" y="-4" width="8" height="11" rx="3" fill="#fff7fc" stroke="#c58ab2" stroke-width="1.5"/>
+  </g>
+
+  <path d="M 48 1324 H 1232" stroke="#e3c7dc" stroke-width="2" stroke-dasharray="4 6"/>
+  <text class="small" x="48" y="1355">Recommended model defaults, not availability claims. Resolve exact approved provider/model/effort at launch.</text>
+  <text class="small" x="48" y="1383">Security: new Herdr tab; report-writing subagent only when Herdr is not installed. This does not replace human approval.</text>
+  <text class="small" x="48" y="1411">Entry-level work is allowlisted and visible in Herdr; no hidden coding authorship. AGENTS.md is the authoritative protocol.</text>
+</svg>

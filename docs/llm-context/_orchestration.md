@@ -34,6 +34,9 @@ handoff and decision log link here while any disposition is pending.
 
 ## Validation and assignments
 
+ADR security checkpoint: <links to the design's security reports, architect responses and evidence;
+security assignments precede plan validation and use their own report/evidence records>
+
 Validated by: `<name>, <YYYY-MM-DD>`
 Acceptance file: `docs/tasks/<plan-id>.acceptance.yaml`
 

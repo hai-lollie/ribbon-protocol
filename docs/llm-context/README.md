@@ -1,7 +1,8 @@
 # llm-context
 
-The architect's execution records, the coders' reports and the reviewer's findings live here. The
-architect and the senior architect read them. A file here is evidence, committed with the work it
+The architect's execution records, the security engineer's design reports, the coders' reports
+and the reviewer's findings live here. The architect and the senior architect read them.
+A file here is evidence, committed with the work it
 describes. A report may be long:
 this is where the detail that a card cannot hold goes, and the reviewer reads it whole.
 A coder writes here and reads one file, the five-line handoff; never a report, a note, a
@@ -9,6 +10,7 @@ review or a journal. What a card needs from one, the architect copies into the c
 
 | File | Who writes | When | Template |
 |---|---|---|---|
+| `<adr-id>-security-r<N>.md` | the security engineer; the architect appends its response | before the reconciled ADR's commit and senior review; a new revision after security-relevant design changes | `_security.md` |
 | `<task-id>-report.md` | the coder | every card: the preflight block before any edit, the completion block before the commit | `_report.md` |
 | `<task-id>-<slug>.md` | the coder | only on a block, a misleading card or a question | `_note.md` |
 | `<plan-id>-handoff.md` | the coder | at the end of every session, rewritten, five lines | `_handoff.md` |
@@ -19,9 +21,17 @@ review or a journal. What a card needs from one, the architect copies into the c
 ## Rules
 
 - **Lowercase ids**, the same spelling as `docs/tasks/`.
-- **A report is written in two moments**, preflight and completion, and nothing in it is
+- **A card report is written in two moments**, preflight and completion, and nothing in it is
   edited afterwards. A card run twice (a revised card) gets a second report section,
   dated, under the first.
+- **A security report belongs to a reviewed draft snapshot.** The engineer records the input
+  paths and content hashes, exact verified model and effort, findings with attack paths or design-gap
+  counterexamples, mitigations, verification conditions and limits. It returns to the architect and
+  stops. Only the architect appends `## Architect response`, with a disposition for every finding;
+  the engineer's sections remain intact. A security-relevant design change gets a new report
+  revision, not a rewritten finding. The architect incorporates accepted rules in the ADR and
+  future card contracts; coders never read the security report. Herdr authors are visible in a new
+  tab; the report-writing subagent exception applies only when Herdr is absent from the system.
 - **A note is answered by a revised card**, committed on the story's contract branch and merged
   into the main branch, and by one line under
   `## Answer` naming the revision and the decision-log entry, or "no change" and why.

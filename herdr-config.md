@@ -28,7 +28,14 @@ the project working directory. Background work preserves the senior architect's 
 
 ## Validation before execution
 
-The architect finishes the plan, its acceptance file and every card before execution. The plan
+Before senior-architect ADR review, the architect runs the core protocol's security design
+checkpoint. The security engineer runs in its own visible Herdr tab, reviews the uncommitted draft,
+writes only its report and permitted evidence, returns to the architect and stops. The architect
+then incorporates the findings in the current ADR or justified linked ADRs, records every
+disposition and commits the reconciled design before asking for senior-architect approval.
+This assignment needs no validated implementation plan; it authorizes no coder or production edit.
+
+The architect finishes the plan, its acceptance file and every card before implementation execution. The plan
 names the architect and independent reviewer, and each card names its role, behavior, acceptance,
 writable scope and stop lines. The architect asks the senior architect to validate the complete
 contract.
@@ -49,14 +56,23 @@ not, the architect uses these defaults:
 |---|---|---|
 | General coder | Lyn-chan, GLM 5.3 or the newest available GLM general coding model | high |
 | Entry-level coder | Lyn-chan Flash, GLM 5.3 Flash or the newest available GLM `-flash` model | high |
+| Security engineer | equal-chance selection between eligible OpenAI GPT Sol 6.1+ and Moonshot Kimi K3.1+ | Sol: xhigh, or high if unavailable; Kimi: high |
 | Independent reviewer | GPT Sol 6.1 or the newest available Sol model | xhigh, or high when xhigh is unavailable |
 | Entry-level fallback | Claude Haiku 5.5 or the newest available Haiku model | maximum supported effort |
+
+The security engineer follows the core protocol's version floors and coin-flip rule, not a cheaper
+coder fallback. An alias such as `kimi-for-coding` does not establish that Kimi K3.1+ is available.
 
 The architect resolves a family default against the harness's current model inventory at execution
 time. It records the exact provider, model and effort in the orchestration report before the first
 prompt. It never invents a model identifier, trusts a footer as proof or silently substitutes a
 different family. If no eligible model is available, the assignment stops and the senior architect
 is asked. The reviewer still satisfies the core protocol's independence rule.
+
+A security assignment can precede a plan. Instead of a not-yet-existing plan orchestration report,
+its named security evidence folder records the selection, permissions, briefing and model
+verification; its report links that evidence. When a plan's
+orchestration report exists, the architect links the design's security reports there.
 
 The card's `role` controls routing. A general coder receives multi-file work on known interfaces.
 An entry-level coder receives work with low ambiguity and a small blast radius. Ambiguous
@@ -90,6 +106,12 @@ only its assigned implementation, tests, evidence, reports and commits. A Herdr 
 review and never changes production code. Hidden coding subagents, including hidden entry-level
 coders, are forbidden. A Herdr agent may delegate research, never authorship.
 
+The security engineer is a report author, not a research subagent. In Herdr mode it follows the
+same visible-authorship rule and may write only its assigned security report and evidence. The
+core protocol's report-writing subagent fallback applies only when Herdr is absent from the system,
+not when it is installed but the current session is outside Herdr. Ordinary research subagents
+remain read-only everywhere.
+
 Only the architect may write Todoist or another external task system. Each Herdr coder instead
 loads its assigned cards verbatim into its harness task list, in plan order, and keeps that list
 current. It never adds work that the plan does not assign. Research subagents do not write any
@@ -119,6 +141,16 @@ compensating controls:
 
 A harness control that does exist, such as an edit-tool path rule, is still applied; the
 compensating controls cover what it leaves open.
+
+For a security engineer, the report and evidence allowlist replaces the card's writable scope.
+Before launch the architect records the permission boundary and a tracked/untracked content baseline,
+including already-dirty files, in the named security evidence folder. No draft, production, test,
+Git metadata or configuration write is authorized. After the engineer stops, the architect compares
+the repository against that baseline: every change must be inside the report/evidence allowlist,
+and reviewed draft hashes must be unchanged. It records the comparison and verifies the actual model
+before accepting the report. An unexpected change stops the checkpoint; the architect does not
+silently revert it. The architect pauses its own edits to the reviewed inputs during the assignment.
+The review runs sequentially in that checkout; any other active writer uses an isolated worktree.
 
 A coder may write only:
 
@@ -176,12 +208,13 @@ sequential and correct than parallel and entangled.
 
 ## Spawn and briefing
 
-Each coder, and each reviewer that writes a review under this overlay, runs as a full interactive
-agent in a new tab in the current Herdr workspace, never as a hidden writing subagent. The
+Each coder, security engineer and reviewer that writes a report under this overlay runs as a full
+interactive agent in a new tab in the current Herdr workspace, never as a hidden writing subagent. The
 architect uses the installed Herdr and harness procedure for agent, model and effort selection. It
 verifies the first assistant message's recorded agent, provider, model and effort before allowing
 work; a mismatch stops the assignment. A reviewer receives read-only production access and write
-access only to its review and permitted evidence.
+access only to its review and permitted evidence. A security engineer has read-only access to the
+named design inputs and references, and write access only to its security report and permitted evidence.
 
 The tab label is:
 
@@ -199,6 +232,12 @@ A reviewer uses its review cycle instead of a card number:
 
 ```text
 Kodo-chan@hundred-pokemon/review-1
+```
+
+A security engineer uses the ADR id and security-report revision:
+
+```text
+Kodo-chan@0001/security-r1
 ```
 
 The architect gives the pane the same label when the harness supports pane names. The Herdr
@@ -224,14 +263,21 @@ The architect records the briefing's delivery identifier and the assigned accept
 the orchestration report. A reviewer briefing instead names the plan, cards, commit range, review
 cycle and review destination, and explicitly forbids production edits.
 
+A security briefing instead contains the ADR paths, diagrams, constraints, snapshot hashes, report
+revision and destination, evidence allowlist, core security checklist, selected provider/model/effort
+and selection record. It includes permission and model-verification requirements, the monitoring
+and question procedure, and an explicit ban on design/code edits, commits, live attacks and remote
+mutations. Completion means an on-disk report, a return message to the architect and no further work;
+it does not mean approval of the ADR. The architect verifies the first message before substantive work.
+
 The coder performs the core protocol's read-only preflight and commits `READY` before its first
 edit. `BLOCKED` stops that card without an invented answer.
 
 ## Monitor every live agent
 
-After the briefing, the architect starts and maintains a monitor for every live Herdr coder and
-reviewer. It uses Herdr's agent wait, state, explanation and transcript commands with explicit agent names or
-pane ids. It watches for:
+After the briefing, the architect starts and maintains a monitor for every live Herdr coder,
+security engineer and reviewer. It uses Herdr's agent wait, state, explanation and transcript
+commands with explicit agent names or pane ids. It watches for:
 
 - `blocked`, approval dialogs and questions;
 - `unknown`, a stalled prompt, a timeout, an exited process or an unexpected halt;
@@ -242,6 +288,10 @@ pane ids. It watches for:
 A settled state is not proof of completion. The architect reads the transcript and the on-disk
 evidence before accepting a card. After a failed wait or stalled response, it inspects state
 before sending input; it never blindly repeats a prompt or presses a key.
+
+For a security engineer, completion also requires the report's reviewed snapshot, findings or
+explicit `NO_FINDINGS`, review limits, verified model record and report-only scope comparison.
+The architect then owns incorporation and the response; the engineer never commits the draft.
 
 The architect may answer a technical question when it can establish the answer from the contract,
 verified repository facts, documentation, internet references or a disposable spike. It records

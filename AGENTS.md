@@ -54,14 +54,15 @@ merges on debt; only recorded non-blocking debt may start a new plan on the same
 
 ## The belt
 
-Six roles. The senior architect is a person and never an LLM; "the architect" alone always
+Seven roles. The senior architect is a person and never an LLM; "the architect" alone always
 means the LLM seat, so neither a coder nor a reviewer confuses the two. The other roles are
-LLMs, named by a nickname or by a vendor and a model id.
+LLMs, named by a nickname or by a vendor and a model id, except the trusted verifier, which is tools.
 
 | Role | Agent | Model | Writes | Never |
 |---|---|---|---|---|
 | Senior architect | TODO(belt): a person's name | human | the problem, the constraints, what success looks like, the acceptance criteria or test bodies; validates ADRs and plans | reads code line by line |
 | Architect | TODO(belt): "Kuro-chan" or "Claude Opus" | TODO(belt): claude-opus-5-5 | ADRs, plans, cards, answers to notes | directly editing production code for its own card; a Herdr post-budget solution is contract text applied and verified by the coder |
+| Security engineer | a fresh agent selected by the architect | OpenAI GPT Sol 6.1+ or Moonshot Kimi K3.1+; Kimi at high effort | an ADR security report with findings and mitigations | ADRs, code, commits; accepting risk for the senior architect |
 | Independent reviewer | TODO(belt): "Kodo-chan" or "GPT Sol" | TODO(belt): gpt-6.1-sol | findings and verdicts | code; a review of a plan it architected |
 | General coder | TODO(belt): "Lyn-chan" or "GLM 5.3" | TODO(belt): glm-5.3 | the patch and its evidence, inside scope | a shape the contract does not define; a protected path |
 | Entry-level coder | TODO(belt): "Lyn-chan flash" or "GLM 5.3 Flash" | TODO(belt): glm-5.3-flash | small patches inside the allowlist | a correctness decision |
@@ -83,20 +84,101 @@ LLMs, named by a nickname or by a vendor and a model id.
 
 1. **Architect.** The senior architect states the problem, the constraints, what success
    looks like and when to stop and ask; the architect resolves semantics and risk, one
-   ADR per design problem, and brings what it cannot decide as open questions; the
-   senior architect validates the ADRs and their answers.
-2. **Contract.** The architect cuts the design into one plan (one deliverable, one
+   draft ADR per design problem, and brings what it cannot decide as open questions.
+2. **Security review.** The architect launches a fresh security engineer. The engineer
+   reviews the draft ADR and its diagrams, writes its report and returns it to the architect.
+   The architect incorporates the findings, in the current ADR or a justified linked ADR,
+   and records a disposition for each finding. Only then does the architect commit the ADRs,
+   diagrams and report on the contract branch and ask the senior architect to validate the design.
+   The section "Security design review" defines this checkpoint and its repeat conditions.
+3. **Contract.** The architect cuts the design into one plan (one deliverable, one
    branch) and its cards (one green commit each), in dependency order, never while an
-   ADR they rest on has a pending open question; the senior architect validates the plan.
-   Both steps happen on the story's contract branch, merged into `main` at validation
-   ("The branches").
-3. **Execute.** One coder runs the plan, card by card, inside each card's scope, and
+   ADR they rest on is unaccepted or has a pending open question; the senior architect validates
+   the plan. The design and contract steps happen on the story's contract branch, merged into
+   `main` at validation ("The branches").
+4. **Execute.** One coder runs the plan, card by card, inside each card's scope, and
    leaves evidence on disk after every card. Under the Herdr overlay, several visible coders
    may execute independent cards in parallel only with exclusive file ownership.
-4. **Verify.** The gate runs outside the coder's control; the reviewer reads the commit
+5. **Verify.** The gate runs outside the coder's control; the reviewer reads the commit
    range against the plan and the cards; the senior architect reads verdicts, not diffs.
    The plan is done by the five of "Done, and when the loop stops" above, never by a
    round that finds nothing.
+
+## Security design review
+
+Every technical ADR passes this checkpoint before its first commit for senior-architect review.
+The architect finishes the draft and diagrams first. The security engineer reviews that exact
+draft in a fresh session, not the architect's own session. It advises; it never approves the ADR,
+accepts residual risk, edits the design or replaces the later independent implementation reviewer.
+
+### Selection and launch
+
+The architect resolves two eligible families against the harness's available, approved models:
+OpenAI GPT Sol 6.1 or newer, and Moonshot Kimi K3.1 or newer at high effort. Sol uses xhigh, or high
+when xhigh is unavailable. A model alias alone is not proof of its version. When both families
+are eligible, the architect makes an equal-chance coin-flip selection and records the result.
+When only one is eligible, it selects that family and records why the other is unavailable.
+With neither, it stops and asks the senior architect; it never silently lowers the minimum.
+
+When Herdr is installed, the architect launches the engineer in a new tab in the current workspace,
+without taking focus, under `herdr-config.md`. If Herdr is installed but the session is not
+Herdr-managed, the architect stops and asks how to proceed. Only when Herdr is absent from the
+system may it use a report-writing subagent instead. This narrow fallback permits only the assigned
+security report and evidence, not hidden coding or design authorship. Both routes enforce the same
+access boundaries, exact-model verification and approved-provider policy. No live attack, load test,
+credential access, configuration change or remote mutation is authorized by a design-review assignment.
+
+### Review and report
+
+The briefing names the draft ADRs, diagrams and relevant constraints; the reviewed snapshot;
+the exact provider, model and effort; and the permitted report and evidence paths. The snapshot
+records each input's path and content hash, since the draft is not yet committed. The engineer
+reads the supplied design and references, not unrelated repository trees or secrets.
+
+It checks, where applicable:
+
+- assets, trust boundaries, entry points, attack surface and unnecessary public exposure;
+- authentication, authorization, tenant isolation, least privilege and fail-closed behavior;
+- token scope, expiry and revocation; key rotation and recovery; secret storage and redaction;
+  cryptographically secure entropy for keys, tokens and seeds, never predictable seeds for secrets;
+- injection, untrusted input, dependency and supply-chain risks, and unsafe design assumptions;
+- abuse, denial of service and DDoS: request and payload limits, bounded work, concurrency, queues,
+  timeouts, backpressure and deployment-layer controls; an application rate limit alone is not DDoS protection;
+- sensitive-data lifecycle, auditability, safe errors and failure or recovery paths.
+
+The engineer writes `docs/llm-context/<adr-id>-security-r<N>.md` from `_security.md`, then reports
+back and stops. Each finding has a stable id, severity with a reason, an ADR or diagram location,
+a concrete attack path or design-gap counterexample, impact, mitigation and a verification condition.
+It distinguishes a supported finding from an assumption or open question, cites its sources, states
+review limits and writes no praise. `NO_FINDINGS` means no findings in this snapshot, not proof of safety.
+The report records the actual model and effort, not only the intended assignment.
+
+### Incorporation and senior approval
+
+The architect reads the whole report, checks its claims and incorporates applicable suggestions.
+It may revise the current ADR, or write a separate focused ADR when the extent of the changes
+justifies another design decision. The ADR under review links the new ADR; the new ADR links back.
+A separate ADR is not a way to postpone a required mitigation: it follows the same security
+checkpoint, and all ADRs needed by the design go to the senior architect together.
+
+The engineer's report remains intact. Under its `## Architect response`, the architect appends a
+disposition for every finding: incorporated, adapted, deferred or rejected, with the reason,
+the ADR section or linked ADR, and an owner for any remaining action. Serious unresolved risks
+are explicit open questions for the senior architect, never silently accepted or converted to debt.
+Any proposed risk acceptance names the impact and alternatives and needs her explicit decision.
+
+The architect commits the reconciled ADRs, diagrams, report and response on the contract branch
+before asking for senior-architect review. A missing report or incomplete response stops that
+request. The senior architect alone accepts the ADRs and every later edit. Before another approval
+request, a security-relevant change to the design, trust boundaries, exposure or mitigations gets
+another security pass, a new snapshot and a new report revision; editorial-only edits do not.
+The architect checks that the report covers the final security-relevant design, including its own
+mitigation changes. A blocked review stops the checkpoint; it is not a pass.
+
+This design checkpoint is separate from the plan's three implementation-review cycles. Accepted
+mitigations and verification conditions become ADR rules, acceptance criteria and card contracts;
+coders never need to read security reports. The later reviewer still checks implementation against
+those contracts. Archive the reports with the closed work under the ordinary history rules.
 
 ## The branches
 
@@ -144,7 +226,7 @@ architect copies into `context.verified`.
 | `docs/diagrams/` | the architect | `<adr-id>-<diagram-name>.mmd` (mermaid): a flow is a sequence diagram with `alt` paths and notes that carry the call or the schema; another kind only when the idea is not a flow; `.puml` only when mermaid cannot draw it |
 | `docs/tasks/` | the architect | `<plan-id>.plan.yaml` and its cards `<story-id>-NN.yaml`; a story larger than one review is phase plans, `<story-id>-pN.plan.yaml` |
 | the decision log (`CHANGELOG.md`) | the architect | one entry per decision or regroup; the newest ten in full, every older one three lines under 200 characters (`What:`, `Why:`, `Now:`), compressed by the commit that appends the eleventh |
-| `docs/llm-context/` | the architect, the coders, the reviewer | `<task-id>-report.md` per card; `<task-id>-<slug>.md` on a block or a question; `<plan-id>-handoff.md`, five lines, rewritten each session; `<plan-id>-done.md`, the coder's five of "Done" at the plan's last card; `<plan-id>-review.md` by the reviewer; `<plan-id>-orchestration.md` by a Herdr architect |
+| `docs/llm-context/` | the architect, the security engineer, the coders, the reviewer | `<adr-id>-security-r<N>.md` by the security engineer, with the architect's appended response; `<task-id>-report.md` per card; `<task-id>-<slug>.md` on a block or a question; `<plan-id>-handoff.md`, five lines, rewritten each session; `<plan-id>-done.md`, the coder's five of "Done" at the plan's last card; `<plan-id>-review.md` by the reviewer; `<plan-id>-orchestration.md` by a Herdr architect |
 
 Ids are lowercase everywhere; a YAML line is at most 150 characters, folded with `>-`. A
 coder never edits `docs/adrs/`, `docs/diagrams/` or `docs/tasks/`. Only the architect
