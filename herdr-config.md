@@ -33,7 +33,9 @@ names the architect and independent reviewer, and each card names its role, beha
 writable scope and stop lines. The architect asks the senior architect to validate the complete
 contract.
 
-No coder starts until the senior architect has written `validated_by`. A question answered during
+No coder starts until the senior architect has written `validated_by` and the architect has merged
+the story's contract branch into `main` (the core protocol's "The branches"). The orchestration
+report lives on that contract branch with the architect's other records. A question answered during
 planning is not plan validation. A later change follows the core protocol's revision rules. A
 card revision made solely to apply a timed-out senior-architect question is authorized by the
 timeout rule below and does not wait for a second validation; its coder runs preflight again.

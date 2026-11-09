@@ -1,9 +1,10 @@
 # ADRs
 
 One architecture decision record per design problem. The architect writes it from what
-was understood of the assignment. The senior architect reads it, suggests changes, and
-accepts it. No plan is cut into cards before every ADR it rests on is accepted. The
-architect writes no plan and no card while one of those ADRs has a pending open question.
+was understood of the assignment, on the story's contract branch (AGENTS.md, "The
+branches"). The senior architect reads it there, suggests changes, and accepts it. No
+plan is cut into cards before every ADR it rests on is accepted. The architect writes no
+plan and no card while one of those ADRs has a pending open question.
 
 ## Rules
 

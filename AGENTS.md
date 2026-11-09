@@ -88,6 +88,8 @@ LLMs, named by a nickname or by a vendor and a model id.
 2. **Contract.** The architect cuts the design into one plan (one deliverable, one
    branch) and its cards (one green commit each), in dependency order, never while an
    ADR they rest on has a pending open question; the senior architect validates the plan.
+   Both steps happen on the story's contract branch, merged into `main` at validation
+   ("The branches").
 3. **Execute.** One coder runs the plan, card by card, inside each card's scope, and
    leaves evidence on disk after every card. Under the Herdr overlay, several visible coders
    may execute independent cards in parallel only with exclusive file ownership.
@@ -95,6 +97,32 @@ LLMs, named by a nickname or by a vendor and a model id.
    range against the plan and the cards; the senior architect reads verdicts, not diffs.
    The plan is done by the five of "Done, and when the loop stops" above, never by a
    round that finds nothing.
+
+## The branches
+
+Every story has a short prefix, and every branch of the story starts with it (`quiz/` in the
+examples below). The main branch takes merges only, and each merge is a state the senior
+architect validated, so the history of `main` reads as a list of decisions.
+
+- **The contract branch, `<prefix>/adr-plan-cards`.** The architect writes the story's
+  contract there: its ADRs and diagrams, its plans, acceptance files and cards, its
+  decision-log entries, and the architect's own records (a journal, an orchestration
+  report). The senior architect reviews the branch, by a compare view or a pull request,
+  and answers there.
+- **The merge.** When the senior architect accepts the ADRs and validates a plan, the
+  architect merges the contract branch into `main` with `git merge --no-ff`. A coder
+  starts only after that merge.
+- **A plan's branch, `<prefix>/<plan slug>`** (for example `quiz/scoring-p1`), named in the
+  plan's `branch` field, starts from `main` after the merge. The coder works there, and the
+  reviewer reads its range.
+- **A revision during execution** (a repair card, an answer to a note, a timed-out
+  decision) is a commit on the contract branch, merged into `main` before the coder is
+  told. The coder never edits the architect's paths, so these merges never conflict with
+  the plan's branch.
+- **Work outside a story** (a protocol port, a tooling change) takes its own short branch,
+  `<topic>/<slug>`, under the same rule: reviewed there, merged into `main` when accepted.
+- **Parallel and unrelated work stays apart:** two stories never share a branch, and a
+  plan's branch never carries the architect's records.
 
 ## The decision budget
 
@@ -120,19 +148,20 @@ architect copies into `context.verified`.
 
 Ids are lowercase everywhere; a YAML line is at most 150 characters, folded with `>-`. A
 coder never edits `docs/adrs/`, `docs/diagrams/` or `docs/tasks/`. Only the architect
-revises a card and bumps its `revision`, on the main branch: a coder whose branch has
-diverged reads it there (`git show main:docs/tasks/<task-id>.yaml`) and rebases only
-when the architect says so, after a gate. Proof is a command, its exit code and its
-output, on disk under `docs/llm-context/`, committed with the work; nothing an LLM
-decided lives only in its context window. After the commit, the architect appends the
-card's measured cost to its report from the harness's own records, the model, the effort
-and the tokens as they ran, never retyped.
-`docs/llm-context/history/` holds what no live plan reads: the journals of closed work,
-outside reviews, comparisons, and the reports, notes, handoff and review of a plan once
-it merges or is abandoned. The architect moves them there with `git mv` at every
+revises a card and bumps its `revision`, on the story's contract branch, and merges it
+into the main branch before the coder is told: a coder whose branch has diverged reads it
+there (`git show main:docs/tasks/<task-id>.yaml`) and rebases only when the architect says
+so, after a gate. Proof is a command, its exit code and its output, on disk under
+`docs/llm-context/`, committed with the work; nothing an LLM decided lives only in its
+context window. After the commit, the architect appends the card's measured cost to its
+report from the harness's own records, the model, the effort and the tokens as they ran,
+never retyped. `docs/llm-context/history/` holds what no live plan reads: the journals of
+closed work, outside reviews, comparisons, and the reports, notes, handoff and review of a
+plan once it merges or is abandoned. The architect moves them there with `git mv` at every
 clean-up, in one commit with the references that name them, so the listing a coder sees
-holds the templates, the README and the live plan's files. A Herdr orchestration report with an
-unacknowledged timed-out decision remains live until the senior architect's disposition.
+holds the templates, the README and the live plan's files. A Herdr orchestration report
+with an unacknowledged timed-out decision remains live until the senior architect's
+disposition.
 
 ## A plan and its cards
 

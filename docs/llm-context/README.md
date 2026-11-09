@@ -22,7 +22,8 @@ review or a journal. What a card needs from one, the architect copies into the c
 - **A report is written in two moments**, preflight and completion, and nothing in it is
   edited afterwards. A card run twice (a revised card) gets a second report section,
   dated, under the first.
-- **A note is answered by a revised card on the main branch**, and by one line under
+- **A note is answered by a revised card**, committed on the story's contract branch and merged
+  into the main branch, and by one line under
   `## Answer` naming the revision and the decision-log entry, or "no change" and why.
   The coder reads the revised card, never the note. A note is never deleted or rewritten.
 - **A handoff is five lines, rewritten at the end of every session.** The previous handoff

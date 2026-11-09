@@ -35,7 +35,7 @@ and the reviewer and the senior architect check the result against it.
 | `plan_id`, `title` | yes | the id above; the pull request's title, which a person reads and which stands without the next phase |
 | `story_id`, `after` | no | on a phase only: the story this plan is one phase of, and the plan that must be `done` before this one is validated |
 | `revision` | yes | `1`, bumped by the architect on every change after validation |
-| `branch`, `from` | yes | the branch the coder works on, and what it starts from: `main`, or the approved head of the plan under `after` |
+| `branch`, `from` | yes | the branch the coder works on, `<prefix>/<plan slug>` under the story's prefix (AGENTS.md, "The branches"), and what it starts from: `main` after the contract branch's merge, or the approved head of the plan under `after` |
 | `compare_with` | no | branches that did the same work another way, one or a list; the coder never reads them |
 | `architect`, `reviewer` | yes | two different agents, different vendors when possible |
 | `coder`, `role` | yes | the default coder, and the hat the plan needs: `general-coder` or `entry-coder`. A card may lower the role, never raise it; Herdr assignments name each visible coder in the orchestration report |
@@ -153,7 +153,8 @@ not when its title needs the next step (move one of two).
 - **Card:** `todo`, `in-progress`, then `pass`, `blocked` or `escalated`. The architect
   updates the plan's `tasks` from the reports; the coder's todo tool shows the live
   state.
-- **Revision:** the architect bumps `revision` when a card changes after a note. The
+- **Revision:** the architect bumps `revision` when a card changes after a note, on the
+  story's contract branch, and merges it into the main branch before the coder is told. The
   coder runs preflight again on a revised card, reading it from the main branch when its
   own branch has diverged (`git show main:docs/tasks/<task-id>.yaml`).
 

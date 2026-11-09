@@ -7,8 +7,8 @@ story_id: <story-id>                     # on a phase only: the story this plan 
 after: <plan-id>                         # on a phase only: the plan that must be done, its review APPROVE, before this one is validated
 title: "<the pull request's title: a person reads it, and it stands without the next phase>"
 revision: 1                              # bumped by the architect on every change after validation
-branch: <branch the coder works on>
-from: main                               # main, or the approved head of the plan under after
+branch: <prefix>/<plan slug>             # the story's prefix (AGENTS.md, The branches); the contract is <prefix>/adr-plan-cards
+from: main                               # main after the contract branch's merge, or the approved head of the plan under after
 compare_with: none                       # another branch that did the same work another way, or none
 architect: <agent>                       # different from reviewer, different vendors when possible
 reviewer: <agent>
