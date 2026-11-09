@@ -177,6 +177,10 @@ and independent acceptance prove the behavior in the project.
 
 ## Exclusive file ownership and parallel cards
 
+Every coder and reviewer works in its own worktree on its own branch, sequential work included,
+and only the architect changes the local branches (`AGENTS.md`, "Who changes a branch, and
+where"). The rules below decide only whether two such assignments may run at the same time.
+
 The architect may run independent cards in parallel only when their repository writes are
 provably disjoint and each coder has an isolated worktree, index and card branch. A file has
 exactly one active coder owner. One coder may own several files from one card, but no two live
@@ -242,9 +246,9 @@ Kodo-chan@0001/security-r1
 
 The architect gives the pane the same label when the harness supports pane names. The Herdr
 runtime name is separate and follows Herdr's naming rules. Tabs are created without taking focus,
-in the project working directory for sequential work or in the assignment's isolated worktree for
-parallel work. The architect closes a tab it created when its work is complete and the tab is no
-longer needed; it never closes another agent's tab.
+in the assignment's worktree, sequential work included, or in the project working directory for
+the architect's own work. The architect closes a tab it created when its work is complete and the
+tab is no longer needed; it never closes another agent's tab.
 
 The first briefing contains:
 

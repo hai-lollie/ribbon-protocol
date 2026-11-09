@@ -35,7 +35,7 @@ and the reviewer and the senior architect check the result against it.
 | `plan_id`, `title` | yes | the id above; the pull request's title, which a person reads and which stands without the next phase |
 | `story_id`, `after` | no | on a phase only: the story this plan is one phase of, and the plan that must be `done` before this one is validated |
 | `revision` | yes | `1`, bumped by the architect on every change after validation |
-| `branch`, `from` | yes | the branch the coder works on, `<prefix>/<plan slug>` under the story's prefix (AGENTS.md, "The branches"), and what it starts from: `main` after the contract branch's merge, or the approved head of the plan under `after` |
+| `branch`, `from` | yes | the plan's branch, `<prefix>/<plan slug>` under the story's prefix (AGENTS.md, "The branches"), which only the architect changes: each coder and the reviewer work on their own branch from it, in a worktree, and the architect merges them; and what it starts from: `main` after the contract branch's merge, or the approved head of the plan under `after` |
 | `compare_with` | no | branches that did the same work another way, one or a list; the coder never reads them |
 | `architect`, `reviewer` | yes | two different agents, different vendors when possible |
 | `coder`, `role` | yes | the default coder, and the hat the plan needs: `general-coder` or `entry-coder`. A card may lower the role, never raise it; Herdr assignments name each visible coder in the orchestration report |
