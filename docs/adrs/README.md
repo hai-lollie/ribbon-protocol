@@ -2,12 +2,26 @@
 
 One architecture decision record per design problem. The architect writes it from what
 was understood of the assignment, on the story's contract branch (AGENTS.md, "The
-branches"). The senior architect reads it there, suggests changes, and accepts it. No
-plan is cut into cards before every ADR it rests on is accepted. The architect writes no
+branches"). Before committing the draft for senior-architect review, the architect launches a
+security engineer under AGENTS.md, "Security design review". The engineer reviews the draft and
+diagrams, writes `docs/llm-context/<adr-id>-security-r<N>.md` and returns to the architect.
+The architect incorporates the suggestions and appends a disposition for every finding. It then
+commits the reconciled ADRs, diagrams and report. The senior architect reads them there, suggests
+changes, and accepts the ADRs. No plan is cut into cards before every ADR it rests on is accepted. The architect writes no
 plan and no card while one of those ADRs has a pending open question.
 
 ## Rules
 
+- **Security before senior approval.** The security report identifies the reviewed draft by path
+  and content hash, the actual provider/model/effort, findings with attack paths or design-gap
+  counterexamples, mitigations and verification conditions. Link the report under References.
+  Incorporate applicable findings into the solution's rules and invariants, not only its prose.
+  Record serious unresolved risks as explicit open questions for the senior architect.
+- **A focused security ADR when justified.** The architect may edit the current ADR or write a
+  separate ADR when the extent of the security changes justifies another design decision. The
+  original ADR links the new ADR under References and where the solution depends on it; the new
+  ADR links back. Each follows this same format and security checkpoint. Present the required ADRs
+  together; a link alone does not resolve a missing mitigation.
 - **File name** `NNNN-<slug>.md`: four digits, a lowercase slug, numbers never reused.
   The id is `NNNN`.
 - **The title** is one small line after the id, in Simplified Technical English: the
@@ -34,6 +48,10 @@ plan and no card while one of those ADRs has a pending open question.
   and edits", and an accepted ADR goes back to `proposed` until the senior architect
   accepts the edit. A different answer to the same problem is a new ADR that supersedes
   this one.
+- **Repeat security review for security-relevant edits.** Before another approval request, changes
+  to trust boundaries, exposure, controls or mitigations get a new reviewed snapshot and report
+  revision. This includes changes made to address an earlier security report. Editorial-only edits
+  need no new security pass, but every edit still needs senior-architect acceptance.
 - **The proposed solution names its pattern** and reads as a pattern does: what we will
   implement, why it is good here, what it costs. "We will implement X. X will allow us to
   ... This gives us ... at the cost of ...". A pattern or a community practice is cited

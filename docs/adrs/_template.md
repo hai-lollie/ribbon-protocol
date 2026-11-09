@@ -38,6 +38,11 @@ Then: the rules of the solution as a table; the flow as a sequence diagram, its 
 path on the line above a mermaid block that is a copy of the file; the invariants a test
 must cover. What stays undecided goes under Open questions.
 
+State the security-relevant assets, trust boundaries, exposure, access rules, resource limits and
+secret lifecycle where applicable. Include the mitigations and verification conditions adopted
+from the security engineer's report. When the extent of the changes justifies a focused security
+ADR, link it here and under References; that ADR links back and passes the same security checkpoint.
+
 docs/diagrams/NNNN-<name>.mmd
 
 ```mermaid
@@ -81,11 +86,20 @@ No open questions found. 👀
 
 - <Title>, <author or standard>: <link>
 - <a changelog entry or a contract section, by id>
+- <the security report: ../llm-context/NNNN-security-r1.md; link the final reviewed revision>
+- <a related security ADR, when justified, with a link back from that ADR>
 
 ## Date and edits
 
 | Date | Edit | Asked by |
 |---|---|---|
 | YYYY-MM-DD | the first draft | <who> |
+| YYYY-MM-DD | security findings incorporated here or in a linked ADR | <architect> |
 
 Edits: 0.
+
+Before committing this ADR for senior-architect review: obtain the security report, incorporate
+applicable suggestions and append every finding's disposition in the report's Architect response.
+The final security-relevant design must be covered by the report; substantive security changes
+need a new security pass. Commit the ADRs, diagrams and reports together, then ask for approval.
+Replace the example edit rows and count above with the actual history.
