@@ -16,11 +16,12 @@ invariants on the inside.
 
 ## The flow at a glance
 
-![Ribbon Protocol flow: human brief, ADR draft, security review, architect incorporation, human ADR and plan approvals, scoped coding, verification, independent review, and a human merge decision.](ribbon-protocol-flow.svg)
+![Ribbon Protocol flow: you frame the problem, the architect drafts the ADR and diagrams, the security engineer challenges the design, you approve, the architect plans into cards, coders build card by card with evidence, the trusted verifier checks at the gate, an independent reviewer checks the commits against the plan, and you merge.](ribbon-protocol-flow.png)
 
-The [editable SVG](ribbon-protocol-flow.svg) shows the seven roles and recommended vendor/model
-versions. Model labels are recommendations, not claims of current availability. Resolve exact
-approved model identifiers and effort at launch; the architect and implementation reviewer must
+The [overview image](ribbon-protocol-flow.png) shows the nine flow steps and the recommended
+tool line: Claude, GPT, Kimi and GLM models, orchestrated by herdr in opencode. Vendor labels
+are recommendations, not claims of current availability. Resolve exact approved model
+identifiers and effort at launch; the architect and implementation reviewer must
 be different models. The security engineer is a fresh session, separate from both design
 authorship and the later implementation-review assignment.
 
@@ -79,7 +80,7 @@ plan's three implementation-review cycles.
 ```
 ribbon-protocol/
 ├── README.md                                  this file
-├── ribbon-protocol-flow.svg                    editable overview image embedded above
+├── ribbon-protocol-flow.png                    overview image embedded above
 ├── AGENTS.md                                  the protocol: done and when the loop stops, the belt, the loop, the decision
 │                                              budget, security design review, the homes, the plan and its cards, the seven steps, the reviewer's brief. Copied into every project
 ├── herdr-config.md                            the optional Herdr orchestration overlay, copied beside AGENTS.md
