@@ -75,16 +75,44 @@ The full checkpoint is in [AGENTS.md](AGENTS.md#security-design-review), and the
 [`_security.md`](docs/llm-context/_security.md). It does not replace human approval or consume the
 plan's three implementation-review cycles.
 
+## Works best with an agent handler
+
+The protocol assumes each role gets its own session, its own context, its own
+model: the architect plans, the coder codes, the reviewer reviews, and no agent
+grades its own work. That stays true only when something outside the models keeps
+the sessions apart. An agent handler does that: one terminal program the architect
+drives to spawn, watch and stop agents, each in its own pane with its own context —
+no shared window, no pre-loaded conversation leaking from one mind into another.
+
+![herdr drives one pane per agent: architect, security engineer, coder and reviewer each keep their own context and model, so no conversation leaks between them; away from the machine, Tailscale reaches the handler and Moshi follows from a phone (third parties, not affiliated).](agent-handler.svg)
+
+Any handler that isolates sessions works (herdr, orca, and similar). We recommend
+**herdr** for its simplicity, and this repository ships its overlay ready: copy
+`herdr-config.md` beside a project's `AGENTS.md` and the orchestration rules come
+with it.
+
+Away from the machine, two third-party tools improve the flow. They are not
+affiliated with this project. **Tailscale** reaches the handler from anywhere, and
+**Moshi** follows the agents from a phone: spawn, watch, and answer a question
+while away.
+
 ## What is in this repository
 
 ```
 ribbon-protocol/
 ├── README.md                                  this file
-├── LICENSE                                      Apache License 2.0
+├── LICENSE                                    Apache License 2.0
 ├── ribbon-protocol-flow.png                    overview image embedded above
+├── agent-handler.svg                           handler and agents: one pane, one mind
 ├── AGENTS.md                                  the protocol: done and when the loop stops, the belt, the loop, the decision
 │                                              budget, security design review, the homes, the plan and its cards, the seven steps, the reviewer's brief. Copied into every project
 ├── herdr-config.md                            the optional Herdr orchestration overlay, copied beside AGENTS.md
+├── AGENTS.standalone.md                       the source of the AGENTS.local.md block written by the standalone installer
+├── scripts/                                   the standalone installer and its tests
+│   ├── ribbon-new-project                     unpacks or updates a per-project standalone instance
+│   ├── ribbon-seed-project                    the full install into a project repository
+│   ├── test-ribbon-new-project.sh             the standalone installer's test suite
+│   └── test-ribbon-seed-project.sh            the full installer's test suite
 ├── VERSION                                    "ribbon N"
 ├── Ribbon-Protocol-Multi-LLM-FieldGuide.pdf   the reference guide, October 2026, working edition 1.0
 └── docs/                                      copied into every project
@@ -97,36 +125,96 @@ ribbon-protocol/
                                                _orchestration.md
 ```
 
-## Seed a project
+## Two ways to wear the belt 🎀
 
-From the root of your project, with this repository cloned at `~/dev/ribbon-protocol`:
+**Full install — the whole team wears it.** Seed the repository (the next section):
+`docs/` is committed with the project, so every collaborator and agent reads the same
+plans, cards, ADRs and evidence, and the decision history is the project's history.
+
+**Standalone — Ribbon for me.** Keep the working files out of the repository: clone this
+project to `~/ribbon-protocol`, unpack a per-project instance to `~/ribbon-projects/<name>/`,
+and commit only the final artifacts — `docs/adrs/` and `docs/diagrams/` — to the project.
+See "Standalone: Ribbon for me" below.
+
+## Seed a project (full install)
+
+**From the root of your project**, with this repository cloned at `~/ribbon-protocol`, run:
 
 ```sh
-RIBBON=~/dev/ribbon-protocol
-cp -r "$RIBBON/docs" docs                       # 1. the homes, the schemas, the templates
-cat "$RIBBON/AGENTS.md" >> AGENTS.md            # 2. the protocol, appended to your agent rules (or cp when none exist)
-cp "$RIBBON/herdr-config.md" herdr-config.md    # 3. the optional Herdr overlay, beside AGENTS.md
-# 4. only for a tool that reads CLAUDE.md: create it or add the missing import without overwriting
-if [ ! -e CLAUDE.md ]; then printf '@AGENTS.md\n@herdr-config.md\n' > CLAUDE.md; fi
-if ! grep -qxF '@herdr-config.md' CLAUDE.md; then printf '\n@herdr-config.md\n' >> CLAUDE.md; fi
-cat "$RIBBON/VERSION"                           # 5. write this version into docs/README.md, first line
-git add AGENTS.md herdr-config.md docs           # 6.
-if [ -e CLAUDE.md ]; then git add CLAUDE.md; fi
-git commit -m "Seed the Ribbon Protocol, ribbon 1"
+~/ribbon-protocol/scripts/ribbon-seed-project .
 ```
 
-An existing Claude-based project keeps its current `CLAUDE.md` and adds
-`@herdr-config.md`; do not overwrite that file during seeding.
+The script copies `docs/` (homes, schemas, templates, field guide) into the project,
+stamps the seed version into `docs/README.md`, appends the protocol to the project's
+`AGENTS.md` — creating one when none exists, preserving everything already there —
+copies `herdr-config.md` beside it, keeps any existing `CLAUDE.md` and adds the missing
+`@herdr-config.md` import without overwriting, and commits it all as one
+`Seed the Ribbon Protocol, ribbon N` commit. It refuses to re-seed; a seeded project
+merges later template changes by hand (see "Versioning"). Point `--ribbon-home` at the
+template when it does not live at `~/ribbon-protocol`.
 
 Then fill the belt (next section), and tell your architect to read `AGENTS.md`,
 `docs/README.md` and `docs/field-guide.md`, in that order. An architect inside Herdr also reads
 `herdr-config.md` before execution. That is the full context: an architect who has never heard of
 the protocol can start from those files.
 
+## Standalone: Ribbon for me
+
+For a project where you want the guardrails but cannot (or do not want to) check the
+working files into the repository. Clone this project to `~/ribbon-protocol`.
+
+One rule before you start: **create the directories yourself, then run the scripts.**
+The installer never creates the `--projects` directory, and both scripts refuse a path
+that does not exist, is not writable with your permissions, or is missing its
+`AGENTS.md` — a mistyped path fails with a clear message instead of silently installing
+into a fresh, wrong directory.
+
+```sh
+# create where your instances will live — the script never creates it for you
+mkdir -p ~/ribbon-projects
+
+# unpack an instance for a project
+~/ribbon-protocol/scripts/ribbon-new-project --projects ~/ribbon-projects my-project ~/dev/my-project
+
+# when a new "ribbon N" appears: refresh template files, seed version and the
+# AGENTS.md block — live plans, cards and reports are never touched, and the
+# repo path is read from the instance
+~/ribbon-protocol/scripts/ribbon-new-project --update my-project --projects ~/ribbon-projects
+
+# rebuild an instance from scratch (discards its working files)
+~/ribbon-protocol/scripts/ribbon-new-project --force --projects ~/ribbon-projects my-project ~/dev/my-project
+```
+
+Both scripts print their full usage with `-h`.
+
+It unpacks `~/ribbon-projects/my-project/` holding `docs/tasks/` and `docs/llm-context/`
+seeded from this template, records the seed version, and links the instance to the
+project repo. Into the project it writes three small things: `AGENTS.local.md` — a
+marked block telling every agent where each file lives and that ADRs and diagrams are
+written into the project repository; a one-line pointer in `AGENTS.md` so agents find
+that block; and `herdr-config.md` beside `AGENTS.md`. `AGENTS.local.md` is personal to
+your machine: add it to the project's `.gitignore`.
+
+This project uses `AGENTS.md`. If you use Claude Code, connect its instruction
+files once per project — either as symlinks:
+
+    ln -s AGENTS.md CLAUDE.md
+    ln -s AGENTS.local.md CLAUDE.local.md
+
+or as imports: create `CLAUDE.md` with `@AGENTS.md` as its content (add
+`@AGENTS.local.md` on the next line if Claude should read the local block too).
+
+`--projects` has no default: pass wherever your instances should live. `--force`
+rebuilds an existing instance; when a new `ribbon N` appears, `--update` refreshes an
+instance's template and schema files, seed version and `AGENTS.local.md` block — live
+plans, cards and reports are never touched. Instances are personal and unversioned.
+
 ## Fill the belt
 
-Open your project's `AGENTS.md`, find the table under **The belt**, and replace every
-`TODO(belt)`:
+Full install: open your project's `AGENTS.md`, find the table under **The belt** inside
+the marked protocol block, and replace every `TODO(belt)`. Standalone: the table lives
+in your project's `AGENTS.local.md`, inside the marked standalone block — replace every
+`TODO(belt)` there and leave the shared `AGENTS.md` alone.
 
 - **Senior architect:** a person's name. This role is never an LLM.
 - **Architect, Independent reviewer, General coder, Entry-level coder:** the agent's
@@ -155,9 +243,13 @@ class and risk; see "Which LLM should do what?" in the field guide.
 ## Versioning
 
 `VERSION` holds `ribbon N`. A project writes the version it was seeded from on the first
-line of its `docs/README.md`. To re-seed, diff your `docs/` against the template's and
-copy what changed; the protocol text in `AGENTS.md` is replaced whole, and `herdr-config.md` is
-copied beside it again. Preserve an existing project's own `CLAUDE.md` imports.
+line of its `docs/README.md`; both seed scripts stamp it automatically. When a new
+`ribbon N` appears, a standalone instance refreshes with `scripts/ribbon-new-project
+--update <name> --projects DIR` — template and schema files, seed version and the
+AGENTS.md block, never live plans, cards or reports. A full-installed project merges by
+hand: diff your `docs/` against the template's and copy what changed; the protocol text
+in `AGENTS.md` is replaced whole between its markers, and `herdr-config.md` is copied
+beside it again. Preserve an existing project's own `CLAUDE.md` imports.
 
 ## The reference guide
 
@@ -168,6 +260,20 @@ Neither includes later protocol amendments such as the security-engineer checkpo
 The guide is a reusable engineering framework, not a claim that any model will follow every
 instruction. Verify current model capabilities, pricing and provider terms when you
 implement routing. Organisational security policy always overrides personal workflows.
+
+## Questions, bugs, ideas
+
+File an issue on [GitHub](https://github.com/hai-lollie/ribbon-protocol/issues) and
+flag it with one label:
+
+- **`bug`** — something misbehaves: a script fails, a template is wrong, or the docs
+  contradict the code.
+- **`documentation`** — something is unclear, missing or wrong in the docs.
+- **`enhancement`** — an idea that would make the protocol better.
+
+Pull requests are not accepted at this time; issues that make sense for the project
+will be picked up and worked on. A short issue with one concrete example beats a long
+one with abstractions.
 
 ## License
 

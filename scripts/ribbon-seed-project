@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+# ribbon-seed-project — the full install: seed a project repository with the
+# Ribbon Protocol, committed for every collaborator and agent.
+#
+# Usage: scripts/ribbon-seed-project [--ribbon-home DIR] <project-repo-path>
+#
+# Copies docs/ into the project, stamps the seed version into
+# docs/README.md, appends the protocol to the project's AGENTS.md (or creates
+# one), copies herdr-config.md beside it, keeps any CLAUDE.md import story
+# intact, and commits everything as "Seed the Ribbon Protocol, ribbon N".
+#
+# --ribbon-home DIR points at the template checkout; it defaults to the
+# repository containing this script, so a clone at ~/ribbon-protocol needs
+# no flags.
+
+set -euo pipefail
+
+readonly START_MARK='<!-- ribbon:full-install:start -->'
+readonly END_MARK='<!-- ribbon:full-install:end -->'
+
+# State set by parse_args and consumed by the pipeline below.
+RIBBON_HOME=''
+PROJECT_REPO=''
+COMMIT_NOTE=''
+
+#######################################
+# Print an error message to STDERR and exit.
+# Arguments:
+#   Message text.
+# Outputs:
+#   Writes to STDERR.
+#######################################
+die() {
+  printf 'ribbon-seed-project: %s\n' "$*" >&2
+  exit 1
+}
+
+#######################################
+# Print usage to STDOUT.
+# Outputs:
+#   Writes to STDOUT.
+#######################################
+usage() {
+  cat <<'EOF'
+Usage: scripts/ribbon-seed-project [--ribbon-home DIR] <project-repo-path>
+
+  --ribbon-home DIR  the ribbon-protocol template checkout; defaults to the
+                     repository containing this script
+
+Copies docs/ into the project, stamps the seed version, appends the protocol
+to AGENTS.md (or creates one), copies herdr-config.md beside it, keeps the
+CLAUDE.md import story, and commits one "Seed the Ribbon Protocol, ribbon N"
+commit. Refuses to re-seed.
+EOF
+}
+
+#######################################
+# Parse the command line into the state globals.
+# Globals:
+#   RIBBON_HOME, PROJECT_REPO
+# Arguments:
+#   The raw command line.
+#######################################
+parse_args() {
+  local ribbon_home_override=''
+  local -a positional=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --ribbon-home) shift; ribbon_home_override="${1:-}"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) positional+=("$1"); shift ;;
+    esac
+  done
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  RIBBON_HOME="${ribbon_home_override:-$(cd "${script_dir}/.." && pwd)}"
+  PROJECT_REPO="${positional[0]:-}"
+}
+
+#######################################
+# Validate inputs and resolve the project repository path.
+# Globals:
+#   RIBBON_HOME, PROJECT_REPO (set)
+#######################################
+resolve_repo() {
+  [[ -n "${PROJECT_REPO}" ]] || { usage; die "missing <project-repo-path>"; }
+  [[ -f "${RIBBON_HOME}/AGENTS.md" && -d "${RIBBON_HOME}/docs" ]] \
+    || die "template not found under ${RIBBON_HOME} (point --ribbon-home at the template repo)"
+  [[ -d "${PROJECT_REPO}" ]] || die "project repo not found: ${PROJECT_REPO}"
+  [[ -w "${PROJECT_REPO}" && -x "${PROJECT_REPO}" ]] \
+    || die "project repo is not writable with your permissions: ${PROJECT_REPO}"
+  [[ ! -f "${PROJECT_REPO}/docs/README.md" ]] \
+    || die "${PROJECT_REPO} is already seeded (docs/README.md exists); merge template changes by hand"
+  PROJECT_REPO="$(realpath "${PROJECT_REPO}")"
+}
+
+#######################################
+# Copy the template docs/ into the project and stamp the seed version.
+# Globals:
+#   RIBBON_HOME, PROJECT_REPO
+#######################################
+seed_docs() {
+  local version
+  version="$(head -1 "${RIBBON_HOME}/VERSION")"
+  cp -R "${RIBBON_HOME}/docs" "${PROJECT_REPO}/docs"
+  sed -i "1s|<ribbon-version>|${version}|" "${PROJECT_REPO}/docs/README.md"
+}
+
+#######################################
+# Append the protocol to the project's AGENTS.md, or create one. The
+# appended copy is wrapped in markers so a later re-seed can find it.
+# Globals:
+#   RIBBON_HOME, PROJECT_REPO
+#######################################
+wire_agents_md() {
+  if [[ ! -f "${PROJECT_REPO}/AGENTS.md" ]]; then
+    cp "${RIBBON_HOME}/AGENTS.md" "${PROJECT_REPO}/AGENTS.md"
+    return
+  fi
+  if grep -q "${START_MARK}" "${PROJECT_REPO}/AGENTS.md"; then
+    return
+  fi
+  {
+    printf '\n%s\n' "${START_MARK}"
+    cat "${RIBBON_HOME}/AGENTS.md"
+    printf '%s\n' "${END_MARK}"
+  } >> "${PROJECT_REPO}/AGENTS.md"
+}
+
+#######################################
+# Copy herdr-config.md beside AGENTS.md.
+# Globals:
+#   RIBBON_HOME, PROJECT_REPO
+#######################################
+wire_herdr() {
+  cp "${RIBBON_HOME}/herdr-config.md" "${PROJECT_REPO}/herdr-config.md"
+}
+
+#######################################
+# Create CLAUDE.md with the imports, or extend an existing one without
+# overwriting it.
+# Globals:
+#   PROJECT_REPO
+#######################################
+wire_claude_md() {
+  if [[ ! -e "${PROJECT_REPO}/CLAUDE.md" ]]; then
+    printf '@AGENTS.md\n@herdr-config.md\n' > "${PROJECT_REPO}/CLAUDE.md"
+  elif ! grep -qxF '@herdr-config.md' "${PROJECT_REPO}/CLAUDE.md"; then
+    printf '\n@herdr-config.md\n' >> "${PROJECT_REPO}/CLAUDE.md"
+  fi
+}
+
+#######################################
+# Commit the seed as one commit when the project is a git repository.
+# Globals:
+#   PROJECT_REPO, COMMIT_NOTE (set)
+#######################################
+commit_seed() {
+  local version
+  version="$(head -1 "${RIBBON_HOME}/VERSION")"
+  if git -C "${PROJECT_REPO}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "${PROJECT_REPO}" add AGENTS.md herdr-config.md docs
+    if [[ -e "${PROJECT_REPO}/CLAUDE.md" ]]; then
+      git -C "${PROJECT_REPO}" add CLAUDE.md
+    fi
+    git -C "${PROJECT_REPO}" commit -m "Seed the Ribbon Protocol, ${version}"
+    COMMIT_NOTE="committed as 'Seed the Ribbon Protocol, ${version}'"
+  else
+    COMMIT_NOTE='not a git repository, nothing committed'
+  fi
+}
+
+#######################################
+# Print a summary of what happened.
+# Globals:
+#   PROJECT_REPO, COMMIT_NOTE, START_MARK, END_MARK, RIBBON_HOME
+#######################################
+print_summary() {
+  local version
+  version="$(head -1 "${RIBBON_HOME}/VERSION")"
+  cat <<EOF
+Seeded the Ribbon Protocol (${version}) into ${PROJECT_REPO}:
+
+  docs/           homes, schemas, templates, field guide
+  AGENTS.md       protocol appended (${START_MARK} .. ${END_MARK})
+  herdr-config.md the optional Herdr overlay, beside AGENTS.md
+  CLAUDE.md       imports preserved or created
+  git:            ${COMMIT_NOTE}
+
+Next: fill the belt — open AGENTS.md, replace every TODO(belt) with your
+names, models and gate commands.
+EOF
+}
+
+#######################################
+# Entry point: validate, seed, wire, commit, report.
+# Arguments:
+#   The raw command line.
+#######################################
+main() {
+  parse_args "$@"
+  resolve_repo
+  seed_docs
+  wire_agents_md
+  wire_herdr
+  wire_claude_md
+  commit_seed
+  print_summary
+}
+
+main "$@"
