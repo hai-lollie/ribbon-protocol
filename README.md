@@ -136,7 +136,7 @@ project to `~/ribbon-protocol`, unpack a per-project instance to `~/ribbon-proje
 and commit only the final artifacts — `docs/adrs/` and `docs/diagrams/` — to the project.
 See "Standalone: Ribbon for me" below.
 
-## Seed a project (full install)
+## Seed a project (full install) 👥
 
 **From the root of your project**, with this repository cloned at `~/ribbon-protocol`, run:
 
@@ -158,7 +158,7 @@ Then fill the belt (next section), and tell your architect to read `AGENTS.md`,
 `herdr-config.md` before execution. That is the full context: an architect who has never heard of
 the protocol can start from those files.
 
-## Standalone: Ribbon for me
+## Standalone: Ribbon for me 👩
 
 For a project where you want the guardrails but cannot (or do not want to) check the
 working files into the repository. Clone this project to `~/ribbon-protocol`.
@@ -209,7 +209,7 @@ rebuilds an existing instance; when a new `ribbon N` appears, `--update` refresh
 instance's template and schema files, seed version and `AGENTS.local.md` block — live
 plans, cards and reports are never touched. Instances are personal and unversioned.
 
-## Fill the belt
+## Fill the belt 🎗️
 
 Full install: open your project's `AGENTS.md`, find the table under **The belt** inside
 the marked protocol block, and replace every `TODO(belt)`. Standalone: the table lives
@@ -261,7 +261,7 @@ The guide is a reusable engineering framework, not a claim that any model will f
 instruction. Verify current model capabilities, pricing and provider terms when you
 implement routing. Organisational security policy always overrides personal workflows.
 
-## Questions, bugs, ideas
+## Questions, bugs, ideas ❓
 
 File an issue on [GitHub](https://github.com/hai-lollie/ribbon-protocol/issues) and
 flag it with one label:
