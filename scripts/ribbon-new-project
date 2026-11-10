@@ -1,0 +1,349 @@
+#!/usr/bin/env bash
+# ribbon-new-project — unpack or update a standalone Ribbon Protocol instance
+# for one project.
+#
+# Usage:
+#   scripts/ribbon-new-project [--force] --projects DIR [--ribbon-home DIR] \
+#       <project-name> <project-repo-path>
+#   scripts/ribbon-new-project --update --projects DIR [--ribbon-home DIR] \
+#       <project-name> [project-repo-path]
+#
+# Install creates <projects-dir>/<project-name>/ holding the working files
+# Ribbon needs (docs/tasks, docs/llm-context, seeded docs/README.md, a
+# project-repo pointer), seeds it from the template repository, writes a
+# marked standalone block into the project's AGENTS.local.md (personal to
+# this machine — add it to .gitignore), and adds a one-line pointer to
+# AGENTS.md so agents find it. Only the final artifacts (docs/adrs,
+# docs/diagrams) are ever written into the project repository.
+#
+# --update refreshes an existing instance: template and schema files are
+# replaced from the template, the seed version and the AGENTS.md block are
+# rewritten; live plans, cards and reports are never touched.
+
+set -euo pipefail
+
+readonly START_MARK='<!-- ribbon:standalone:start -->'
+readonly END_MARK='<!-- ribbon:standalone:end -->'
+
+# State set by parse_args and consumed by the pipeline below.
+FORCE=0
+UPDATE=0
+PROJECTS_DIR=''
+RIBBON_HOME=''
+PROJECT_NAME=''
+PROJECT_REPO=''
+INSTANCE=''
+HERDR_NOTE=''
+
+#######################################
+# Print an error message to STDERR and exit.
+# Arguments:
+#   Message text.
+# Outputs:
+#   Writes to STDERR.
+#######################################
+die() {
+  printf 'ribbon-new-project: %s\n' "$*" >&2
+  exit 1
+}
+
+#######################################
+# Print usage to STDOUT.
+# Outputs:
+#   Writes to STDOUT.
+#######################################
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/ribbon-new-project [--force] --projects DIR [--ribbon-home DIR] \
+      <project-name> <project-repo-path>
+  scripts/ribbon-new-project --update --projects DIR [--ribbon-home DIR] \
+      <project-name> [project-repo-path]
+
+  --projects DIR     where per-project instances live (required, no default)
+  --ribbon-home DIR  the ribbon-protocol template checkout; defaults to the
+                     repository containing this script
+  --force            rebuild an existing instance from scratch
+  --update           refresh an existing instance's templates, seed version
+                     and AGENTS.md block; live files are never touched
+EOF
+}
+
+#######################################
+# Parse the command line into the state globals.
+# Globals:
+#   FORCE, UPDATE, PROJECTS_DIR, RIBBON_HOME, PROJECT_NAME, PROJECT_REPO
+# Arguments:
+#   The raw command line.
+#######################################
+parse_args() {
+  local ribbon_home_override=''
+  local -a positional=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --projects) shift; PROJECTS_DIR="${1:-}"; shift ;;
+      --ribbon-home) shift; ribbon_home_override="${1:-}"; shift ;;
+      --force) FORCE=1; shift ;;
+      --update) UPDATE=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) positional+=("$1"); shift ;;
+    esac
+  done
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  RIBBON_HOME="${ribbon_home_override:-$(cd "${script_dir}/.." && pwd)}"
+  PROJECT_NAME="${positional[0]:-}"
+  PROJECT_REPO="${positional[1]:-}"
+}
+
+#######################################
+# Validate the state globals that do not touch the filesystem.
+# Globals:
+#   PROJECTS_DIR, FORCE, UPDATE, PROJECT_NAME
+#######################################
+validate_flags() {
+  [[ -n "${PROJECTS_DIR}" ]] \
+    || die "--projects DIR is required (no environment default)"
+  if (( FORCE == 1 && UPDATE == 1 )); then
+    die "--force and --update do not combine"
+  fi
+  [[ -n "${PROJECT_NAME}" ]] || { usage; die "missing <project-name>"; }
+  [[ "${PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9-]*$ ]] \
+    || die "invalid project name '${PROJECT_NAME}' (lowercase letters, digits and dashes only)"
+}
+
+#######################################
+# Validate that the projects directory exists and allows writing and
+# traversing with the current user's permissions.
+# Globals:
+#   PROJECTS_DIR
+#######################################
+validate_projects_dir() {
+  [[ -d "${PROJECTS_DIR}" ]] \
+    || die "--projects dir does not exist: ${PROJECTS_DIR}"$'\n'"create it yourself and re-run, e.g.: mkdir -p '${PROJECTS_DIR}'"
+  [[ -w "${PROJECTS_DIR}" && -x "${PROJECTS_DIR}" ]] \
+    || die "--projects dir is not writable with your permissions: ${PROJECTS_DIR}"
+}
+
+#######################################
+# Validate that the template repository has everything an instance needs.
+# Globals:
+#   RIBBON_HOME
+#######################################
+validate_template() {
+  [[ -f "${RIBBON_HOME}/AGENTS.standalone.md" ]] \
+    || die "template not found: ${RIBBON_HOME}/AGENTS.standalone.md (point --ribbon-home at the template repo)"
+  [[ -d "${RIBBON_HOME}/docs/tasks" && -d "${RIBBON_HOME}/docs/llm-context" ]] \
+    || die "template docs not found under ${RIBBON_HOME}/docs"
+}
+
+#######################################
+# Resolve the project repository path for this run. In --update mode with no
+# path given, the instance's project-repo pointer is used.
+# Globals:
+#   UPDATE, INSTANCE, PROJECT_REPO (set), PROJECTS_DIR, PROJECT_NAME
+#######################################
+resolve_repo() {
+  INSTANCE="${PROJECTS_DIR}/${PROJECT_NAME}"
+  if (( UPDATE == 1 )); then
+    [[ -d "${INSTANCE}" ]] || die "no instance to update: ${INSTANCE}"
+    [[ -w "${INSTANCE}" && -x "${INSTANCE}" ]] \
+      || die "instance is not writable with your permissions: ${INSTANCE}"
+    if [[ -z "${PROJECT_REPO}" ]]; then
+      [[ -f "${INSTANCE}/project-repo" ]] \
+        || die "no repo path given and ${INSTANCE}/project-repo is missing"
+      PROJECT_REPO="$(cat "${INSTANCE}/project-repo")"
+    fi
+  else
+    [[ -n "${PROJECT_REPO}" ]] || die "missing <project-repo-path>"
+    if [[ -e "${INSTANCE}" ]]; then
+      (( FORCE == 1 )) \
+        || die "instance already exists: ${INSTANCE} (re-run with --force to rebuild, or --update to refresh templates)"
+      rm -rf "${INSTANCE}"
+    fi
+  fi
+  [[ -d "${PROJECT_REPO}" ]] || die "project repo not found: ${PROJECT_REPO}"
+  [[ -w "${PROJECT_REPO}" && -x "${PROJECT_REPO}" ]] \
+    || die "project repo is not writable with your permissions: ${PROJECT_REPO}"
+  [[ -f "${PROJECT_REPO}/AGENTS.md" ]] \
+    || die "no AGENTS.md in ${PROJECT_REPO}; create one before unpacking"
+  [[ -w "${PROJECT_REPO}/AGENTS.md" ]] \
+    || die "AGENTS.md is not writable with your permissions: ${PROJECT_REPO}/AGENTS.md"
+  PROJECT_REPO="$(realpath "${PROJECT_REPO}")"
+}
+
+#######################################
+# Seed or refresh the instance's docs tree. A full install copies everything;
+# --update copies only template and schema files, preserving live work.
+# Globals:
+#   UPDATE, RIBBON_HOME, INSTANCE
+#######################################
+unpack_docs() {
+  mkdir -p "${INSTANCE}/docs/tasks" "${INSTANCE}/docs/llm-context/history"
+  if (( UPDATE == 0 )); then
+    cp -R "${RIBBON_HOME}/docs/tasks/." "${INSTANCE}/docs/tasks/"
+    cp -R "${RIBBON_HOME}/docs/llm-context/." "${INSTANCE}/docs/llm-context/"
+    return
+  fi
+  local f
+  for f in "${RIBBON_HOME}/docs/tasks"/README.md "${RIBBON_HOME}/docs/tasks"/_template.*; do
+    [[ -e "${f}" ]] && cp "${f}" "${INSTANCE}/docs/tasks/"
+  done
+  for f in "${RIBBON_HOME}/docs/llm-context"/README.md "${RIBBON_HOME}/docs/llm-context"/_*.md; do
+    [[ -e "${f}" ]] && cp "${f}" "${INSTANCE}/docs/llm-context/"
+  done
+}
+
+#######################################
+# Write the instance's docs/README.md with the current template version.
+# Globals:
+#   RIBBON_HOME, INSTANCE, PROJECT_NAME, PROJECT_REPO
+#######################################
+write_instance_readme() {
+  local version
+  version="$(head -1 "${RIBBON_HOME}/VERSION")"
+  cat > "${INSTANCE}/docs/README.md" <<EOF
+${version}
+
+Standalone Ribbon Protocol instance for ${PROJECT_NAME}.
+Linked project repo: ${PROJECT_REPO}
+Seeded from: ${RIBBON_HOME} — the protocol text (AGENTS.md) and the field guide are read from there, unchanged.
+Final artifacts are written into the project repo: ${PROJECT_REPO}/docs/adrs and ${PROJECT_REPO}/docs/diagrams.
+EOF
+}
+
+#######################################
+# Write the one-line project-repo pointer.
+# Globals:
+#   INSTANCE, PROJECT_REPO
+#######################################
+write_pointer() {
+  printf '%s\n' "${PROJECT_REPO}" > "${INSTANCE}/project-repo"
+}
+
+#######################################
+# Replace (or append) the marked standalone block in the project's
+# AGENTS.local.md, creating it when missing. Existing local content is
+# preserved; only the marked block is rewritten.
+# Globals:
+#   RIBBON_HOME, PROJECTS_DIR, INSTANCE, PROJECT_NAME, PROJECT_REPO
+#######################################
+write_local_block() {
+  local local_md="${PROJECT_REPO}/AGENTS.local.md"
+  if [[ -f "${local_md}" ]]; then
+    [[ -w "${local_md}" ]] \
+      || die "AGENTS.local.md is not writable with your permissions: ${local_md}"
+  else
+    : > "${local_md}"
+  fi
+  python3 - "${RIBBON_HOME}/AGENTS.standalone.md" "${local_md}" \
+    "${RIBBON_HOME}" "${PROJECTS_DIR}" "${INSTANCE}" "${PROJECT_NAME}" "${PROJECT_REPO}" <<'PY'
+import sys
+
+block_path, agents_path, ribbon_home, projects_dir, instance, name, repo = sys.argv[1:8]
+
+with open(block_path) as fh:
+    block = fh.read()
+for placeholder, value in [
+    ("{{RIBBON_HOME}}", ribbon_home),
+    ("{{RIBBON_PROJECTS}}", projects_dir),
+    ("{{INSTANCE}}", instance),
+    ("{{PROJECT_NAME}}", name),
+    ("{{PROJECT_REPO}}", repo),
+]:
+    block = block.replace(placeholder, value)
+
+start, end = "<!-- ribbon:standalone:start -->", "<!-- ribbon:standalone:end -->"
+marked = f"{start}\n{block.rstrip()}\n{end}\n"
+
+with open(agents_path) as fh:
+    content = fh.read()
+
+if start in content:
+    head = content.split(start, 1)[0]
+    tail = content.split(end, 1)[1] if end in content else ""
+    content = head + marked + tail
+else:
+    if content and not content.endswith("\n"):
+        content += "\n"
+    content += "\n" + marked
+
+with open(agents_path, "w") as fh:
+    fh.write(content)
+PY
+}
+
+#######################################
+# Add a one-line pointer to AGENTS.local.md in the project AGENTS.md, so
+# agents that read only AGENTS.md find the standalone instructions. Does
+# nothing when AGENTS.md already references AGENTS.local.md.
+# Globals:
+#   PROJECT_REPO
+#######################################
+ensure_pointer() {
+  local agents_md="${PROJECT_REPO}/AGENTS.md"
+  if ! grep -q 'AGENTS\.local\.md' "${agents_md}"; then
+    printf '\n%s\n' \
+      "Ribbon Protocol (standalone): this machine's working files live outside this repository; read AGENTS.local.md for where each file lives." \
+      >> "${agents_md}"
+  fi
+}
+
+#######################################
+# Copy herdr-config.md beside the project AGENTS.md when none is there.
+# Globals:
+#   RIBBON_HOME, PROJECT_REPO, HERDR_NOTE (set)
+#######################################
+wire_herdr() {
+  HERDR_NOTE='herdr-config.md already present, left unchanged'
+  if [[ ! -f "${PROJECT_REPO}/herdr-config.md" ]]; then
+    cp "${RIBBON_HOME}/herdr-config.md" "${PROJECT_REPO}/herdr-config.md"
+    HERDR_NOTE='herdr-config.md copied beside AGENTS.md'
+  fi
+}
+
+#######################################
+# Print a summary of what happened.
+# Globals:
+#   UPDATE, INSTANCE, PROJECT_NAME, PROJECT_REPO, HERDR_START_MARK, END_MARK
+#######################################
+print_summary() {
+  local mode='Unpacked'
+  (( UPDATE == 1 )) && mode='Updated'
+  cat <<EOF
+${mode} Ribbon Protocol instance for ${PROJECT_NAME}:
+
+  instance:        ${INSTANCE}
+  working files:   ${INSTANCE}/docs/tasks, ${INSTANCE}/docs/llm-context
+  project repo:    ${PROJECT_REPO}
+  artifacts go to: ${PROJECT_REPO}/docs/adrs, ${PROJECT_REPO}/docs/diagrams
+  AGENTS.local.md: standalone block refreshed (${START_MARK} .. ${END_MARK})
+  AGENTS.md:       one-line pointer added (see AGENTS.local.md)
+  gitignore:       add AGENTS.local.md — it is personal to this machine
+  herdr:           ${HERDR_NOTE}
+
+Next: read the protocol at ${RIBBON_HOME}/AGENTS.md — it governs unchanged.
+EOF
+}
+
+#######################################
+# Entry point: validate, resolve, unpack, wire, report.
+# Arguments:
+#   The raw command line.
+#######################################
+main() {
+  parse_args "$@"
+  validate_flags
+  validate_projects_dir
+  validate_template
+  resolve_repo
+  unpack_docs
+  write_instance_readme
+  write_pointer
+  write_local_block
+  ensure_pointer
+  wire_herdr
+  print_summary
+}
+
+main "$@"

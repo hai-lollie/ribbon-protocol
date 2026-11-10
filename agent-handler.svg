@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 470" font-family="system-ui, -apple-system, sans-serif">
+  <rect width="820" height="470" rx="18" fill="#FFF7FA"/>
+
+  <!-- title ribbon -->
+  <text x="410" y="34" text-anchor="middle" font-size="17" font-weight="700" fill="#3D2C4A">One handler, many minds</text>
+
+  <!-- herdr box -->
+  <rect x="270" y="52" width="280" height="62" rx="14" fill="#FFE3EE" stroke="#E79EC3" stroke-width="2"/>
+  <text x="410" y="80" text-anchor="middle" font-size="21" font-weight="700" fill="#3D2C4A">herdr</text>
+  <text x="410" y="101" text-anchor="middle" font-size="13" fill="#7A648C">agent handler — the architect drives it</text>
+
+  <!-- connector curves from herdr to each pane -->
+  <g stroke="#9B8CD9" stroke-width="2" fill="none">
+    <path d="M 340 114 C 240 140, 130 150, 115 178"/>
+    <path d="M 380 114 C 330 145, 290 155, 305 178"/>
+    <path d="M 440 114 C 490 145, 530 155, 515 178"/>
+    <path d="M 480 114 C 580 140, 690 150, 705 178"/>
+  </g>
+  <text x="410" y="152" text-anchor="middle" font-size="12.5" fill="#7A648C">spawn · watch · stop</text>
+
+  <!-- panes: one per agent -->
+  <g>
+    <rect x="25"  y="178" width="180" height="132" rx="12" fill="#F6F3FF" stroke="#9B8CD9" stroke-width="2"/>
+    <rect x="220" y="178" width="180" height="132" rx="12" fill="#F6F3FF" stroke="#9B8CD9" stroke-width="2"/>
+    <rect x="420" y="178" width="180" height="132" rx="12" fill="#F6F3FF" stroke="#9B8CD9" stroke-width="2"/>
+    <rect x="615" y="178" width="180" height="132" rx="12" fill="#F6F3FF" stroke="#9B8CD9" stroke-width="2"/>
+  </g>
+  <g text-anchor="middle" fill="#3D2C4A">
+    <text x="115" y="208" font-size="15" font-weight="700">Architect</text>
+    <text x="115" y="226" font-size="12" fill="#7A648C">Kuro-chan</text>
+    <text x="310" y="208" font-size="15" font-weight="700">Security engineer</text>
+    <text x="310" y="226" font-size="12" fill="#7A648C">fresh session</text>
+    <text x="510" y="208" font-size="15" font-weight="700">Coder</text>
+    <text x="510" y="226" font-size="12" fill="#7A648C">Kimi-chan</text>
+    <text x="705" y="208" font-size="15" font-weight="700">Reviewer</text>
+    <text x="705" y="226" font-size="12" fill="#7A648C">Kodo-chan</text>
+  </g>
+  <!-- each pane's own context -->
+  <g fill="#FFFFFF" stroke="#C9A3D9" stroke-width="1.5" stroke-dasharray="5 4">
+    <rect x="45"  y="244" width="140" height="46" rx="9"/>
+    <rect x="240" y="244" width="140" height="46" rx="9"/>
+    <rect x="440" y="244" width="140" height="46" rx="9"/>
+    <rect x="635" y="244" width="140" height="46" rx="9"/>
+  </g>
+  <g text-anchor="middle" font-size="12" fill="#7A648C">
+    <text x="115" y="264">own context</text><text x="115" y="280">own model</text>
+    <text x="310" y="264">own context</text><text x="310" y="280">own model</text>
+    <text x="510" y="264">own context</text><text x="510" y="280">own model</text>
+    <text x="705" y="264">own context</text><text x="705" y="280">own model</text>
+  </g>
+
+  <!-- the point of it all -->
+  <rect x="25" y="342" width="770" height="52" rx="12" fill="#DFF5E1" stroke="#7FBF8E" stroke-width="2"/>
+  <text x="410" y="366" text-anchor="middle" font-size="14" font-weight="600" fill="#2F4A38">Separate panes, separate contexts — no conversation leaks from one agent into another.</text>
+  <text x="410" y="385" text-anchor="middle" font-size="12.5" fill="#55705E">The architect controls every agent without pre-loading their minds.</text>
+
+  <!-- remote note -->
+  <text x="410" y="430" text-anchor="middle" font-size="12" fill="#7A648C">Away from the machine: Tailscale reaches the handler, Moshi follows from a phone.</text>
+  <text x="410" y="448" text-anchor="middle" font-size="11" fill="#A78FB8">Tailscale and Moshi are third parties, not affiliated with this project.</text>
+</svg>
