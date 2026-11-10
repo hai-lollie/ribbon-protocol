@@ -80,6 +80,7 @@ plan's three implementation-review cycles.
 ```
 ribbon-protocol/
 ├── README.md                                  this file
+├── LICENSE                                      Apache License 2.0
 ├── ribbon-protocol-flow.png                    overview image embedded above
 ├── AGENTS.md                                  the protocol: done and when the loop stops, the belt, the loop, the decision
 │                                              budget, security design review, the homes, the plan and its cards, the seven steps, the reviewer's brief. Copied into every project
@@ -167,3 +168,17 @@ Neither includes later protocol amendments such as the security-engineer checkpo
 The guide is a reusable engineering framework, not a claim that any model will follow every
 instruction. Verify current model capabilities, pricing and provider terms when you
 implement routing. Organisational security policy always overrides personal workflows.
+
+## License
+
+Copyright 2026 Lollie (hai-lollie)
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
+work except in compliance with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under
+the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+ANY KIND, either express or implied. See the License for the specific language
+governing permissions and limitations under the License.
