@@ -71,6 +71,17 @@ block_count() {
   grep -c 'ribbon:standalone:start' "${SANDBOX}/repos/example-project/AGENTS.local.md" 2>/dev/null || true
 }
 
+#######################################
+# Count the belt marks in the project AGENTS.local.md.
+# Arguments:
+#   1: the belt mark text to count.
+# Outputs:
+#   The mark count on stdout.
+#######################################
+belt_count() {
+  grep -c "$1" "${SANDBOX}/repos/example-project/AGENTS.local.md" 2>/dev/null || true
+}
+
 test_installer_exists() {
   [[ -x "${INSTALLER}" ]]
 }
@@ -267,6 +278,126 @@ test_update_keeps_one_block() {
   [[ "$(block_count)" == "1" ]]
 }
 
+test_update_keeps_filled_belt() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
+  sed -i "s/TODO(belt): a person's name/Ana/" "${local_md}"
+  install example-project --update >/dev/null 2>&1
+  grep -q '^| Senior architect | Ana |' "${local_md}"
+}
+
+test_update_refreshes_text_outside_belt() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
+  sed -i "s/TODO(belt): a person's name/Ana/" "${local_md}"
+  sed -i '/ribbon:standalone:start/a stale line from the old template' "${local_md}"
+  install example-project --update >/dev/null 2>&1
+  if grep -q 'stale line from the old template' "${local_md}"; then
+    return 1
+  fi
+  grep -q '^| Senior architect | Ana |' "${local_md}"
+}
+
+test_update_keeps_belt_of_unmarked_block() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
+  cat > "${local_md}" <<'EOF'
+# my local notes
+
+<!-- ribbon:standalone:start -->
+# Ribbon Protocol, standalone mode
+
+old intro text from before belt marks
+
+## The belt
+
+old belt intro
+
+| Role | Agent | Model | Writes | Never |
+|---|---|---|---|---|
+| Senior architect | Ana | human | the problem | nothing |
+
+old closing line
+
+## Rules for every agent
+
+old rules text
+<!-- ribbon:standalone:end -->
+
+trailing local content
+EOF
+  install example-project --update >/dev/null 2>&1
+  grep -q '^| Senior architect | Ana | human | the problem | nothing |$' "${local_md}" \
+    && [[ "$(belt_count 'ribbon:belt:start')" == "1" ]]
+}
+
+test_force_keeps_filled_belt() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
+  sed -i "s/TODO(belt): a person's name/Ana/" "${local_md}"
+  install example-project "${SANDBOX}/repos/example-project" --force >/dev/null 2>&1
+  grep -q '^| Senior architect | Ana |' "${local_md}"
+}
+
+test_update_keeps_one_belt_section() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  install example-project --update >/dev/null 2>&1
+  install example-project --update >/dev/null 2>&1
+  local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
+  [[ "$(belt_count 'ribbon:belt:start')" == "1" ]] \
+    && [[ "$(belt_count 'ribbon:belt:end')" == "1" ]] \
+    && [[ "$(grep -c '^| Role | Agent | Model | Writes | Never |$' "${local_md}")" == "1" ]]
+}
+
+test_update_keeps_belt_text_verbatim() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
+  sed -i "s/TODO(belt): a person's name/{{INSTANCE}}/" "${local_md}"
+  install example-project --update >/dev/null 2>&1
+  [[ "$(grep -c '{{INSTANCE}}' "${local_md}")" == "1" ]]
+}
+
+test_update_refuses_block_without_end_mark() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
+  sed -i '/ribbon:standalone:end/d' "${local_md}"
+  cp "${local_md}" "${SANDBOX}/local-md-before.md"
+  local refused=0
+  install example-project --update >/dev/null 2>"${SANDBOX}/refusal.txt" || refused=1
+  (( refused == 1 )) \
+    && [[ -s "${SANDBOX}/refusal.txt" ]] \
+    && cmp -s "${local_md}" "${SANDBOX}/local-md-before.md"
+}
+
+test_update_refuses_unbalanced_belt_marks() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
+  sed -i '/ribbon:belt:end/d' "${local_md}"
+  cp "${local_md}" "${SANDBOX}/local-md-before.md"
+  local refused=0
+  install example-project --update >/dev/null 2>"${SANDBOX}/refusal.txt" || refused=1
+  (( refused == 1 )) \
+    && [[ -s "${SANDBOX}/refusal.txt" ]] \
+    && cmp -s "${local_md}" "${SANDBOX}/local-md-before.md"
+}
+
+test_install_marks_belt_section() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
+  [[ "$(belt_count 'ribbon:belt:start')" == "1" ]] \
+    && [[ "$(belt_count 'ribbon:belt:end')" == "1" ]] \
+    && sed -n '/ribbon:belt:start/,/ribbon:belt:end/p' "${local_md}" | grep -q '^## The belt$'
+}
+
 test_refuses_force_and_update() {
   new_sandbox
   ! install example-project "${SANDBOX}/repos/example-project" --force --update \
@@ -303,6 +434,15 @@ readonly TESTS=(
   test_update_refreshes_templates
   test_update_rewrites_version
   test_update_keeps_one_block
+  test_update_keeps_filled_belt
+  test_update_refreshes_text_outside_belt
+  test_update_keeps_belt_of_unmarked_block
+  test_force_keeps_filled_belt
+  test_update_keeps_one_belt_section
+  test_update_keeps_belt_text_verbatim
+  test_update_refuses_block_without_end_mark
+  test_update_refuses_unbalanced_belt_marks
+  test_install_marks_belt_section
   test_refuses_force_and_update
   test_usage_without_args
 )

@@ -18,7 +18,8 @@
 #
 # --update refreshes an existing instance: template and schema files are
 # replaced from the template, the seed version and the AGENTS.md block are
-# rewritten; live plans, cards and reports are never touched.
+# rewritten with the filled-in belt kept between its ribbon:belt marks; live
+# plans, cards and reports are never touched.
 
 set -euo pipefail
 
@@ -65,7 +66,8 @@ Usage:
                      repository containing this script
   --force            rebuild an existing instance from scratch
   --update           refresh an existing instance's templates, seed version
-                     and AGENTS.md block; live files are never touched
+                     and AGENTS.md block, keeping the filled-in belt; live
+                     files are never touched
 EOF
 }
 
@@ -224,7 +226,11 @@ write_pointer() {
 #######################################
 # Replace (or append) the marked standalone block in the project's
 # AGENTS.local.md, creating it when missing. Existing local content is
-# preserved; only the marked block is rewritten.
+# preserved; only the marked block is rewritten. Inside the block the belt
+# section between the ribbon:belt marks is kept exactly as the person filled
+# it in — on install, --force and --update alike; a block whose standalone or
+# belt marks are unbalanced, duplicated or out of order stops the run with
+# the file left byte-identical.
 # Globals:
 #   RIBBON_HOME, PROJECTS_DIR, INSTANCE, PROJECT_NAME, PROJECT_REPO
 #######################################
@@ -242,6 +248,10 @@ import sys
 
 block_path, agents_path, ribbon_home, projects_dir, instance, name, repo = sys.argv[1:8]
 
+def refuse(reason):
+    print(f"ribbon-new-project: {reason}", file=sys.stderr)
+    sys.exit(1)
+
 with open(block_path) as fh:
     block = fh.read()
 for placeholder, value in [
@@ -254,19 +264,65 @@ for placeholder, value in [
     block = block.replace(placeholder, value)
 
 start, end = "<!-- ribbon:standalone:start -->", "<!-- ribbon:standalone:end -->"
-marked = f"{start}\n{block.rstrip()}\n{end}\n"
+belt_start, belt_end = "<!-- ribbon:belt:start -->", "<!-- ribbon:belt:end -->"
+
+def belt_mark_lines(lines, mark):
+    return [i for i, line in enumerate(lines) if mark in line]
+
+block_lines = block.split("\n")
+template_belt_at = belt_mark_lines(block_lines, belt_start)
+template_belt_til = belt_mark_lines(block_lines, belt_end)
+if len(template_belt_at) != 1 or len(template_belt_til) != 1 \
+        or template_belt_at[0] >= template_belt_til[0]:
+    refuse(f"the belt marks in the template {block_path} are missing, duplicated or out of order")
+
+def belt_kept_between_marks(lines):
+    """The belt a person filled in between one pair of belt marks, verbatim."""
+    at = belt_mark_lines(lines, belt_start)
+    til = belt_mark_lines(lines, belt_end)
+    if len(at) != 1 or len(til) != 1 or at[0] >= til[0]:
+        refuse(f"the belt marks in {agents_path} are unbalanced, duplicated or out of order")
+    return lines[at[0] + 1:til[0]]
+
+def belt_kept_from_heading(lines):
+    """The belt of a block written before belt marks: from the '## The belt'
+    heading to the next '## ' heading or the end of the block, trailing
+    whitespace dropped. None when the block names no belt at all."""
+    headings = [i for i, line in enumerate(lines) if line.strip() == "## The belt"]
+    if not headings:
+        return None
+    i = headings[0]
+    j = len(lines)
+    for k in range(i + 1, len(lines)):
+        if lines[k].startswith("## "):
+            j = k
+            break
+    section = lines[i:j]
+    while section and not section[-1].strip():
+        section.pop()
+    return section
 
 with open(agents_path) as fh:
     content = fh.read()
 
 if start in content:
-    head = content.split(start, 1)[0]
-    tail = content.split(end, 1)[1] if end in content else ""
-    content = head + marked + tail
+    before, _, rest = content.partition(start)
+    held, found_end, tail = rest.partition(end)
+    if not found_end:
+        refuse(f"AGENTS.local.md has a standalone start mark with no end mark after it: {agents_path}")
+    held_lines = held.split("\n")
+    if not belt_mark_lines(held_lines, belt_start) and not belt_mark_lines(held_lines, belt_end):
+        kept_belt = belt_kept_from_heading(held_lines)
+    else:
+        kept_belt = belt_kept_between_marks(held_lines)
+    if kept_belt is not None:
+        block_lines[template_belt_at[0] + 1:template_belt_til[0]] = kept_belt
+    marked = start + "\n" + "\n".join(block_lines).rstrip() + "\n" + end + "\n"
+    content = before + marked + tail
 else:
     if content and not content.endswith("\n"):
         content += "\n"
-    content += "\n" + marked
+    content += "\n" + start + "\n" + block.rstrip() + "\n" + end + "\n"
 
 with open(agents_path, "w") as fh:
     fh.write(content)

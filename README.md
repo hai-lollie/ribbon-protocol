@@ -177,8 +177,8 @@ mkdir -p ~/ribbon-projects
 ~/ribbon-protocol/scripts/ribbon-new-project --projects ~/ribbon-projects my-project ~/dev/my-project
 
 # when a new "ribbon N" appears: refresh template files, seed version and the
-# AGENTS.md block — live plans, cards and reports are never touched, and the
-# repo path is read from the instance
+# AGENTS.md block — your filled-in belt is kept between its marks, live plans,
+# cards and reports are never touched, and the repo path is read from the instance
 ~/ribbon-protocol/scripts/ribbon-new-project --update my-project --projects ~/ribbon-projects
 
 # rebuild an instance from scratch (discards its working files)
@@ -206,15 +206,17 @@ or as imports: create `CLAUDE.md` with `@AGENTS.md` as its content (add
 
 `--projects` has no default: pass wherever your instances should live. `--force`
 rebuilds an existing instance; when a new `ribbon N` appears, `--update` refreshes an
-instance's template and schema files, seed version and `AGENTS.local.md` block — live
-plans, cards and reports are never touched. Instances are personal and unversioned.
+instance's template and schema files, seed version and `AGENTS.local.md` block — your
+filled-in belt is kept, and live plans, cards and reports are never touched. Instances
+are personal and unversioned.
 
 ## Fill the belt 🎗️
 
 Full install: open your project's `AGENTS.md`, find the table under **The belt** inside
 the marked protocol block, and replace every `TODO(belt)`. Standalone: the table lives
-in your project's `AGENTS.local.md`, inside the marked standalone block — replace every
-`TODO(belt)` there and leave the shared `AGENTS.md` alone.
+in your project's `AGENTS.local.md`, between the `ribbon:belt` marks inside the marked
+standalone block — replace every `TODO(belt)` there, leave the shared `AGENTS.md`
+alone, and `--update` keeps your rows exactly as written.
 
 - **Senior architect:** a person's name. This role is never an LLM.
 - **Architect, Independent reviewer, General coder, Entry-level coder:** the agent's
@@ -246,7 +248,8 @@ class and risk; see "Which LLM should do what?" in the field guide.
 line of its `docs/README.md`; both seed scripts stamp it automatically. When a new
 `ribbon N` appears, a standalone instance refreshes with `scripts/ribbon-new-project
 --update <name> --projects DIR` — template and schema files, seed version and the
-AGENTS.md block, never live plans, cards or reports. A full-installed project merges by
+AGENTS.md block, with the filled-in belt kept; never live plans, cards or reports. A
+full-installed project merges by
 hand: diff your `docs/` against the template's and copy what changed; the protocol text
 in `AGENTS.md` is replaced whole between its markers, and `herdr-config.md` is copied
 beside it again. Preserve an existing project's own `CLAUDE.md` imports.
