@@ -19,9 +19,12 @@ this file and nothing more.
 | Reports, notes, handoff, evidence | `{{INSTANCE}}/docs/llm-context/` |
 | ADRs and diagrams (final artifacts) | `{{PROJECT_REPO}}/docs/adrs/`, `{{PROJECT_REPO}}/docs/diagrams/` |
 
+<!-- ribbon:belt:start -->
 ## The belt
 
-Fill this table in — it is yours, in this local file. Replace every `TODO(belt)`:
+Fill this table in — it is yours, in this local file. Replace every `TODO(belt)`.
+The `ribbon:belt` marks around this section stay: `--update` refreshes the rest of
+this block and keeps exactly what is between them.
 
 | Role | Agent | Model | Writes | Never |
 |---|---|---|---|---|
@@ -35,6 +38,7 @@ Fill this table in — it is yours, in this local file. Replace every `TODO(belt
 
 The architect and the reviewer of one plan are different models, from different vendors
 when possible; every plan names both.
+<!-- ribbon:belt:end -->
 
 ## Rules for every agent
 
