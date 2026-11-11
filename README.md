@@ -111,8 +111,10 @@ ribbon-protocol/
 ├── scripts/                                   the standalone installer and its tests
 │   ├── ribbon-new-project                     unpacks or updates a per-project standalone instance
 │   ├── ribbon-seed-project                    the full install into a project repository
+│   ├── standalone-post-checkout               the post-checkout hook template the installer copies into git projects
 │   ├── test-ribbon-new-project.sh             the standalone installer's test suite
-│   └── test-ribbon-seed-project.sh            the full installer's test suite
+│   ├── test-ribbon-seed-project.sh            the full installer's test suite
+│   └── test-ribbon-worktree-links.sh          the worktree-link hook's test suite
 ├── VERSION                                    "ribbon N"
 ├── Ribbon-Protocol-Multi-LLM-FieldGuide.pdf   the reference guide, October 2026, working edition 1.0
 └── docs/                                      copied into every project
@@ -194,6 +196,12 @@ marked block telling every agent where each file lives and that ADRs and diagram
 written into the project repository; a one-line pointer in `AGENTS.md` so agents find
 that block; and `herdr-config.md` beside `AGENTS.md`. `AGENTS.local.md` is personal to
 your machine: add it to the project's `.gitignore`.
+
+Every `git worktree` you add gets symlinks to this machine's untracked Ribbon files
+(`AGENTS.local.md`, `herdr-config.md`, `CLAUDE.md`, `CLAUDE.local.md`) through a managed
+`post-checkout` hook the installer places in the project's `.git/hooks`; `--update` refreshes
+a hook it owns, while a hook without its mark or a custom `core.hooksPath` is left alone.
+The linked files belong in the project's `.gitignore`.
 
 This project uses `AGENTS.md`. If you use Claude Code, connect its instruction
 files once per project — either as symlinks:

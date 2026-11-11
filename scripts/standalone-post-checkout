@@ -1,0 +1,15 @@
+#!/bin/sh
+# ribbon:standalone:post-checkout
+# Links this machine's untracked Ribbon Protocol files into each linked worktree.
+# Installed and refreshed by ribbon-new-project; it is never committed.
+
+main=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
+top=$(git rev-parse --show-toplevel)
+[ "$top" = "$main" ] && exit 0
+
+for f in AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md; do
+  if [ -e "$main/$f" ] && [ ! -e "$top/$f" ] && [ ! -L "$top/$f" ]; then
+    ln -s "$main/$f" "$top/$f"
+  fi
+done
+exit 0

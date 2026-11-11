@@ -13,7 +13,9 @@
 # project-repo pointer), seeds it from the template repository, writes a
 # marked standalone block into the project's AGENTS.local.md (personal to
 # this machine — add it to .gitignore), and adds a one-line pointer to
-# AGENTS.md so agents find it. Only the final artifacts (docs/adrs,
+# AGENTS.md so agents find it. When the project is a git repository it also
+# installs a managed post-checkout hook that links the untracked local files
+# into each new worktree. Only the final artifacts (docs/adrs,
 # docs/diagrams) are ever written into the project repository.
 #
 # --update refreshes an existing instance: template and schema files are
@@ -35,6 +37,7 @@ PROJECT_NAME=''
 PROJECT_REPO=''
 INSTANCE=''
 HERDR_NOTE=''
+WORKTREE_NOTE=''
 
 #######################################
 # Print an error message to STDERR and exit.
@@ -137,6 +140,8 @@ validate_template() {
     || die "template not found: ${RIBBON_HOME}/AGENTS.standalone.md (point --ribbon-home at the template repo)"
   [[ -d "${RIBBON_HOME}/docs/tasks" && -d "${RIBBON_HOME}/docs/llm-context" ]] \
     || die "template docs not found under ${RIBBON_HOME}/docs"
+  [[ -f "${RIBBON_HOME}/scripts/standalone-post-checkout" ]] \
+    || die "template not found: ${RIBBON_HOME}/scripts/standalone-post-checkout (point --ribbon-home at the template repo)"
 }
 
 #######################################
@@ -359,9 +364,66 @@ wire_herdr() {
 }
 
 #######################################
+# Install or refresh the post-checkout hook that links this machine's
+# untracked local files into every new worktree. Skips — with a note saying
+# why — when the project is not a git repository, is not the repository's
+# main worktree, or its hooks directory is custom or unwritable; a hook
+# without the ribbon mark is never touched.
+# Globals:
+#   RIBBON_HOME, PROJECT_REPO, WORKTREE_NOTE (set)
+#######################################
+wire_worktree_links() {
+  WORKTREE_NOTE='post-checkout hook installed — new worktrees get links to the local files'
+  local worktrees
+  if ! worktrees="$(git -C "${PROJECT_REPO}" worktree list --porcelain 2>/dev/null)"; then
+    WORKTREE_NOTE='no git repository — post-checkout hook not installed'
+    return 0
+  fi
+  local main_checkout
+  main_checkout="$(printf '%s\n' "${worktrees}" | sed -n '1s/^worktree //p')"
+  if [[ "${main_checkout}" != "${PROJECT_REPO}" ]]; then
+    WORKTREE_NOTE="not the repository's main worktree — post-checkout hook not installed"
+    return 0
+  fi
+  local hooks_dir common_dir
+  if ! hooks_dir="$(git -C "${PROJECT_REPO}" rev-parse --path-format=absolute --git-path hooks)" \
+     || ! common_dir="$(git -C "${PROJECT_REPO}" rev-parse --path-format=absolute --git-common-dir)"; then
+    WORKTREE_NOTE='git hooks location cannot be resolved — post-checkout hook not installed'
+    return 0
+  fi
+  if [[ "${hooks_dir}" != "${common_dir}/hooks" ]]; then
+    WORKTREE_NOTE='core.hooksPath points elsewhere — left as is, post-checkout hook not installed'
+    return 0
+  fi
+  if [[ ! -d "${hooks_dir}" ]] && ! mkdir -p "${hooks_dir}"; then
+    WORKTREE_NOTE='hooks directory missing and cannot be created — post-checkout hook not installed'
+    return 0
+  fi
+  if [[ ! -w "${hooks_dir}" ]]; then
+    WORKTREE_NOTE='hooks directory not writable — post-checkout hook not installed'
+    return 0
+  fi
+  local hook="${hooks_dir}/post-checkout"
+  if [[ -e "${hook}" || -L "${hook}" ]]; then
+    local mark=''
+    mark="$(sed -n '2p' "${hook}" 2>/dev/null || true)"
+    if [[ -L "${hook}" || "${mark}" != '# ribbon:standalone:post-checkout' ]]; then
+      WORKTREE_NOTE='existing post-checkout hook left unchanged — no ribbon mark'
+      return 0
+    fi
+    WORKTREE_NOTE='post-checkout hook refreshed from the template'
+  fi
+  if ! cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${hook}" 2>/dev/null \
+     || ! chmod 0755 "${hook}" 2>/dev/null; then
+    WORKTREE_NOTE='post-checkout hook could not be written — left as is'
+  fi
+}
+
+#######################################
 # Print a summary of what happened.
 # Globals:
-#   UPDATE, INSTANCE, PROJECT_NAME, PROJECT_REPO, HERDR_START_MARK, END_MARK
+#   UPDATE, INSTANCE, PROJECT_NAME, PROJECT_REPO, START_MARK, END_MARK,
+#   HERDR_NOTE, WORKTREE_NOTE
 #######################################
 print_summary() {
   local mode='Unpacked'
@@ -377,6 +439,7 @@ ${mode} Ribbon Protocol instance for ${PROJECT_NAME}:
   AGENTS.md:       one-line pointer added (see AGENTS.local.md)
   gitignore:       add AGENTS.local.md — it is personal to this machine
   herdr:           ${HERDR_NOTE}
+  worktrees:       ${WORKTREE_NOTE}
 
 Next: read the protocol at ${RIBBON_HOME}/AGENTS.md — it governs unchanged.
 EOF
@@ -399,6 +462,7 @@ main() {
   write_local_block
   ensure_pointer
   wire_herdr
+  wire_worktree_links
   print_summary
 }
 
