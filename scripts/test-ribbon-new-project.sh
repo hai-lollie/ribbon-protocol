@@ -556,6 +556,41 @@ test_force_preflights_marker_order() {
   [[ "${rc}" == "1" ]] && [[ -f "${PROJECTS}/example-project/docs/tasks/live-card.yaml" ]]
 }
 
+test_force_preflights_belt_markers() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  cat > "${SANDBOX}/repos/example-project/AGENTS.local.md" <<'EOF'
+<!-- ribbon:standalone:start -->
+# Ribbon Protocol, standalone mode
+<!-- ribbon:belt:start -->
+## The belt
+| Role | Agent |
+|---|---|
+<!-- ribbon:standalone:end -->
+EOF
+  printf 'live work\n' > "${PROJECTS}/example-project/docs/tasks/live-card.yaml"
+  local rc=0
+  install example-project "${SANDBOX}/repos/example-project" --force --yes \
+      >/dev/null 2>&1 || rc=1
+  [[ "${rc}" == "1" ]] && [[ -f "${PROJECTS}/example-project/docs/tasks/live-card.yaml" ]]
+}
+
+test_force_keeps_legacy_block_without_belt_marks() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  cat > "${SANDBOX}/repos/example-project/AGENTS.local.md" <<'EOF'
+<!-- ribbon:standalone:start -->
+# Ribbon Protocol, standalone mode
+## The belt
+| Role | Agent |
+|---|---|
+<!-- ribbon:standalone:end -->
+EOF
+  install example-project "${SANDBOX}/repos/example-project" --force --yes \
+      >/dev/null 2>&1
+  grep -q 'ribbon:belt:start' "${SANDBOX}/repos/example-project/AGENTS.local.md"
+}
+
 test_rejects_surplus_positionals() {
   new_sandbox
   ! install example-project "${SANDBOX}/repos/example-project" extra-arg \
@@ -666,6 +701,8 @@ readonly TESTS=(
   test_refuses_template_inside_instance
   test_force_preflights_local_block
   test_force_preflights_marker_order
+  test_force_preflights_belt_markers
+  test_force_keeps_legacy_block_without_belt_marks
   test_rejects_surplus_positionals
   test_import_rejects_directory_operand
   test_refuses_overlapping_repo_and_instance
