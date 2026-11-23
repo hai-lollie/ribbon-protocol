@@ -142,6 +142,11 @@ compensating controls:
 A harness control that does exist, such as an edit-tool path rule, is still applied; the
 compensating controls cover what it leaves open.
 
+For both coder roles, the security engineer and the independent reviewer, use existing harness
+controls to keep persistent memory read-only wherever possible, even if it lies under an otherwise
+writable root. A repository diff cannot verify that user-level memory outside the checkout was
+left unchanged. The core protocol's memory rule applies even when enforcement is prompt-only.
+
 For a security engineer, the report and evidence allowlist replaces the card's writable scope.
 Before launch the architect records the permission boundary and a tracked/untracked content baseline,
 including already-dirty files, in the named security evidence folder. No draft, production, test,
@@ -164,7 +169,8 @@ worktree use, staging and commits, without permitting Git configuration changes 
 Everything else is read-only or inaccessible. In particular, no agent may:
 
 - update system libraries or install system packages;
-- change files outside the project repository, `/tmp` and `~/tmp`;
+- change files outside the project repository, `/tmp` and `~/tmp`, except for memory writes by
+  the architect that the core protocol and applicable rules authorize;
 - change LLM configuration, agent configuration or skills;
 - create or configure skills or MCP servers;
 - edit another card's files, the plan, acceptance file or another agent's evidence;
@@ -249,6 +255,10 @@ runtime name is separate and follows Herdr's naming rules. Tabs are created with
 in the assignment's worktree, sequential work included, or in the project working directory for
 the architect's own work. The architect closes a tab it created when its work is complete and the
 tab is no longer needed; it never closes another agent's tab.
+
+Every briefing, including entry-level coder, security and reviewer briefings, names the exact
+report path for that assignment. It tells the agent to record findings and learnings in that
+report and not to write project, user-level or harness memory, directly or indirectly.
 
 The first briefing contains:
 
