@@ -107,6 +107,14 @@ test_copies_herdr_config() {
   [[ -f "${SANDBOX}/example-project/herdr-config.md" ]]
 }
 
+test_seeds_rules() {
+  new_repo
+  seed "${SANDBOX}/example-project" >/dev/null 2>&1
+  [[ -f "${SANDBOX}/example-project/rules/README.md" ]] \
+    && [[ -f "${SANDBOX}/example-project/rules/testing.md" ]] \
+    && git -C "${SANDBOX}/example-project" ls-files --error-unmatch rules/testing.md >/dev/null 2>&1
+}
+
 test_creates_claude_md() {
   new_repo
   seed "${SANDBOX}/example-project" >/dev/null 2>&1
@@ -167,6 +175,7 @@ readonly TESTS=(
   test_stamps_version
   test_appends_protocol_preserving_content
   test_copies_herdr_config
+  test_seeds_rules
   test_creates_claude_md
   test_commits_seed
   test_refuses_reseed

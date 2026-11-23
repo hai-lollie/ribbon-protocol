@@ -144,6 +144,27 @@ test_copies_herdr_config() {
   [[ -f "${SANDBOX}/repos/example-project/herdr-config.md" ]]
 }
 
+test_seeds_rules_into_repo() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  [[ -f "${SANDBOX}/repos/example-project/rules/README.md" ]] \
+    && [[ -f "${SANDBOX}/repos/example-project/rules/testing.md" ]]
+}
+
+test_update_refreshes_rules_templates() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  echo 'corrupted' > "${SANDBOX}/repos/example-project/rules/testing.md"
+  printf 'project-owned theme\n' > "${SANDBOX}/repos/example-project/rules/clojure.md"
+  install example-project --update >/dev/null 2>&1
+  local rules_now rules_want
+  rules_now="$(head -1 "${SANDBOX}/repos/example-project/rules/testing.md")"
+  rules_want="$(head -1 "${RIBBON_HOME}/rules/testing.md")"
+  [[ "${rules_now}" == "${rules_want}" ]] \
+    && [[ "$(cat "${SANDBOX}/repos/example-project/rules/clojure.md")" \
+          == "project-owned theme" ]]
+}
+
 test_rerun_keeps_one_block() {
   new_sandbox
   install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
@@ -417,6 +438,8 @@ readonly TESTS=(
   test_agents_md_gets_single_pointer
   test_preserves_existing_agents_local_md
   test_copies_herdr_config
+  test_seeds_rules_into_repo
+  test_update_refreshes_rules_templates
   test_rerun_keeps_one_block
   test_requires_projects_flag
   test_rejects_missing_projects_dir

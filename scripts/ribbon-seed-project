@@ -84,7 +84,7 @@ parse_args() {
 #######################################
 resolve_repo() {
   [[ -n "${PROJECT_REPO}" ]] || { usage; die "missing <project-repo-path>"; }
-  [[ -f "${RIBBON_HOME}/AGENTS.md" && -d "${RIBBON_HOME}/docs" ]] \
+  [[ -f "${RIBBON_HOME}/AGENTS.md" && -d "${RIBBON_HOME}/docs" && -d "${RIBBON_HOME}/rules" ]] \
     || die "template not found under ${RIBBON_HOME} (point --ribbon-home at the template repo)"
   [[ -d "${PROJECT_REPO}" ]] || die "project repo not found: ${PROJECT_REPO}"
   [[ -w "${PROJECT_REPO}" && -x "${PROJECT_REPO}" ]] \
@@ -104,6 +104,15 @@ seed_docs() {
   version="$(head -1 "${RIBBON_HOME}/VERSION")"
   cp -R "${RIBBON_HOME}/docs" "${PROJECT_REPO}/docs"
   sed -i "1s|<ribbon-version>|${version}|" "${PROJECT_REPO}/docs/README.md"
+}
+
+#######################################
+# Copy the template's rules/ themes into the project repository.
+# Globals:
+#   RIBBON_HOME, PROJECT_REPO
+#######################################
+seed_rules() {
+  cp -R "${RIBBON_HOME}/rules" "${PROJECT_REPO}/rules"
 }
 
 #######################################
@@ -159,7 +168,7 @@ commit_seed() {
   local version
   version="$(head -1 "${RIBBON_HOME}/VERSION")"
   if git -C "${PROJECT_REPO}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "${PROJECT_REPO}" add AGENTS.md herdr-config.md docs
+    git -C "${PROJECT_REPO}" add AGENTS.md herdr-config.md docs rules
     if [[ -e "${PROJECT_REPO}/CLAUDE.md" ]]; then
       git -C "${PROJECT_REPO}" add CLAUDE.md
     fi
@@ -182,6 +191,7 @@ print_summary() {
 Seeded the Ribbon Protocol (${version}) into ${PROJECT_REPO}:
 
   docs/           homes, schemas, templates, field guide
+  rules/          coding conventions, one theme per file
   AGENTS.md       protocol appended (${START_MARK} .. ${END_MARK})
   herdr-config.md the optional Herdr overlay, beside AGENTS.md
   CLAUDE.md       imports preserved or created
@@ -201,6 +211,7 @@ main() {
   parse_args "$@"
   resolve_repo
   seed_docs
+  seed_rules
   wire_agents_md
   wire_herdr
   wire_claude_md

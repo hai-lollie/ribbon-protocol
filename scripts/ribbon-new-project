@@ -140,6 +140,8 @@ validate_template() {
     || die "template not found: ${RIBBON_HOME}/AGENTS.standalone.md (point --ribbon-home at the template repo)"
   [[ -d "${RIBBON_HOME}/docs/tasks" && -d "${RIBBON_HOME}/docs/llm-context" ]] \
     || die "template docs not found under ${RIBBON_HOME}/docs"
+  [[ -d "${RIBBON_HOME}/rules" ]] \
+    || die "template rules not found under ${RIBBON_HOME}/rules"
   [[ -f "${RIBBON_HOME}/scripts/standalone-post-checkout" ]] \
     || die "template not found: ${RIBBON_HOME}/scripts/standalone-post-checkout (point --ribbon-home at the template repo)"
 }
@@ -198,6 +200,25 @@ unpack_docs() {
   done
   for f in "${RIBBON_HOME}/docs/llm-context"/README.md "${RIBBON_HOME}/docs/llm-context"/_*.md; do
     [[ -e "${f}" ]] && cp "${f}" "${INSTANCE}/docs/llm-context/"
+  done
+}
+
+#######################################
+# Copy the template's rules/ themes into the project repository. A full
+# install copies everything; --update overwrites only template-owned themes
+# (README.md, testing.md), preserving project-added ones.
+# Globals:
+#   UPDATE, RIBBON_HOME, PROJECT_REPO
+#######################################
+seed_rules() {
+  mkdir -p "${PROJECT_REPO}/rules"
+  if (( UPDATE == 0 )); then
+    cp -R "${RIBBON_HOME}/rules/." "${PROJECT_REPO}/rules/"
+    return
+  fi
+  local f
+  for f in "${RIBBON_HOME}/rules"/README.md "${RIBBON_HOME}/rules"/testing.md; do
+    [[ -e "${f}" ]] && cp "${f}" "${PROJECT_REPO}/rules/"
   done
 }
 
@@ -437,6 +458,7 @@ ${mode} Ribbon Protocol instance for ${PROJECT_NAME}:
   artifacts go to: ${PROJECT_REPO}/docs/adrs, ${PROJECT_REPO}/docs/diagrams
   AGENTS.local.md: standalone block refreshed (${START_MARK} .. ${END_MARK})
   AGENTS.md:       one-line pointer added (see AGENTS.local.md)
+  rules:           rules/README.md, rules/testing.md seeded; project themes preserved
   gitignore:       add AGENTS.local.md — it is personal to this machine
   herdr:           ${HERDR_NOTE}
   worktrees:       ${WORKTREE_NOTE}
@@ -461,6 +483,7 @@ main() {
   write_pointer
   write_local_block
   ensure_pointer
+  seed_rules
   wire_herdr
   wire_worktree_links
   print_summary
