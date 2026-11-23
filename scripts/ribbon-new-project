@@ -213,15 +213,27 @@ rebuild_instance() {
 validate_local_block() {
   local local_md="${PROJECT_REPO}/AGENTS.local.md"
   [[ -f "${local_md}" ]] || return 0
-  # Same rule the writer applies: after the first start mark, an end mark
-  # must follow. Presence-only checking would let out-of-order markers
-  # through and lose the instance to a rebuild that then fails.
-  if ! awk -v start="${START_MARK}" -v end="${END_MARK}" '
-      index($0, start) && !seen { seen=1; next }
-      seen && !done && index($0, end) { done=1; exit }
-      END { exit(seen && !done ? 1 : 0) }
+  # The writer's rule, run before any rebuild: after the first standalone
+  # start mark an end mark must follow; inside that held block, if either
+  # belt mark appears both must appear exactly once in order; a block with
+  # no belt marks is legacy and fine.
+  if ! awk -v start="${START_MARK}" -v end="${END_MARK}" \
+        -v belt_start='<!-- ribbon:belt:start -->' \
+        -v belt_end='<!-- ribbon:belt:end -->' '
+      index($0, start) && !seen {
+        seen=1
+        if (index($0, end)) { done=1 } else { inblock=1 }
+        next
+      }
+      inblock && index($0, end) { inblock=0; done=1; next }
+      inblock && index($0, belt_start) { bstart++; next }
+      inblock && index($0, belt_end) { bend++; if (bend > bstart) outoforder=1; next }
+      END {
+        bad = (seen && !done) || (bstart != bend) || (bstart > 1) || outoforder
+        exit(bad ? 1 : 0)
+      }
     ' "${local_md}"; then
-    die "AGENTS.local.md has an unclosed ${START_MARK} marker; fix it before re-running"
+    die "AGENTS.local.md has unclosed, duplicated or out-of-order Ribbon markers; fix it before re-running"
   fi
 }
 
