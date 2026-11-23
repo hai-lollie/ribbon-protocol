@@ -108,6 +108,7 @@ ribbon-protocol/
 │                                              budget, security design review, the homes, the plan and its cards, the seven steps, the reviewer's brief. Copied into every project
 ├── herdr-config.md                            the optional Herdr orchestration overlay, copied beside AGENTS.md
 ├── AGENTS.standalone.md                       the source of the AGENTS.local.md block written by the standalone installer
+├── rules/                                     coding conventions, one theme per file, seeded into projects
 ├── scripts/                                   the standalone installer and its tests
 │   ├── ribbon-new-project                     unpacks or updates a per-project standalone instance
 │   ├── ribbon-seed-project                    the full install into a project repository
@@ -135,8 +136,8 @@ plans, cards, ADRs and evidence, and the decision history is the project's histo
 
 **Standalone — Ribbon for me.** Keep the working files out of the repository: clone this
 project to `~/ribbon-protocol`, unpack a per-project instance to `~/ribbon-projects/<name>/`,
-and commit only the final artifacts — `docs/adrs/` and `docs/diagrams/` — to the project.
-See "Standalone: Ribbon for me" below.
+and commit only the final artifacts — `docs/adrs/`, `docs/diagrams/` and the `rules/`
+conventions — to the project. See "Standalone: Ribbon for me" below.
 
 ## Seed a project (full install) 👥
 
@@ -146,14 +147,16 @@ See "Standalone: Ribbon for me" below.
 ~/ribbon-protocol/scripts/ribbon-seed-project .
 ```
 
-The script copies `docs/` (homes, schemas, templates, field guide) into the project,
+The script copies `docs/` (homes, schemas, templates, field guide) and `rules/`
+(coding conventions, one theme per file) into the project,
 stamps the seed version into `docs/README.md`, appends the protocol to the project's
 `AGENTS.md` — creating one when none exists, preserving everything already there —
 copies `herdr-config.md` beside it, keeps any existing `CLAUDE.md` and adds the missing
 `@herdr-config.md` import without overwriting, and commits it all as one
 `Seed the Ribbon Protocol, ribbon N` commit. It refuses to re-seed; a seeded project
-merges later template changes by hand (see "Versioning"). Point `--ribbon-home` at the
-template when it does not live at `~/ribbon-protocol`.
+merges later template changes by hand (see "Versioning"), and one that predates
+`rules/` gets a rules-only amendment instead of a refusal. Point `--ribbon-home` at
+the template when it does not live at `~/ribbon-protocol`.
 
 Then fill the belt (next section), and tell your architect to read `AGENTS.md`,
 `docs/README.md` and `docs/field-guide.md`, in that order. An architect inside Herdr also reads
@@ -191,10 +194,12 @@ Both scripts print their full usage with `-h`.
 
 It unpacks `~/ribbon-projects/my-project/` holding `docs/tasks/` and `docs/llm-context/`
 seeded from this template, records the seed version, and links the instance to the
-project repo. Into the project it writes three small things: `AGENTS.local.md` — a
+project repo. Into the project it writes four small things: `AGENTS.local.md` — a
 marked block telling every agent where each file lives and that ADRs and diagrams are
 written into the project repository; a one-line pointer in `AGENTS.md` so agents find
-that block; and `herdr-config.md` beside `AGENTS.md`. `AGENTS.local.md` is personal to
+that block; `herdr-config.md` beside `AGENTS.md`; and `rules/` — coding conventions
+seeded from this project (`testing.md` is universal; add per-language themes as
+decisions), committed with the project like code. `AGENTS.local.md` is personal to
 your machine: add it to the project's `.gitignore`.
 
 Every `git worktree` you add gets symlinks to this machine's untracked Ribbon files
@@ -249,6 +254,33 @@ Two example belts:
 
 Model names are candidate assignments, not quality rankings. Route by measured task
 class and risk; see "Which LLM should do what?" in the field guide.
+
+## Coding rules
+
+The protocol stays language-neutral; craft conventions live in `rules/`, one theme
+per file, committed with the project. This project ships `rules/testing.md` —
+universal test-craft: never test the test, never test language constructors, one
+behavior per test, and a pre-commit refactor checklist. A project adds its own themes
+(`rules/clojure.md`, …) as decisions, recorded in the decision log — `rules/README.md`
+has the step-by-step. A card names its
+themes in `context.read_first`; the coder reads them before the first edit, and the
+reviewer checks them like any other contract term. The trusted verifier stays
+mechanical — these rules are enforced by review.
+
+Bring your own conventions: on install or update, a terminal run offers a
+multi-select of the rule files in `~/.claude/rules` and copies the chosen ones into
+the project's `rules/`, so every collaborator and agent works with them. Existing
+project themes are never overwritten. A non-interactive run skips with a note;
+`--import-rules xunit-patterns.md --import-rules clojure-preferences.md` (one file per
+occurrence) does it without a prompt.
+
+The bundled `rules/testing.md` is a theme like any other: `rm rules/testing.md` if
+the project does not want it. `--update` refreshes the themes a project kept and
+never resurrects a deleted one — delete a single theme to retire just that theme;
+delete the whole `rules/` directory (or only its `README.md`) and `--update` seeds
+it again, treating the project as one that predates `rules/`. Ownership is by file
+name: a kept bundled theme is refreshed with the template's content, so customize
+by copying it to your own theme file rather than editing it in place.
 
 ## Versioning
 

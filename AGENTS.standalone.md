@@ -18,6 +18,7 @@ this file and nothing more.
 | Plans, cards, acceptance files | `{{INSTANCE}}/docs/tasks/` |
 | Reports, notes, handoff, evidence | `{{INSTANCE}}/docs/llm-context/` |
 | ADRs and diagrams (final artifacts) | `{{PROJECT_REPO}}/docs/adrs/`, `{{PROJECT_REPO}}/docs/diagrams/` |
+| Coding rules, one theme per file | `{{PROJECT_REPO}}/rules/`, committed with the project |
 
 <!-- ribbon:belt:start -->
 ## The belt
@@ -47,6 +48,8 @@ when possible; every plan names both.
 - Treat `{{INSTANCE}}/docs/` as this project's `docs/`: read plans and cards from
   `{{INSTANCE}}/docs/tasks/`, write reports, notes, handoff and evidence to
   `{{INSTANCE}}/docs/llm-context/`.
+- Read the coding-rule themes your card names from `{{PROJECT_REPO}}/rules/` before
+  the first edit; the reviewer checks them like any other contract term.
 - Write ADRs and diagrams only under `{{PROJECT_REPO}}/docs/adrs/` and
   `{{PROJECT_REPO}}/docs/diagrams/`, committed on the story's contract branch.
 - Do not create a `docs/tasks/` or `docs/llm-context/` tree in this repository;

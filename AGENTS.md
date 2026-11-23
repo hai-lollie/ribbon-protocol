@@ -72,7 +72,8 @@ LLMs, named by a nickname or by a vendor and a model id, except the trusted veri
   vendors when possible; they may swap roles between plans, and every plan names both.
 - A coder reads its plan, its cards, and what they name: the root `AGENTS.md` once per
   session, the five-line handoff, the decision-log entries under the plan's `decisions`,
-  each card's `read_first`; nothing else before the first edit, and never a report, a
+  each card's `read_first` — which may name `rules/<theme>.md` coding-rule themes —
+  and nothing else before the first edit; and never a report, a
   note, a review or a journal. What the architect left undecided is a note for the
   architect, not a guess; what the card's rules and the file answer together is the
   coder's decision, written in the report.
@@ -250,6 +251,7 @@ architect copies into `context.verified`.
 | `docs/tasks/` | the architect | `<plan-id>.plan.yaml` and its cards `<story-id>-NN.yaml`; a story larger than one review is phase plans, `<story-id>-pN.plan.yaml` |
 | the decision log (`CHANGELOG.md`) | the architect | one entry per decision or regroup; the newest ten in full, every older one three lines under 200 characters (`What:`, `Why:`, `Now:`), compressed by the commit that appends the eleventh |
 | `docs/llm-context/` | the architect, the security engineer, the coders, the reviewer | `<adr-id>-security-r<N>.md` by the security engineer, with the architect's appended response; `<task-id>-report.md` per card; `<task-id>-<slug>.md` on a block or a question; `<plan-id>-handoff.md`, five lines, rewritten each session; `<plan-id>-done.md`, the coder's five of "Done" at the plan's last card; `<plan-id>-review.md` by the reviewer; `<plan-id>-orchestration.md` by a Herdr architect |
+| `rules/` | the project — conventions are decisions; the senior architect approves | coding conventions, one file per theme: `testing.md` is universal test-craft, `<language>.md` holds per-language idioms; a card names its themes in `context.read_first`, the coder reads them before the first edit, the reviewer checks adherence |
 
 Ids are lowercase everywhere; a YAML line is at most 150 characters, folded with `>-`. A
 coder never edits `docs/adrs/`, `docs/diagrams/` or `docs/tasks/`. Only the architect
