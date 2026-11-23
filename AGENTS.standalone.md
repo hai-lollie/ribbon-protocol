@@ -18,7 +18,7 @@ this file and nothing more.
 | Plans, cards, acceptance files | `{{INSTANCE}}/docs/tasks/` |
 | Reports, notes, handoff, evidence | `{{INSTANCE}}/docs/llm-context/` |
 | ADRs and diagrams (final artifacts) | `{{PROJECT_REPO}}/docs/adrs/`, `{{PROJECT_REPO}}/docs/diagrams/` |
-| Coding rules, one theme per file | `{{PROJECT_REPO}}/rules/` |
+| Coding rules, one theme per file | `{{PROJECT_REPO}}/rules/`, committed with the project |
 
 <!-- ribbon:belt:start -->
 ## The belt

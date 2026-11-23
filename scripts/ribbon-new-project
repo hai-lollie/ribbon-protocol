@@ -37,7 +37,27 @@ PROJECT_NAME=''
 PROJECT_REPO=''
 INSTANCE=''
 HERDR_NOTE=''
+IMPORT_NOTE=''
+IMPORT_RULES=()
+ASSUME_YES=0
+NEEDS_REBUILD=0
 WORKTREE_NOTE=''
+
+#######################################
+# Validate every --import-rules file before any mutating step, so a typo
+# fails fast instead of halfway through an install.
+# Globals:
+#   HOME, IMPORT_RULES
+#######################################
+validate_import_rules() {
+  [[ "${#IMPORT_RULES[@]}" -gt 0 ]] || return 0
+  local f
+  for f in "${IMPORT_RULES[@]}"; do
+    [[ "${f}" != */* ]] || die "--import-rules takes file names, not paths: ${f}"
+    [[ -f "${HOME}/.claude/rules/${f}" ]] \
+      || die "--import-rules file not found: ${HOME}/.claude/rules/${f}"
+  done
+}
 
 #######################################
 # Print an error message to STDERR and exit.
@@ -59,18 +79,49 @@ die() {
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/ribbon-new-project [--force] --projects DIR [--ribbon-home DIR] \
-      <project-name> <project-repo-path>
-  scripts/ribbon-new-project --update --projects DIR [--ribbon-home DIR] \
-      <project-name> [project-repo-path]
+  scripts/ribbon-new-project [--force] [--yes] --projects DIR \
+      [--ribbon-home DIR] [--import-rules F]... <project-name> <project-repo-path>
+  scripts/ribbon-new-project --update [--yes] --projects DIR \
+      [--ribbon-home DIR] [--import-rules F]... <project-name> [project-repo-path]
 
-  --projects DIR     where per-project instances live (required, no default)
-  --ribbon-home DIR  the ribbon-protocol template checkout; defaults to the
-                     repository containing this script
-  --force            rebuild an existing instance from scratch
-  --update           refresh an existing instance's templates, seed version
-                     and AGENTS.md block, keeping the filled-in belt; live
-                     files are never touched
+Unpacks a standalone Ribbon instance for one project (default mode), or
+refreshes an existing instance (--update): template files, seed version and
+the AGENTS.md block. Live plans, cards and reports are never touched.
+
+Options:
+  --projects DIR     Where per-project instances live. Required; the script
+                     never creates it — a mistyped path fails with a message.
+  --ribbon-home DIR  The template checkout. Default: the repository that
+                     contains this script (~/ribbon-protocol when cloned
+                     there).
+  --force            Rebuild an existing instance from scratch; its working
+                     files are discarded. Refused together with --update.
+  --update           Refresh an existing instance instead of unpacking;
+                     seeds rules/ into a project that predates them and
+                     never resurrects deleted themes.
+  --import-rules F   Copy F from ~/.claude/rules into the project's rules/.
+                     One file name per occurrence; repeat the flag for more.
+                     Unknown names and paths containing / fail the run before
+                     anything is written. Default in a terminal: a
+                     multi-select picker offers the files. Non-interactive
+                     runs skip with a note and never hang.
+  --yes              Skip the terminal confirmation prompt.
+  -h, --help         Show this help and exit.
+
+Examples:
+  # create where instances live (the script never creates it), then unpack
+  mkdir -p ~/ribbon-projects
+  scripts/ribbon-new-project --projects ~/ribbon-projects my-app ~/dev/my-app
+
+  # a new "ribbon N" appeared: refresh templates, version and block
+  scripts/ribbon-new-project --update my-app --projects ~/ribbon-projects
+
+  # rebuild from scratch (discards the instance's working files)
+  scripts/ribbon-new-project --force --projects ~/ribbon-projects my-app ~/dev/my-app
+
+  # import your own conventions without the interactive picker
+  scripts/ribbon-new-project --projects ~/ribbon-projects my-app ~/dev/my-app \
+      --import-rules xunit-patterns.md --import-rules clojure-preferences.md
 EOF
 }
 
@@ -90,6 +141,14 @@ parse_args() {
       --ribbon-home) shift; ribbon_home_override="${1:-}"; shift ;;
       --force) FORCE=1; shift ;;
       --update) UPDATE=1; shift ;;
+      --yes) ASSUME_YES=1; shift ;;
+      --import-rules)
+        shift
+        [[ $# -gt 0 && -n "$1" && "$1" != --* ]] \
+          || die "--import-rules takes exactly one file name (repeat the flag for more)"
+        IMPORT_RULES+=("$1")
+        shift
+        ;;
       -h|--help) usage; exit 0 ;;
       *) positional+=("$1"); shift ;;
     esac
@@ -99,6 +158,8 @@ parse_args() {
   RIBBON_HOME="${ribbon_home_override:-$(cd "${script_dir}/.." && pwd)}"
   PROJECT_NAME="${positional[0]:-}"
   PROJECT_REPO="${positional[1]:-}"
+  [[ "${#positional[@]}" -le 2 ]] \
+    || die "unexpected extra arguments: ${positional[*]:2}"
 }
 
 #######################################
@@ -128,6 +189,40 @@ validate_projects_dir() {
     || die "--projects dir does not exist: ${PROJECTS_DIR}"$'\n'"create it yourself and re-run, e.g.: mkdir -p '${PROJECTS_DIR}'"
   [[ -w "${PROJECTS_DIR}" && -x "${PROJECTS_DIR}" ]] \
     || die "--projects dir is not writable with your permissions: ${PROJECTS_DIR}"
+}
+
+#######################################
+# Rebuild the instance from scratch, but only after validation and
+# confirmation — a declined or invalid run must never delete data.
+# Globals:
+#   NEEDS_REBUILD, INSTANCE
+#######################################
+rebuild_instance() {
+  if (( NEEDS_REBUILD == 1 )); then
+    rm -rf "${INSTANCE}"
+  fi
+}
+
+#######################################
+# Fail fast when the project's AGENTS.local.md carries an unclosed Ribbon
+# block, before any rebuild could destroy the data that would let the user
+# recover it.
+# Globals:
+#   PROJECT_REPO
+#######################################
+validate_local_block() {
+  local local_md="${PROJECT_REPO}/AGENTS.local.md"
+  [[ -f "${local_md}" ]] || return 0
+  # Same rule the writer applies: after the first start mark, an end mark
+  # must follow. Presence-only checking would let out-of-order markers
+  # through and lose the instance to a rebuild that then fails.
+  if ! awk -v start="${START_MARK}" -v end="${END_MARK}" '
+      index($0, start) && !seen { seen=1; next }
+      seen && !done && index($0, end) { done=1; exit }
+      END { exit(seen && !done ? 1 : 0) }
+    ' "${local_md}"; then
+    die "AGENTS.local.md has an unclosed ${START_MARK} marker; fix it before re-running"
+  fi
 }
 
 #######################################
@@ -168,7 +263,7 @@ resolve_repo() {
     if [[ -e "${INSTANCE}" ]]; then
       (( FORCE == 1 )) \
         || die "instance already exists: ${INSTANCE} (re-run with --force to rebuild, or --update to refresh templates)"
-      rm -rf "${INSTANCE}"
+      NEEDS_REBUILD=1
     fi
   fi
   [[ -d "${PROJECT_REPO}" ]] || die "project repo not found: ${PROJECT_REPO}"
@@ -178,7 +273,50 @@ resolve_repo() {
     || die "no AGENTS.md in ${PROJECT_REPO}; create one before unpacking"
   [[ -w "${PROJECT_REPO}/AGENTS.md" ]] \
     || die "AGENTS.md is not writable with your permissions: ${PROJECT_REPO}/AGENTS.md"
+  if [[ -f "${PROJECT_REPO}/AGENTS.local.md" ]]; then
+    [[ -w "${PROJECT_REPO}/AGENTS.local.md" ]] \
+      || die "AGENTS.local.md is not writable with your permissions: ${PROJECT_REPO}/AGENTS.local.md"
+  fi
   PROJECT_REPO="$(realpath "${PROJECT_REPO}")"
+  local instance_resolved ribbon_resolved
+  instance_resolved="$(realpath -m "${INSTANCE}")"
+  ribbon_resolved="$(realpath "${RIBBON_HOME}")"
+  if [[ "${PROJECT_REPO}" == "${instance_resolved}" || "${PROJECT_REPO}" == "${instance_resolved}"/* \
+      || "${instance_resolved}" == "${PROJECT_REPO}"/* ]]; then
+    die "project repo and instance path overlap: ${PROJECT_REPO} vs ${INSTANCE}"
+  fi
+  if [[ "${instance_resolved}" == "${ribbon_resolved}" \
+      || "${instance_resolved}" == "${ribbon_resolved}"/* \
+      || "${ribbon_resolved}" == "${instance_resolved}"/* ]]; then
+    die "refusing to use an instance path that overlaps the template repository: ${INSTANCE}"
+  fi
+  [[ "${instance_resolved}" != "$(realpath "${HOME}")" ]] \
+    || die "refusing to use your home directory as the instance: ${INSTANCE}"
+}
+
+#######################################
+# Refuse the classic misinstalls — the user's home directory and the template
+# repository itself — and, in a terminal, ask for confirmation before any
+# write. Non-interactive runs proceed so agents never hang.
+# Globals:
+#   PROJECT_REPO, RIBBON_HOME, HOME, ASSUME_YES
+#######################################
+confirm_target() {
+  local home_resolved ribbon_resolved
+  home_resolved="$(realpath "${HOME}")"
+  ribbon_resolved="$(realpath "${RIBBON_HOME}")"
+  [[ "${PROJECT_REPO}" != "${home_resolved}" ]] \
+    || die "refusing to install into your home directory: ${PROJECT_REPO}"
+  [[ "${PROJECT_REPO}" != "${ribbon_resolved}" ]] \
+    || die "refusing to install into the template repository itself: ${PROJECT_REPO}"
+  if [[ -t 0 && "${ASSUME_YES}" -eq 0 ]]; then
+    local answer
+    printf 'About to write Ribbon files into %s. Proceed? [y/N] ' "${PROJECT_REPO}" >&2
+    read -r answer || answer=''
+    if [[ "${answer}" != "y" && "${answer}" != "Y" ]]; then
+      die "aborted"
+    fi
+  fi
 }
 
 #######################################
@@ -205,20 +343,30 @@ unpack_docs() {
 
 #######################################
 # Copy the template's rules/ themes into the project repository. A full
-# install copies everything; --update overwrites only template-owned themes
-# (README.md, testing.md), preserving project-added ones.
+# install merges the template themes, skipping project-owned files; --update
+# overwrites only template-owned themes (README.md, testing.md), preserving
+# project-added ones and never resurrecting a deleted one.
 # Globals:
 #   UPDATE, RIBBON_HOME, PROJECT_REPO
 #######################################
 seed_rules() {
   mkdir -p "${PROJECT_REPO}/rules"
-  if (( UPDATE == 0 )); then
-    cp -R "${RIBBON_HOME}/rules/." "${PROJECT_REPO}/rules/"
+  if (( UPDATE == 0 )) || [[ ! -f "${PROJECT_REPO}/rules/README.md" ]]; then
+    local f base
+    for f in "${RIBBON_HOME}/rules"/*.md; do
+      [[ -e "${f}" ]] || continue
+      base="$(basename "${f}")"
+      [[ -e "${PROJECT_REPO}/rules/${base}" ]] && continue
+      cp "${f}" "${PROJECT_REPO}/rules/${base}"
+    done
     return
   fi
+  # Refresh only the themes the project kept; never resurrect a deleted one.
   local f
   for f in "${RIBBON_HOME}/rules"/README.md "${RIBBON_HOME}/rules"/testing.md; do
-    [[ -e "${f}" ]] && cp "${f}" "${PROJECT_REPO}/rules/"
+    if [[ -e "${f}" && -e "${PROJECT_REPO}/rules/$(basename "${f}")" ]]; then
+      cp "${f}" "${PROJECT_REPO}/rules/"
+    fi
   done
 }
 
@@ -372,6 +520,119 @@ ensure_pointer() {
 }
 
 #######################################
+# Offer the user's machine-global rules (~/.claude/rules) as project themes so
+# every engineer gets them. With --import-rules, copies exactly those files.
+# In a terminal, shows a multi-select prompt. Otherwise prints a note and
+# imports nothing. Existing project themes are never overwritten.
+# Globals:
+#   HOME, PROJECT_REPO, IMPORT_RULES, IMPORT_NOTE (set)
+#######################################
+import_user_rules() {
+  local rules_dir="${HOME}/.claude/rules"
+  local -a candidates=()
+  local f
+  if [[ -d "${rules_dir}" ]]; then
+    for f in "${rules_dir}"/*.md; do
+      [[ -f "${f}" ]] && candidates+=("$(basename "${f}")")
+    done
+  fi
+  IMPORT_NOTE=''
+
+  local -a chosen=()
+  if [[ "${#IMPORT_RULES[@]}" -gt 0 ]]; then
+    chosen=("${IMPORT_RULES[@]}")
+  elif [[ "${#candidates[@]}" -eq 0 ]]; then
+    return 0
+  elif [[ -t 0 ]]; then
+    pick_rules "${candidates[@]}"
+    chosen=("${PICKED[@]}")
+  else
+    printf 'note: %d rule file(s) in %s not imported (not interactive); re-run in a terminal or pass --import-rules\n' \
+      "${#candidates[@]}" "${rules_dir}" >&2
+    return 0
+  fi
+
+  local imported=0 kept=0
+  for f in "${chosen[@]}"; do
+    [[ -f "${rules_dir}/${f}" ]] || die "--import-rules file not found: ${rules_dir}/${f}"
+    if [[ -e "${PROJECT_REPO}/rules/${f}" ]]; then
+      kept=$((kept + 1))
+      continue
+    fi
+    cp "${rules_dir}/${f}" "${PROJECT_REPO}/rules/${f}"
+    imported=$((imported + 1))
+  done
+  IMPORT_NOTE="imported ${imported} user rule file(s) from ${rules_dir}"
+  if (( kept > 0 )); then
+    IMPORT_NOTE+=" (${kept} already present, kept as-is)"
+  fi
+}
+
+#######################################
+# Interactive multi-select over the candidate rule files. Sets PICKED.
+# Arguments:
+#   Candidate file names.
+# Globals:
+#   PICKED (set)
+# Outputs:
+#   Prompt and menu to STDERR.
+#######################################
+pick_rules() {
+  local -a picked=() options=("$@")
+  local input tok opt p mark
+  while true; do
+    printf '\nImport coding rules from ~/.claude/rules so every engineer gets them?\n' >&2
+    local i=1
+    for opt in "${options[@]}"; do
+      mark=' '
+      for p in "${picked[@]}"; do
+        [[ "${p}" == "${opt}" ]] && mark='x'
+      done
+      printf '  [%s] %d) %s\n' "${mark}" "${i}" "${opt}" >&2
+      i=$((i + 1))
+    done
+    printf 'Toggle numbers, [a]ll, [n]one, [d]one: ' >&2
+    read -r input || input='d'
+    case "${input}" in
+      a) picked=("${options[@]}") ;;
+      n) picked=() ;;
+      d) break ;;
+      *[!0-9\ ]*) printf 'Answer with numbers, a, n or d.\n' >&2 ;;
+      *)
+        local -a toks=()
+        read -ra toks <<< "${input}"
+        for tok in "${toks[@]}"; do
+          if [[ ! "${tok}" =~ ^[0-9]+$ ]] || (( ${#tok} > 9 )); then
+            printf 'Not a rule number: %s\n' "${tok}" >&2
+            continue
+          fi
+          local num=$((10#$tok))
+          if (( num < 1 || num > ${#options[@]} )); then
+            printf 'No rule number %s.\n' "${tok}" >&2
+            continue
+          fi
+          opt="${options[$((num - 1))]}"
+          local -a next=()
+          local found=0
+          for p in "${picked[@]}"; do
+            if [[ "${p}" == "${opt}" ]]; then
+              found=1
+            else
+              next+=("${p}")
+            fi
+          done
+          if (( found == 0 )); then
+            next+=("${opt}")
+          fi
+          picked=("${next[@]}")
+        done
+        ;;
+    esac
+  done
+  PICKED=("${picked[@]}")
+}
+
+#######################################
 # Copy herdr-config.md beside the project AGENTS.md when none is there.
 # Globals:
 #   RIBBON_HOME, PROJECT_REPO, HERDR_NOTE (set)
@@ -449,6 +710,11 @@ wire_worktree_links() {
 print_summary() {
   local mode='Unpacked'
   (( UPDATE == 1 )) && mode='Updated'
+  local import_line=''
+  if [[ -n "${IMPORT_NOTE}" ]]; then
+    import_line="  user rules:      ${IMPORT_NOTE}
+"
+  fi
   cat <<EOF
 ${mode} Ribbon Protocol instance for ${PROJECT_NAME}:
 
@@ -459,7 +725,7 @@ ${mode} Ribbon Protocol instance for ${PROJECT_NAME}:
   AGENTS.local.md: standalone block refreshed (${START_MARK} .. ${END_MARK})
   AGENTS.md:       one-line pointer added (see AGENTS.local.md)
   rules:           rules/README.md, rules/testing.md seeded; project themes preserved
-  gitignore:       add AGENTS.local.md — it is personal to this machine
+${import_line}  gitignore:       add AGENTS.local.md — it is personal to this machine
   herdr:           ${HERDR_NOTE}
   worktrees:       ${WORKTREE_NOTE}
 
@@ -475,15 +741,20 @@ EOF
 main() {
   parse_args "$@"
   validate_flags
+  validate_import_rules
   validate_projects_dir
   validate_template
   resolve_repo
+  validate_local_block
+  confirm_target
+  rebuild_instance
   unpack_docs
   write_instance_readme
   write_pointer
   write_local_block
   ensure_pointer
   seed_rules
+  import_user_rules
   wire_herdr
   wire_worktree_links
   print_summary

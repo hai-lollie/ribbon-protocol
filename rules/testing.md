@@ -12,7 +12,10 @@ same review bar.
    canned answer, that the framework's assertion works, or that the fixture
    assembled itself proves nothing. Operational check: delete the exercise —
    the call to the code under test — and the test must go red. If it stays
-   green, it tested the test.
+   green, it tested the test. Heuristic, not proof: a correct test can also
+   stay green when the exercise is removed (for example, a test that an
+   ignored event sends no notification). Treat a green deletion as a flag
+   for review, never as a verdict by itself.
 2. **Never test language constructors.** Never test the language or its
    standard library: constructors, core operators, getters, collection
    literals. `assertEquals(2, 1 + 1)` is not a test of your code.
@@ -84,4 +87,6 @@ same review bar.
 9. Idiomatic for the framework (`describe`/`it`, `testing`, pytest
    classes, …).
 10. Not testing the language or the library (hard rule 2).
-11. Deleting the exercise turns the test red (hard rule 1).
+11. Deleting the exercise turns the test red — where the exercise is the
+    behavior under test (hard rule 1's heuristic; a green deletion is a
+    flag for review, not a verdict).

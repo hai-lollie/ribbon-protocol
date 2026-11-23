@@ -48,9 +48,10 @@ trap cleanup EXIT
 new_sandbox() {
   cleanup
   SANDBOX="$(mktemp -d)"
-  mkdir -p "${SANDBOX}/ribbon-projects" "${SANDBOX}/repos/example-project"
+  mkdir -p "${SANDBOX}/home" "${SANDBOX}/ribbon-projects" "${SANDBOX}/repos/example-project"
   printf '# example-project AGENTS\n' > "${SANDBOX}/repos/example-project/AGENTS.md"
   PROJECTS="${SANDBOX}/ribbon-projects"
+  export HOME="${SANDBOX}/home"
 }
 
 #######################################
@@ -149,6 +150,59 @@ test_seeds_rules_into_repo() {
   install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
   [[ -f "${SANDBOX}/repos/example-project/rules/README.md" ]] \
     && [[ -f "${SANDBOX}/repos/example-project/rules/testing.md" ]]
+}
+
+test_update_seeds_rules_when_missing() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  rm -rf "${SANDBOX}/repos/example-project/rules"
+  install example-project --update >/dev/null 2>&1
+  [[ -f "${SANDBOX}/repos/example-project/rules/README.md" ]] \
+    && [[ -f "${SANDBOX}/repos/example-project/rules/testing.md" ]]
+}
+
+test_update_does_not_resurrect_deleted_theme() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  rm "${SANDBOX}/repos/example-project/rules/testing.md"
+  echo 'corrupted' > "${SANDBOX}/repos/example-project/rules/README.md"
+  install example-project --update >/dev/null 2>&1
+  [[ ! -e "${SANDBOX}/repos/example-project/rules/testing.md" ]] \
+    && grep -q '# Coding rules' "${SANDBOX}/repos/example-project/rules/README.md"
+}
+
+test_import_rules_flag() {
+  new_sandbox
+  mkdir -p "${HOME}/.claude/rules"
+  printf '# one\n' > "${HOME}/.claude/rules/one.md"
+  printf '# two\n' > "${HOME}/.claude/rules/two.md"
+  install example-project "${SANDBOX}/repos/example-project" --import-rules one.md \
+    >/dev/null 2>&1
+  [[ -f "${SANDBOX}/repos/example-project/rules/one.md" ]] \
+    && [[ ! -f "${SANDBOX}/repos/example-project/rules/two.md" ]]
+}
+
+test_import_rules_missing_file_fails() {
+  new_sandbox
+  ! install example-project "${SANDBOX}/repos/example-project" --import-rules nope.md \
+      >/dev/null 2>&1
+}
+
+test_import_rules_preflight_before_any_write() {
+  new_sandbox
+  ! install example-project "${SANDBOX}/repos/example-project" --import-rules nope.md \
+      >/dev/null 2>&1
+  [[ ! -e "${SANDBOX}/repos/example-project/AGENTS.local.md" ]] \
+    && [[ ! -d "${PROJECTS}/example-project" ]]
+}
+
+test_non_interactive_imports_nothing() {
+  new_sandbox
+  mkdir -p "${HOME}/.claude/rules"
+  printf '# one\n' > "${HOME}/.claude/rules/one.md"
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  [[ -f "${SANDBOX}/repos/example-project/rules/testing.md" ]] \
+    && [[ ! -f "${SANDBOX}/repos/example-project/rules/one.md" ]]
 }
 
 test_update_refreshes_rules_templates() {
@@ -429,6 +483,137 @@ test_usage_without_args() {
   ! "${INSTALLER}" >/dev/null 2>&1
 }
 
+test_refuses_home_directory() {
+  new_sandbox
+  printf '# home AGENTS\n' > "${HOME}/AGENTS.md"
+  ! install example-project "${HOME}" >/dev/null 2>&1
+  [[ ! -e "${HOME}/AGENTS.local.md" ]]
+}
+
+test_refuses_template_as_project_repo() {
+  new_sandbox
+  ! install example-project "${RIBBON_HOME}" >/dev/null 2>&1
+}
+
+test_refuses_symlinked_overlap() {
+  new_sandbox
+  ln -s "${SANDBOX}/repos" "${SANDBOX}/repos-link"
+  local rc=0
+  "${INSTALLER}" --projects "${SANDBOX}/repos-link" example-project \
+    "${SANDBOX}/repos/example-project" >/dev/null 2>&1 || rc=1
+  [[ "${rc}" == "1" ]] && [[ ! -e "${SANDBOX}/repos/example-project/docs" ]]
+}
+
+test_refuses_template_as_instance() {
+  new_sandbox
+  local tmpl="${PROJECTS}/example-project"
+  mkdir -p "${tmpl}/docs/tasks" "${tmpl}/docs/llm-context" "${tmpl}/rules" "${tmpl}/scripts"
+  printf '# fake template\n' > "${tmpl}/AGENTS.standalone.md"
+  printf '# fake\n' > "${tmpl}/AGENTS.md"
+  printf 'ribbon 1\n' > "${tmpl}/VERSION"
+  cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${tmpl}/scripts/"
+  local rc=0
+  install --ribbon-home "${tmpl}" example-project \
+      "${SANDBOX}/repos/example-project" --force >/dev/null 2>&1 || rc=1
+  [[ "${rc}" == "1" ]] && [[ -f "${tmpl}/AGENTS.standalone.md" ]]
+}
+
+test_refuses_template_inside_instance() {
+  new_sandbox
+  local tmpl="${PROJECTS}/example-project/inner-template"
+  mkdir -p "${tmpl}/docs/tasks" "${tmpl}/docs/llm-context" "${tmpl}/rules" "${tmpl}/scripts"
+  printf '# fake\n' > "${tmpl}/AGENTS.standalone.md"
+  printf '# fake\n' > "${tmpl}/AGENTS.md"
+  printf 'ribbon 1\n' > "${tmpl}/VERSION"
+  cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${tmpl}/scripts/"
+  local rc=0
+  install --ribbon-home "${tmpl}" example-project \
+      "${SANDBOX}/repos/example-project" --force >/dev/null 2>&1 || rc=1
+  [[ "${rc}" == "1" ]] && [[ -f "${tmpl}/AGENTS.standalone.md" ]]
+}
+
+test_force_preflights_local_block() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  printf '<!-- ribbon:standalone:start -->\nbroken\n' \
+    > "${SANDBOX}/repos/example-project/AGENTS.local.md"
+  printf 'live work\n' > "${PROJECTS}/example-project/docs/tasks/live-card.yaml"
+  local rc=0
+  install example-project "${SANDBOX}/repos/example-project" --force --yes \
+      >/dev/null 2>&1 || rc=1
+  [[ "${rc}" == "1" ]] && [[ -f "${PROJECTS}/example-project/docs/tasks/live-card.yaml" ]]
+}
+
+test_force_preflights_marker_order() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  printf 'text\n<!-- ribbon:standalone:end -->\ntext\n<!-- ribbon:standalone:start -->\ntext\n' \
+    > "${SANDBOX}/repos/example-project/AGENTS.local.md"
+  printf 'live work\n' > "${PROJECTS}/example-project/docs/tasks/live-card.yaml"
+  local rc=0
+  install example-project "${SANDBOX}/repos/example-project" --force --yes \
+      >/dev/null 2>&1 || rc=1
+  [[ "${rc}" == "1" ]] && [[ -f "${PROJECTS}/example-project/docs/tasks/live-card.yaml" ]]
+}
+
+test_rejects_surplus_positionals() {
+  new_sandbox
+  ! install example-project "${SANDBOX}/repos/example-project" extra-arg \
+      >/dev/null 2>&1
+  [[ ! -e "${SANDBOX}/repos/example-project/AGENTS.local.md" ]]
+}
+
+test_import_rejects_directory_operand() {
+  new_sandbox
+  mkdir -p "${HOME}/.claude/rules/dir.md"
+  ! install example-project "${SANDBOX}/repos/example-project" --import-rules dir.md \
+      >/dev/null 2>&1
+}
+
+test_refuses_overlapping_repo_and_instance() {
+  new_sandbox
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  mkdir -p "${PROJECTS}/example-project/repo-inside"
+  printf '# inside AGENTS\n' > "${PROJECTS}/example-project/repo-inside/AGENTS.md"
+  ! install example-project "${PROJECTS}/example-project/repo-inside" --force \
+      >/dev/null 2>&1
+  [[ -d "${PROJECTS}/example-project/docs" ]]
+}
+
+test_import_rules_usage_order_works() {
+  new_sandbox
+  mkdir -p "${HOME}/.claude/rules"
+  printf '# one\n' > "${HOME}/.claude/rules/one.md"
+  install --import-rules one.md example-project "${SANDBOX}/repos/example-project" \
+    >/dev/null 2>&1
+  [[ -f "${SANDBOX}/repos/example-project/rules/one.md" ]]
+}
+
+test_import_rules_requires_one_value() {
+  new_sandbox
+  ! install example-project "${SANDBOX}/repos/example-project" --import-rules \
+      >/dev/null 2>&1
+}
+
+test_import_rules_rejects_paths() {
+  new_sandbox
+  mkdir -p "${HOME}/.claude"
+  printf '# x\n' > "${HOME}/.claude/x.md"
+  ! install example-project "${SANDBOX}/repos/example-project" --import-rules ../x.md \
+      >/dev/null 2>&1
+  [[ ! -e "${SANDBOX}/repos/example-project/AGENTS.local.md" ]] \
+    && [[ ! -e "${SANDBOX}/repos/example-project/x.md" ]]
+}
+
+test_install_keeps_existing_project_theme() {
+  new_sandbox
+  mkdir -p "${SANDBOX}/repos/example-project/rules"
+  printf 'custom testing rules\n' > "${SANDBOX}/repos/example-project/rules/testing.md"
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  [[ "$(cat "${SANDBOX}/repos/example-project/rules/testing.md")" == "custom testing rules" ]] \
+    && [[ -f "${SANDBOX}/repos/example-project/rules/README.md" ]]
+}
+
 readonly TESTS=(
   test_installer_exists
   test_creates_layout
@@ -439,6 +624,12 @@ readonly TESTS=(
   test_preserves_existing_agents_local_md
   test_copies_herdr_config
   test_seeds_rules_into_repo
+  test_update_seeds_rules_when_missing
+  test_update_does_not_resurrect_deleted_theme
+  test_import_rules_flag
+  test_import_rules_missing_file_fails
+  test_import_rules_preflight_before_any_write
+  test_non_interactive_imports_nothing
   test_update_refreshes_rules_templates
   test_rerun_keeps_one_block
   test_requires_projects_flag
@@ -468,6 +659,20 @@ readonly TESTS=(
   test_install_marks_belt_section
   test_refuses_force_and_update
   test_usage_without_args
+  test_refuses_home_directory
+  test_refuses_template_as_project_repo
+  test_refuses_symlinked_overlap
+  test_refuses_template_as_instance
+  test_refuses_template_inside_instance
+  test_force_preflights_local_block
+  test_force_preflights_marker_order
+  test_rejects_surplus_positionals
+  test_import_rejects_directory_operand
+  test_refuses_overlapping_repo_and_instance
+  test_import_rules_usage_order_works
+  test_import_rules_requires_one_value
+  test_import_rules_rejects_paths
+  test_install_keeps_existing_project_theme
 )
 
 main() {
