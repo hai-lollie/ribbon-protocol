@@ -55,3 +55,9 @@ evidence; the reviewer runs the boot itself.
 - Counterexample: <the input or state, and the wrong output or missing refusal>
 - Evidence: <the command you ran, and what it printed>
 - Next owner: architect                  # architect | coder | senior architect
+
+## Learnings
+
+Record additional observations from the review for the architect, with evidence and limits.
+Keep defects under Findings; learnings do not change verdicts. Write `None` if there are no
+additional learnings. Leave persistent memory unchanged.

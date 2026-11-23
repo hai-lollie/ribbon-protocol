@@ -70,6 +70,12 @@ write `None in the reviewed snapshot` and retain the coverage and limits above.
 - Verification condition: <observable acceptance condition that can enter a plan/card>
 - Assumptions or open question: <what must be confirmed, or none>
 
+## Learnings
+
+Record additional learnings from the reviewed snapshot for the architect, with sources and
+limits. Keep design gaps under Findings. Write `None` if there are no additional learnings.
+Leave persistent memory unchanged.
+
 ## Handback
 
 Report returned to architect: <message id and timestamp>

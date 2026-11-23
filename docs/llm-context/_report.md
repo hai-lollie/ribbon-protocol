@@ -33,6 +33,13 @@ next_owner: reviewer                     # reviewer | architect | senior archite
 commit: <hash, filled in the next commit when it cannot be known yet>
 ```
 
+## Findings and learnings
+
+Record findings and learnings from this card for the architect, even when the card passes.
+Cite evidence and label unverified observations. Write `None` if there is nothing to hand
+back. If preflight is blocked, capture its findings here and still write the required note.
+Leave persistent memory unchanged.
+
 ## Scorecard
 
 ```yaml
