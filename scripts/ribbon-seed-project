@@ -439,9 +439,12 @@ write_install_receipt() {
 
 uninstall_full_install() {
   [[ -n "${PROJECT_REPO}" && -d "${PROJECT_REPO}" ]] || die "uninstall requires an existing project directory"
-  PROJECT_REPO="$(realpath "${PROJECT_REPO}")"
-  [[ "${PROJECT_REPO}" != / && "${PROJECT_REPO}" != "$(realpath "${HOME}")" \
-    && "${PROJECT_REPO}" != "$(realpath -m "${RIBBON_HOME}")" ]] \
+  local home_resolved ribbon_resolved
+  PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
+  home_resolved="$(canonical_path "${HOME}")"
+  ribbon_resolved="$(canonical_path "${RIBBON_HOME}")"
+  [[ "${PROJECT_REPO}" != / && "${PROJECT_REPO}" != "${home_resolved}" \
+    && "${PROJECT_REPO}" != "${ribbon_resolved}" ]] \
     || die "refusing to uninstall from the filesystem root, home, or template repository"
   python3 -c "$(cat <<'PY'
 from contextlib import contextmanager

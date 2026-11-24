@@ -870,6 +870,20 @@ test_uninstall_refuses_unproven_ownership() {
     && grep -Fxq '# Keep this file' "${repo}/docs/tasks/_template.plan.yaml"
 }
 
+# Uninstall never runs on the template repository, here named by --ribbon-home.
+test_uninstall_refuses_the_template_repository() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+
+  seed --ribbon-home "${repo}" --uninstall --remove-ribbon --yes "${repo}" \
+    </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && -f "${repo}/docs/tasks/_template.plan.yaml" ]] \
+    && [[ -f "${repo}/docs/.ribbon-full-install-receipt" ]] \
+    && grep -Fq 'refusing to uninstall from the filesystem root, home, or template repository' "${SANDBOX}/error"
+}
+
 test_uninstall_stops_before_removal_when_a_parent_is_not_writable() {
   new_repo
   local repo="${SANDBOX}/example-project" rc=0
@@ -1051,6 +1065,7 @@ readonly TESTS=(
   test_uninstall_without_terminal_requires_explicit_yes
   test_uninstall_removes_only_unchanged_owned_full_install_content
   test_uninstall_refuses_unproven_ownership
+  test_uninstall_refuses_the_template_repository
   test_uninstall_stops_before_removal_when_a_parent_is_not_writable
   test_uninstall_keeps_an_edited_agents_block
   test_uninstall_default_no_prompt_is_visible_with_stdout_redirected
