@@ -72,7 +72,8 @@ A prompt-only restriction is not enforcement, so it carries the compensating con
 `herdr-config.md`: the briefing names the boundary, and every card's changed and untracked paths
 are checked against its approved set before the card is accepted. A path outside it stops the card.
 A reviewer has no production write permission; its diff check expects the review file and its
-evidence only.
+evidence only. In the mechanism column, record any gap in preventing file removal separately
+from the writable paths.
 
 ## Monitoring events
 

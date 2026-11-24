@@ -102,18 +102,22 @@ still apply; the report does not replace them or authorize changes beyond the as
 
 ## File removal
 
-Only the LLM architect may request approval for or carry out file removal. The applicable
-permission and approval rules still apply. For every other agent, writable access is not
-permission to delete a file or directory. This includes its own files and disposable scratch
-under `/tmp` and `~/tmp`, and applies whether or not Herdr is in use. Do not remove files
-through a command, script, tool or another agent. Editing an approved file or moving it without
-discarding its contents, when the move is explicitly authorized, is not cleanup.
+Among LLM agents, only the architect may request approval for or carry out file removal.
+The applicable permission and approval rules still apply. This rule does not bind the senior
+architect or the trusted verifier running independently of an agent.
 
-Leave the file in place. Record its path and why removal is wanted in the assigned report
-and continue if the work does not depend on removal. A helper without a report returns those
-details to its parent without writing an artifact. If a required step cannot run without
-removal, stop and report the blocker through the normal handoff instead of triggering a
-removal approval prompt. The architect reviews the request and decides what to do.
+For a non-architect LLM agent, writable access is not permission to delete a file or directory,
+directly or through a command, script, tool or another agent. This includes files it created,
+even scratch under `/tmp` and `~/tmp`, with or without Herdr. Editing an approved file or making
+an explicitly authorized move to an unoccupied path is not file removal.
+
+Leave the file in place. Under `Cleanup requests` in the assigned report, record its absolute path,
+why removal is wanted and whether it blocks the assignment. A helper without a report returns
+those details to its parent without writing an artifact. Continue if possible. If a required
+step cannot run without removal, including a cleanup step in a check the agent must run,
+stop and report the blocker through the normal handoff instead of opening a removal approval
+prompt. The architect records the request, decision and any required approval evidence in
+its assignment journal or in the record named by the Herdr overlay.
 
 ## The loop
 

@@ -183,8 +183,9 @@ and independent acceptance prove the behavior in the project.
 
 The core protocol's file-removal rule applies inside every writable root, including scratch
 paths created by a spike. Use existing harness controls to prevent non-architect removal
-where possible. If the harness grants shell writes without a separate removal control, record
-that gap in the permission boundary; do not treat writable access as removal approval.
+where possible. If the harness cannot prevent removal, record that gap in the orchestration
+report under `Permission enforcement`. Before a plan exists, use the security evidence folder
+for a security review and the architect's assignment journal for other work.
 
 ## Exclusive file ownership and parallel cards
 
@@ -266,10 +267,11 @@ report path for that assignment. It tells the agent to record findings and learn
 report and not to write project, user-level or harness memory, directly or indirectly.
 
 Every non-architect briefing, including for a research helper or spike, says to leave files in
-place, not to request permission to remove them, and to report any cleanup path and reason.
-The architect records the request and disposition in the orchestration report (or the security
-evidence folder if there is no plan yet). If a removal prompt still appears, it does not get
-approved for the agent; have it continue without removal or stop at the blocker.
+place, not to request permission to remove them, and to report the path, reason and whether it
+blocks the assignment. The architect logs the request and decision under `Cleanup requests` in
+the orchestration report or in the same pre-plan record used for permission enforcement. If a
+removal prompt still appears, do not approve it for the agent; have the agent continue without
+removal or stop at the blocker.
 
 The first briefing contains:
 
