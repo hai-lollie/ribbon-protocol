@@ -18,10 +18,9 @@
 # into each new worktree. Only the final artifacts (docs/adrs,
 # docs/diagrams) are ever written into the project repository.
 #
-# --update refreshes an existing instance: template and schema files are
-# replaced from the template, the seed version and the AGENTS.md block are
-# rewritten with the filled-in belt kept between its ribbon:belt marks; live
-# plans, cards and reports are never touched.
+# --update refreshes template and schema files and the seed version in an
+# existing instance. Project agent instructions are only appended when
+# missing; live plans, cards and reports are never touched.
 
 set -euo pipefail
 
@@ -37,11 +36,16 @@ PROJECT_NAME=''
 PROJECT_REPO=''
 INSTANCE=''
 HERDR_NOTE=''
+HERDR_COPY_NEEDED=0
 IMPORT_NOTE=''
 IMPORT_RULES=()
 ASSUME_YES=0
 NEEDS_REBUILD=0
 WORKTREE_NOTE=''
+WORKTREE_HOOK=''
+LOCAL_BLOCK=''
+AGENTS_POINTER_NEEDED=0
+SELECTED_RULES=()
 
 #######################################
 # Validate every --import-rules file before any mutating step, so a typo
@@ -85,8 +89,8 @@ Usage:
       [--ribbon-home DIR] [--import-rules F]... <project-name> [project-repo-path]
 
 Unpacks a standalone Ribbon instance for one project (default mode), or
-refreshes an existing instance (--update): template files, seed version and
-the AGENTS.md block. Live plans, cards and reports are never touched.
+refreshes an existing instance (--update): template files and seed version.
+Existing agent instructions, live plans, cards and reports are not rewritten.
 
 Options:
   --projects DIR     Where per-project instances live. Required; the script
@@ -113,7 +117,7 @@ Examples:
   mkdir -p ~/ribbon-projects
   scripts/ribbon-new-project --projects ~/ribbon-projects my-app ~/dev/my-app
 
-  # a new "ribbon N" appeared: refresh templates, version and block
+  # a new "ribbon N" appeared: refresh templates and version
   scripts/ribbon-new-project --update my-app --projects ~/ribbon-projects
 
   # rebuild from scratch (discards the instance's working files)
@@ -204,36 +208,180 @@ rebuild_instance() {
 }
 
 #######################################
-# Fail fast when the project's AGENTS.local.md carries an unclosed Ribbon
-# block, before any rebuild could destroy the data that would let the user
-# recover it.
-# Globals:
-#   PROJECT_REPO
+# Creating or rebuilding the instance must not change what project
+# instruction links resolve to.
 #######################################
-validate_local_block() {
+path_uses_instance() {
+  local path="$1" enters
+  enters="$(python3 - "${INSTANCE}" "${path}" <<'PY'
+from collections import deque
+import os
+from pathlib import Path
+import sys
+
+instance, path = map(Path, sys.argv[1:])
+# The directory entry passed to rm matters, even if that entry is a symlink.
+root = instance.parent.resolve() / instance.name
+parent = Path("/")
+pending = deque(path.absolute().parts[1:])
+links = 0
+while pending:
+    component = pending.popleft()
+    if component == "..":
+        parent = parent.parent
+        continue
+    entry = parent / component
+    if entry == root or root in entry.parents:
+        print("yes")
+        break
+    if not entry.is_symlink():
+        parent = entry
+        continue
+    links += 1
+    if links > 40:
+        sys.exit("too many symlink hops")
+    target = Path(os.readlink(entry))
+    parts = target.parts
+    if target.is_absolute():
+        parent = Path("/")
+        parts = parts[1:]
+    pending.extendleft(reversed(parts))
+else:
+    print("no")
+PY
+)" || die "cannot check where ${path} points"
+  [[ "${enters}" == yes ]]
+}
+
+validate_instance_seed_instruction_links() {
+  (( UPDATE == 0 )) || return 0
+  local name
+  for name in AGENTS.md AGENTS.local.md CLAUDE.md CLAUDE.local.md; do
+    [[ -L "${PROJECT_REPO}/${name}" ]] || continue
+    if path_uses_instance "${PROJECT_REPO}/${name}"; then
+      die "${name} points inside the instance; refusing to seed or rebuild ${INSTANCE}"
+    fi
+  done
+}
+
+#######################################
+# Compare planned destinations by identity, or by resolved path for a
+# dangling symlink that a new file would populate.
+#######################################
+validate_refresh_destination() {
+  local destination="$1" name instruction resolved_destination resolved_instruction
+  for name in AGENTS.md AGENTS.local.md CLAUDE.md CLAUDE.local.md; do
+    instruction="${PROJECT_REPO}/${name}"
+    if [[ "${destination}" -ef "${instruction}" ]]; then
+      die "${destination} would overwrite ${name}; refusing to continue"
+    fi
+    # A link to a not-yet-existing destination has no inode to compare.
+    if [[ -L "${instruction}" && ! -e "${instruction}" ]]; then
+      resolved_destination="$(realpath -m -- "${destination}")"
+      resolved_instruction="$(realpath -m -- "${instruction}")"
+      if [[ "${resolved_instruction}" == "${resolved_destination}" ]]; then
+        die "${destination} would overwrite ${name}; refusing to continue"
+      fi
+    fi
+  done
+}
+
+validate_update_instruction_aliases() {
+  (( UPDATE == 1 )) || return 0
+  validate_refresh_destination "${INSTANCE}/docs/README.md"
+  validate_refresh_destination "${INSTANCE}/project-repo"
+  visit_instance_template_refreshes validate_refresh_destination
+}
+
+#######################################
+# Validate the existing standalone block before any rebuild. Render the
+# append only when the block is absent; never reserialize the existing file.
+#######################################
+prepare_local_block() {
   local local_md="${PROJECT_REPO}/AGENTS.local.md"
-  [[ -f "${local_md}" ]] || return 0
-  # The writer's rule, run before any rebuild: after the first standalone
-  # start mark an end mark must follow; inside that held block, if either
-  # belt mark appears both must appear exactly once in order; a block with
-  # no belt marks is legacy and fine.
-  if ! awk -v start="${START_MARK}" -v end="${END_MARK}" \
-        -v belt_start='<!-- ribbon:belt:start -->' \
-        -v belt_end='<!-- ribbon:belt:end -->' '
-      index($0, start) && !seen {
-        seen=1
-        if (index($0, end)) { done=1 } else { inblock=1 }
-        next
-      }
-      inblock && index($0, end) { inblock=0; done=1; next }
-      inblock && index($0, belt_start) { bstart++; next }
-      inblock && index($0, belt_end) { bend++; if (bend > bstart) outoforder=1; next }
-      END {
-        bad = (seen && !done) || (bstart != bend) || (bstart > 1) || outoforder
-        exit(bad ? 1 : 0)
-      }
-    ' "${local_md}"; then
-    die "AGENTS.local.md has unclosed, duplicated or out-of-order Ribbon markers; fix it before re-running"
+  if [[ -e "${local_md}" || -L "${local_md}" ]]; then
+    [[ -f "${local_md}" ]] || die "not a regular file: ${local_md}"
+  fi
+  LOCAL_BLOCK="$(python3 - "${RIBBON_HOME}/AGENTS.standalone.md" "${local_md}" \
+    "${RIBBON_HOME}" "${PROJECTS_DIR}" "${INSTANCE}" "${PROJECT_NAME}" "${PROJECT_REPO}" \
+    "${START_MARK}" "${END_MARK}" <<'PY'
+import os
+from pathlib import Path
+import sys
+
+template, agents, ribbon_home, projects_dir, instance, name, repo, start, end = sys.argv[1:]
+start, end = start.encode(), end.encode()
+belt_start, belt_end = b"<!-- ribbon:belt:start -->", b"<!-- ribbon:belt:end -->"
+
+def refuse(reason):
+    sys.exit(f"ribbon-new-project: {reason}")
+
+def valid_belt(body, allow_legacy=False):
+    marks = body.count(belt_start), body.count(belt_end)
+    return (allow_legacy and marks == (0, 0)) or (
+        marks == (1, 1)
+        and b"\n" in body[body.index(belt_start):body.index(belt_end)]
+    )
+
+try:
+    content = Path(agents).read_bytes()
+except FileNotFoundError:
+    content = b""
+except OSError as error:
+    refuse(str(error))
+
+if start in content or end in content:
+    _, _, block_and_tail = content.partition(start)
+    body, end_after_start, _ = block_and_tail.partition(end)
+    if (content.count(start), content.count(end)) != (1, 1) \
+            or not end_after_start or not valid_belt(body, allow_legacy=True):
+        refuse("AGENTS.local.md has unclosed, duplicated or out-of-order Ribbon markers; fix it before re-running")
+    sys.exit(0)
+
+try:
+    block = Path(template).read_bytes()
+except OSError as error:
+    refuse(str(error))
+if not valid_belt(block):
+    refuse(f"the belt marks in the template {template} are missing, duplicated or out of order")
+for placeholder, value in [
+    (b"{{RIBBON_HOME}}", ribbon_home),
+    (b"{{RIBBON_PROJECTS}}", projects_dir),
+    (b"{{INSTANCE}}", instance),
+    (b"{{PROJECT_NAME}}", name),
+    (b"{{PROJECT_REPO}}", repo),
+]:
+    block = block.replace(placeholder, os.fsencode(value))
+
+separator = (b"\n" if content.endswith(b"\n") else b"\n\n") if content else b""
+sys.stdout.buffer.write(separator + start + b"\n" + block.rstrip() + b"\n" + end)
+PY
+)"
+}
+
+#######################################
+# Refuse an append through an AGENTS alias of an existing Claude file.
+# A Claude symlink to a regular AGENTS file is the supported direction.
+#######################################
+validate_agents_destination() {
+  local name="$1" destination="${PROJECT_REPO}/$1" claude
+  for claude in CLAUDE.md CLAUDE.local.md; do
+    [[ "${destination}" -ef "${PROJECT_REPO}/${claude}" ]] || continue
+    if [[ ! -L "${destination}" && -L "${PROJECT_REPO}/${claude}" ]]; then
+      continue
+    fi
+    die "${name} aliases ${claude}; refusing to write it"
+  done
+}
+
+prepare_instruction_files() {
+  prepare_local_block
+  if [[ -n "${LOCAL_BLOCK}" ]]; then
+    validate_agents_destination AGENTS.local.md
+  fi
+  if ! grep -q 'AGENTS\.local\.md' "${PROJECT_REPO}/AGENTS.md"; then
+    validate_agents_destination AGENTS.md
+    AGENTS_POINTER_NEEDED=1
   fi
 }
 
@@ -283,6 +431,8 @@ resolve_repo() {
     || die "project repo is not writable with your permissions: ${PROJECT_REPO}"
   [[ -f "${PROJECT_REPO}/AGENTS.md" ]] \
     || die "no AGENTS.md in ${PROJECT_REPO}; create one before unpacking"
+  [[ -r "${PROJECT_REPO}/AGENTS.md" ]] \
+    || die "AGENTS.md is not readable with your permissions: ${PROJECT_REPO}/AGENTS.md"
   [[ -w "${PROJECT_REPO}/AGENTS.md" ]] \
     || die "AGENTS.md is not writable with your permissions: ${PROJECT_REPO}/AGENTS.md"
   if [[ -f "${PROJECT_REPO}/AGENTS.local.md" ]]; then
@@ -337,6 +487,22 @@ confirm_target() {
 # Globals:
 #   UPDATE, RIBBON_HOME, INSTANCE
 #######################################
+visit_instance_template_refreshes() {
+  local visit="$1" template
+  for template in "${RIBBON_HOME}/docs/tasks"/README.md "${RIBBON_HOME}/docs/tasks"/_template.*; do
+    [[ -e "${template}" ]] || continue
+    "${visit}" "${INSTANCE}/docs/tasks/${template##*/}" "${template}"
+  done
+  for template in "${RIBBON_HOME}/docs/llm-context"/README.md "${RIBBON_HOME}/docs/llm-context"/_*.md; do
+    [[ -e "${template}" ]] || continue
+    "${visit}" "${INSTANCE}/docs/llm-context/${template##*/}" "${template}"
+  done
+}
+
+copy_refreshed_file() {
+  cp "$2" "${1%/*}/"
+}
+
 unpack_docs() {
   mkdir -p "${INSTANCE}/docs/tasks" "${INSTANCE}/docs/llm-context/history"
   if (( UPDATE == 0 )); then
@@ -344,13 +510,7 @@ unpack_docs() {
     cp -R "${RIBBON_HOME}/docs/llm-context/." "${INSTANCE}/docs/llm-context/"
     return
   fi
-  local f
-  for f in "${RIBBON_HOME}/docs/tasks"/README.md "${RIBBON_HOME}/docs/tasks"/_template.*; do
-    [[ -e "${f}" ]] && cp "${f}" "${INSTANCE}/docs/tasks/"
-  done
-  for f in "${RIBBON_HOME}/docs/llm-context"/README.md "${RIBBON_HOME}/docs/llm-context"/_*.md; do
-    [[ -e "${f}" ]] && cp "${f}" "${INSTANCE}/docs/llm-context/"
-  done
+  visit_instance_template_refreshes copy_refreshed_file
 }
 
 #######################################
@@ -361,25 +521,27 @@ unpack_docs() {
 # Globals:
 #   UPDATE, RIBBON_HOME, PROJECT_REPO
 #######################################
-seed_rules() {
-  mkdir -p "${PROJECT_REPO}/rules"
+visit_project_rule_copies() {
+  local visit="$1" template destination
   if (( UPDATE == 0 )) || [[ ! -f "${PROJECT_REPO}/rules/README.md" ]]; then
-    local f base
-    for f in "${RIBBON_HOME}/rules"/*.md; do
-      [[ -e "${f}" ]] || continue
-      base="$(basename "${f}")"
-      [[ -e "${PROJECT_REPO}/rules/${base}" ]] && continue
-      cp "${f}" "${PROJECT_REPO}/rules/${base}"
+    for template in "${RIBBON_HOME}/rules"/*.md; do
+      destination="${PROJECT_REPO}/rules/${template##*/}"
+      [[ -e "${template}" && ! -e "${destination}" ]] || continue
+      "${visit}" "${destination}" "${template}"
     done
     return
   fi
-  # Refresh only the themes the project kept; never resurrect a deleted one.
-  local f
-  for f in "${RIBBON_HOME}/rules"/README.md "${RIBBON_HOME}/rules"/testing.md; do
-    if [[ -e "${f}" && -e "${PROJECT_REPO}/rules/$(basename "${f}")" ]]; then
-      cp "${f}" "${PROJECT_REPO}/rules/"
-    fi
+  # Refresh only themes the project kept; never resurrect a deleted one.
+  for template in "${RIBBON_HOME}/rules"/README.md "${RIBBON_HOME}/rules"/testing.md; do
+    destination="${PROJECT_REPO}/rules/${template##*/}"
+    [[ -e "${template}" && -e "${destination}" ]] || continue
+    "${visit}" "${destination}" "${template}"
   done
+}
+
+seed_rules() {
+  mkdir -p "${PROJECT_REPO}/rules"
+  visit_project_rule_copies copy_refreshed_file
 }
 
 #######################################
@@ -410,109 +572,12 @@ write_pointer() {
 }
 
 #######################################
-# Replace (or append) the marked standalone block in the project's
-# AGENTS.local.md, creating it when missing. Existing local content is
-# preserved; only the marked block is rewritten. Inside the block the belt
-# section between the ribbon:belt marks is kept exactly as the person filled
-# it in — on install, --force and --update alike; a block whose standalone or
-# belt marks are unbalanced, duplicated or out of order stops the run with
-# the file left byte-identical.
-# Globals:
-#   RIBBON_HOME, PROJECTS_DIR, INSTANCE, PROJECT_NAME, PROJECT_REPO
+# Append the standalone block if preflight found it missing.
 #######################################
 write_local_block() {
-  local local_md="${PROJECT_REPO}/AGENTS.local.md"
-  if [[ -f "${local_md}" ]]; then
-    [[ -w "${local_md}" ]] \
-      || die "AGENTS.local.md is not writable with your permissions: ${local_md}"
-  else
-    : > "${local_md}"
+  if [[ -n "${LOCAL_BLOCK}" ]]; then
+    printf '%s\n' "${LOCAL_BLOCK}" >> "${PROJECT_REPO}/AGENTS.local.md"
   fi
-  python3 - "${RIBBON_HOME}/AGENTS.standalone.md" "${local_md}" \
-    "${RIBBON_HOME}" "${PROJECTS_DIR}" "${INSTANCE}" "${PROJECT_NAME}" "${PROJECT_REPO}" <<'PY'
-import sys
-
-block_path, agents_path, ribbon_home, projects_dir, instance, name, repo = sys.argv[1:8]
-
-def refuse(reason):
-    print(f"ribbon-new-project: {reason}", file=sys.stderr)
-    sys.exit(1)
-
-with open(block_path) as fh:
-    block = fh.read()
-for placeholder, value in [
-    ("{{RIBBON_HOME}}", ribbon_home),
-    ("{{RIBBON_PROJECTS}}", projects_dir),
-    ("{{INSTANCE}}", instance),
-    ("{{PROJECT_NAME}}", name),
-    ("{{PROJECT_REPO}}", repo),
-]:
-    block = block.replace(placeholder, value)
-
-start, end = "<!-- ribbon:standalone:start -->", "<!-- ribbon:standalone:end -->"
-belt_start, belt_end = "<!-- ribbon:belt:start -->", "<!-- ribbon:belt:end -->"
-
-def belt_mark_lines(lines, mark):
-    return [i for i, line in enumerate(lines) if mark in line]
-
-block_lines = block.split("\n")
-template_belt_at = belt_mark_lines(block_lines, belt_start)
-template_belt_til = belt_mark_lines(block_lines, belt_end)
-if len(template_belt_at) != 1 or len(template_belt_til) != 1 \
-        or template_belt_at[0] >= template_belt_til[0]:
-    refuse(f"the belt marks in the template {block_path} are missing, duplicated or out of order")
-
-def belt_kept_between_marks(lines):
-    """The belt a person filled in between one pair of belt marks, verbatim."""
-    at = belt_mark_lines(lines, belt_start)
-    til = belt_mark_lines(lines, belt_end)
-    if len(at) != 1 or len(til) != 1 or at[0] >= til[0]:
-        refuse(f"the belt marks in {agents_path} are unbalanced, duplicated or out of order")
-    return lines[at[0] + 1:til[0]]
-
-def belt_kept_from_heading(lines):
-    """The belt of a block written before belt marks: from the '## The belt'
-    heading to the next '## ' heading or the end of the block, trailing
-    whitespace dropped. None when the block names no belt at all."""
-    headings = [i for i, line in enumerate(lines) if line.strip() == "## The belt"]
-    if not headings:
-        return None
-    i = headings[0]
-    j = len(lines)
-    for k in range(i + 1, len(lines)):
-        if lines[k].startswith("## "):
-            j = k
-            break
-    section = lines[i:j]
-    while section and not section[-1].strip():
-        section.pop()
-    return section
-
-with open(agents_path) as fh:
-    content = fh.read()
-
-if start in content:
-    before, _, rest = content.partition(start)
-    held, found_end, tail = rest.partition(end)
-    if not found_end:
-        refuse(f"AGENTS.local.md has a standalone start mark with no end mark after it: {agents_path}")
-    held_lines = held.split("\n")
-    if not belt_mark_lines(held_lines, belt_start) and not belt_mark_lines(held_lines, belt_end):
-        kept_belt = belt_kept_from_heading(held_lines)
-    else:
-        kept_belt = belt_kept_between_marks(held_lines)
-    if kept_belt is not None:
-        block_lines[template_belt_at[0] + 1:template_belt_til[0]] = kept_belt
-    marked = start + "\n" + "\n".join(block_lines).rstrip() + "\n" + end + "\n"
-    content = before + marked + tail
-else:
-    if content and not content.endswith("\n"):
-        content += "\n"
-    content += "\n" + start + "\n" + block.rstrip() + "\n" + end + "\n"
-
-with open(agents_path, "w") as fh:
-    fh.write(content)
-PY
 }
 
 #######################################
@@ -523,12 +588,28 @@ PY
 #   PROJECT_REPO
 #######################################
 ensure_pointer() {
-  local agents_md="${PROJECT_REPO}/AGENTS.md"
-  if ! grep -q 'AGENTS\.local\.md' "${agents_md}"; then
+  if (( AGENTS_POINTER_NEEDED == 1 )); then
     printf '\n%s\n' \
       "Ribbon Protocol (standalone): this machine's working files live outside this repository; read AGENTS.local.md for where each file lives." \
-      >> "${agents_md}"
+      >> "${PROJECT_REPO}/AGENTS.md"
   fi
+}
+
+#######################################
+# Warn about existing Claude files without a direct AGENTS import or link.
+#######################################
+warn_unlinked_claude_files() {
+  local suffix agents claude
+  for suffix in .md .local.md; do
+    agents="AGENTS${suffix}"
+    claude="CLAUDE${suffix}"
+    [[ -f "${PROJECT_REPO}/${agents}" && -f "${PROJECT_REPO}/${claude}" ]] || continue
+    if [[ -L "${PROJECT_REPO}/${claude}" && "${PROJECT_REPO}/${claude}" -ef "${PROJECT_REPO}/${agents}" ]] \
+      || grep -Eq "^@(\./)?${agents//./\\.}[[:space:]]*$" "${PROJECT_REPO}/${claude}" 2>/dev/null; then
+      continue
+    fi
+    printf 'warning: %s does not point to %s; left unchanged\n' "${claude}" "${agents}" >&2
+  done
 }
 
 #######################################
@@ -539,7 +620,7 @@ ensure_pointer() {
 # Globals:
 #   HOME, PROJECT_REPO, IMPORT_RULES, IMPORT_NOTE (set)
 #######################################
-import_user_rules() {
+prepare_user_rule_imports() {
   local rules_dir="${HOME}/.claude/rules"
   local -a candidates=()
   local f
@@ -550,23 +631,29 @@ import_user_rules() {
   fi
   IMPORT_NOTE=''
 
-  local -a chosen=()
   if [[ "${#IMPORT_RULES[@]}" -gt 0 ]]; then
-    chosen=("${IMPORT_RULES[@]}")
+    SELECTED_RULES=("${IMPORT_RULES[@]}")
   elif [[ "${#candidates[@]}" -eq 0 ]]; then
     return 0
   elif [[ -t 0 ]]; then
     pick_rules "${candidates[@]}"
-    chosen=("${PICKED[@]}")
+    SELECTED_RULES=("${PICKED[@]}")
   else
     printf 'note: %d rule file(s) in %s not imported (not interactive); re-run in a terminal or pass --import-rules\n' \
       "${#candidates[@]}" "${rules_dir}" >&2
     return 0
   fi
 
-  local imported=0 kept=0
-  for f in "${chosen[@]}"; do
+  for f in "${SELECTED_RULES[@]}"; do
     [[ -f "${rules_dir}/${f}" ]] || die "--import-rules file not found: ${rules_dir}/${f}"
+    [[ -e "${PROJECT_REPO}/rules/${f}" ]] || validate_refresh_destination "${PROJECT_REPO}/rules/${f}"
+  done
+}
+
+import_user_rules() {
+  [[ "${#SELECTED_RULES[@]}" -gt 0 ]] || return 0
+  local rules_dir="${HOME}/.claude/rules" f imported=0 kept=0
+  for f in "${SELECTED_RULES[@]}"; do
     if [[ -e "${PROJECT_REPO}/rules/${f}" ]]; then
       kept=$((kept + 1))
       continue
@@ -645,28 +732,37 @@ pick_rules() {
 }
 
 #######################################
-# Copy herdr-config.md beside the project AGENTS.md when none is there.
-# Globals:
-#   RIBBON_HOME, PROJECT_REPO, HERDR_NOTE (set)
+# Validate the overlay before a rebuild can remove its target. A regular
+# file or working external symlink is kept; an absent file is seeded.
 #######################################
-wire_herdr() {
+prepare_herdr_destination() {
+  local overlay="${PROJECT_REPO}/herdr-config.md"
   HERDR_NOTE='herdr-config.md already present, left unchanged'
-  if [[ ! -f "${PROJECT_REPO}/herdr-config.md" ]]; then
+  if [[ -e "${overlay}" || -L "${overlay}" ]]; then
+    [[ -f "${overlay}" ]] || die "herdr-config.md is not a regular file or working symlink"
+    if (( NEEDS_REBUILD == 1 )) && [[ -L "${overlay}" ]] && path_uses_instance "${overlay}"; then
+      die "herdr-config.md points inside the instance; refusing to rebuild ${INSTANCE}"
+    fi
+    return 0
+  fi
+  [[ -f "${RIBBON_HOME}/herdr-config.md" && -r "${RIBBON_HOME}/herdr-config.md" ]] \
+    || die "overlay template is missing or unreadable: ${RIBBON_HOME}/herdr-config.md"
+  validate_refresh_destination "${overlay}"
+  HERDR_COPY_NEEDED=1
+}
+
+wire_herdr() {
+  if (( HERDR_COPY_NEEDED == 1 )); then
     cp "${RIBBON_HOME}/herdr-config.md" "${PROJECT_REPO}/herdr-config.md"
     HERDR_NOTE='herdr-config.md copied beside AGENTS.md'
   fi
 }
 
 #######################################
-# Install or refresh the post-checkout hook that links this machine's
-# untracked local files into every new worktree. Skips — with a note saying
-# why — when the project is not a git repository, is not the repository's
-# main worktree, or its hooks directory is custom or unwritable; a hook
-# without the ribbon mark is never touched.
-# Globals:
-#   RIBBON_HOME, PROJECT_REPO, WORKTREE_NOTE (set)
+# Pick the post-checkout destination without writing anything. Foreign
+# hooks and custom hook paths are left alone.
 #######################################
-wire_worktree_links() {
+prepare_worktree_hook() {
   WORKTREE_NOTE='post-checkout hook installed — new worktrees get links to the local files'
   local worktrees
   if ! worktrees="$(git -C "${PROJECT_REPO}" worktree list --porcelain 2>/dev/null)"; then
@@ -689,14 +785,6 @@ wire_worktree_links() {
     WORKTREE_NOTE='core.hooksPath points elsewhere — left as is, post-checkout hook not installed'
     return 0
   fi
-  if [[ ! -d "${hooks_dir}" ]] && ! mkdir -p "${hooks_dir}"; then
-    WORKTREE_NOTE='hooks directory missing and cannot be created — post-checkout hook not installed'
-    return 0
-  fi
-  if [[ ! -w "${hooks_dir}" ]]; then
-    WORKTREE_NOTE='hooks directory not writable — post-checkout hook not installed'
-    return 0
-  fi
   local hook="${hooks_dir}/post-checkout"
   if [[ -e "${hook}" || -L "${hook}" ]]; then
     local mark=''
@@ -707,8 +795,23 @@ wire_worktree_links() {
     fi
     WORKTREE_NOTE='post-checkout hook refreshed from the template'
   fi
-  if ! cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${hook}" 2>/dev/null \
-     || ! chmod 0755 "${hook}" 2>/dev/null; then
+  validate_refresh_destination "${hook}"
+  WORKTREE_HOOK="${hook}"
+}
+
+wire_worktree_links() {
+  [[ -n "${WORKTREE_HOOK}" ]] || return 0
+  local hooks_dir="${WORKTREE_HOOK%/*}"
+  if [[ ! -d "${hooks_dir}" ]] && ! mkdir -p "${hooks_dir}"; then
+    WORKTREE_NOTE='hooks directory missing and cannot be created — post-checkout hook not installed'
+    return 0
+  fi
+  if [[ ! -w "${hooks_dir}" ]]; then
+    WORKTREE_NOTE='hooks directory not writable — post-checkout hook not installed'
+    return 0
+  fi
+  if ! cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${WORKTREE_HOOK}" 2>/dev/null \
+      || ! chmod 0755 "${WORKTREE_HOOK}" 2>/dev/null; then
     WORKTREE_NOTE='post-checkout hook could not be written — left as is'
   fi
 }
@@ -716,12 +819,16 @@ wire_worktree_links() {
 #######################################
 # Print a summary of what happened.
 # Globals:
-#   UPDATE, INSTANCE, PROJECT_NAME, PROJECT_REPO, START_MARK, END_MARK,
-#   HERDR_NOTE, WORKTREE_NOTE
+#   UPDATE, INSTANCE, PROJECT_NAME, PROJECT_REPO, LOCAL_BLOCK,
+#   AGENTS_POINTER_NEEDED, HERDR_NOTE, WORKTREE_NOTE
 #######################################
 print_summary() {
   local mode='Unpacked'
+  local local_note='existing standalone block left unchanged'
+  local pointer_note='existing reference left unchanged'
   (( UPDATE == 1 )) && mode='Updated'
+  [[ -n "${LOCAL_BLOCK}" ]] && local_note='standalone block appended'
+  (( AGENTS_POINTER_NEEDED == 1 )) && pointer_note='one-line pointer appended (see AGENTS.local.md)'
   local import_line=''
   if [[ -n "${IMPORT_NOTE}" ]]; then
     import_line="  user rules:      ${IMPORT_NOTE}
@@ -734,8 +841,8 @@ ${mode} Ribbon Protocol instance for ${PROJECT_NAME}:
   working files:   ${INSTANCE}/docs/tasks, ${INSTANCE}/docs/llm-context
   project repo:    ${PROJECT_REPO}
   artifacts go to: ${PROJECT_REPO}/docs/adrs, ${PROJECT_REPO}/docs/diagrams
-  AGENTS.local.md: standalone block refreshed (${START_MARK} .. ${END_MARK})
-  AGENTS.md:       one-line pointer added (see AGENTS.local.md)
+  AGENTS.local.md: ${local_note}
+  AGENTS.md:       ${pointer_note}
   rules:           rules/README.md, rules/testing.md seeded; project themes preserved
 ${import_line}  gitignore:       add AGENTS.local.md — it is personal to this machine
   herdr:           ${HERDR_NOTE}
@@ -757,8 +864,14 @@ main() {
   validate_projects_dir
   validate_template
   resolve_repo
-  validate_local_block
+  validate_instance_seed_instruction_links
+  prepare_instruction_files
+  validate_update_instruction_aliases
+  visit_project_rule_copies validate_refresh_destination
+  prepare_herdr_destination
+  prepare_worktree_hook
   confirm_target
+  prepare_user_rule_imports
   rebuild_instance
   unpack_docs
   write_instance_readme
@@ -770,6 +883,7 @@ main() {
   wire_herdr
   wire_worktree_links
   print_summary
+  warn_unlinked_claude_files
 }
 
 main "$@"

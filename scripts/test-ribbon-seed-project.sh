@@ -96,10 +96,16 @@ test_stamps_version() {
 
 test_appends_protocol_preserving_content() {
   new_repo
-  seed "${SANDBOX}/example-project" >/dev/null 2>&1
-  grep -q "Our house rules" "${SANDBOX}/example-project/AGENTS.md" \
-    && grep -q "multi-LLM engineering belt" "${SANDBOX}/example-project/AGENTS.md" \
-    && [[ "$(grep -c 'ribbon:full-install:start' "${SANDBOX}/example-project/AGENTS.md")" == "1" ]]
+  local repo="${SANDBOX}/example-project" bytes
+  printf '# Our house rules\r\nNo trailing newline' > "${SANDBOX}/before"
+  cp "${SANDBOX}/before" "${repo}/AGENTS.md"
+  bytes="$(wc -c < "${SANDBOX}/before")"
+
+  seed "${repo}" >/dev/null 2>&1 || return 1
+
+  head -c "$((bytes))" "${repo}/AGENTS.md" | cmp -s "${SANDBOX}/before" - \
+    && grep -q "multi-LLM engineering belt" "${repo}/AGENTS.md" \
+    && [[ "$(grep -c 'ribbon:full-install:start' "${repo}/AGENTS.md")" == "1" ]]
 }
 
 test_copies_herdr_config() {
@@ -157,12 +163,14 @@ test_non_interactive_imports_nothing() {
     && [[ ! -f "${SANDBOX}/example-project/rules/one.md" ]]
 }
 
-test_creates_claude_md() {
+test_leaves_missing_claude_files_absent() {
   new_repo
-  seed "${SANDBOX}/example-project" >/dev/null 2>&1
-  [[ -f "${SANDBOX}/example-project/CLAUDE.md" ]] \
-    && grep -qxF '@AGENTS.md' "${SANDBOX}/example-project/CLAUDE.md" \
-    && grep -qxF '@herdr-config.md' "${SANDBOX}/example-project/CLAUDE.md"
+  local repo="${SANDBOX}/example-project"
+
+  seed "${repo}" >/dev/null 2>&1 || return 1
+
+  [[ ! -e "${repo}/CLAUDE.md" && ! -L "${repo}/CLAUDE.md" \
+     && ! -e "${repo}/CLAUDE.local.md" && ! -L "${repo}/CLAUDE.local.md" ]]
 }
 
 test_commits_seed() {
@@ -178,12 +186,135 @@ test_refuses_reseed() {
   ! seed "${SANDBOX}/example-project" >/dev/null 2>&1
 }
 
-test_extends_existing_claude_md() {
+test_preserves_existing_claude_files_byte_for_byte() {
   new_repo
-  printf '# precious\n' > "${SANDBOX}/example-project/CLAUDE.md"
-  seed "${SANDBOX}/example-project" >/dev/null 2>&1
-  grep -qxF '# precious' "${SANDBOX}/example-project/CLAUDE.md" \
-    && [[ "$(grep -c '@herdr-config.md' "${SANDBOX}/example-project/CLAUDE.md")" == "1" ]]
+  local repo="${SANDBOX}/example-project"
+  printf '# Existing shared Claude rules\r\nNo trailing newline' > "${SANDBOX}/CLAUDE.md"
+  printf '# Existing local Claude rules' > "${SANDBOX}/CLAUDE.local.md"
+  cp "${SANDBOX}/CLAUDE.md" "${SANDBOX}/CLAUDE.local.md" "${repo}/"
+
+  seed "${repo}" >/dev/null 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/CLAUDE.md" "${repo}/CLAUDE.md" \
+    && cmp -s "${SANDBOX}/CLAUDE.local.md" "${repo}/CLAUDE.local.md"
+}
+
+test_warns_for_unlinked_claude_files_after_seeding() {
+  new_repo
+  local repo="${SANDBOX}/example-project"
+  printf '# Shared Claude rules\n' > "${repo}/CLAUDE.md"
+  printf '# Local Claude rules\n' > "${repo}/CLAUDE.local.md"
+  printf '# Local agent notes\n' > "${repo}/AGENTS.local.md"
+
+  seed "${repo}" > /dev/null 2> "${SANDBOX}/warnings" || return 1
+
+  grep -Fq 'warning: CLAUDE.md does not point to AGENTS.md' "${SANDBOX}/warnings" \
+    && grep -Fq 'warning: CLAUDE.local.md does not point to AGENTS.local.md' "${SANDBOX}/warnings"
+}
+
+test_respects_a_claude_symlink_to_agents() {
+  new_repo
+  local repo="${SANDBOX}/example-project"
+  ln -s AGENTS.md "${repo}/CLAUDE.md"
+
+  seed "${repo}" > /dev/null 2> "${SANDBOX}/warnings" || return 1
+
+  [[ "$(readlink "${repo}/CLAUDE.md")" == "AGENTS.md" ]] \
+    && ! grep -Fxq '@herdr-config.md' "${repo}/AGENTS.md" \
+    && ! grep -Fq 'warning: CLAUDE.md' "${SANDBOX}/warnings"
+}
+
+test_rejects_an_agents_hardlink_to_claude_before_seeding() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  printf '# Claude owns this file\r\n' > "${repo}/CLAUDE.md"
+  cp "${repo}/CLAUDE.md" "${SANDBOX}/before"
+  ln -f "${repo}/CLAUDE.md" "${repo}/AGENTS.md"
+
+  seed "${repo}" > /dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == "1" && ! -e "${repo}/docs" ]] \
+    && grep -Eq 'AGENTS\.md.*CLAUDE\.md' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${repo}/CLAUDE.md"
+}
+
+test_rejects_an_overlay_symlink_to_claude_before_seeding() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  printf '# Claude owns this file\r\n' > "${repo}/CLAUDE.local.md"
+  cp "${repo}/CLAUDE.local.md" "${SANDBOX}/before"
+  ln -s CLAUDE.local.md "${repo}/herdr-config.md"
+
+  seed "${repo}" > /dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == "1" && ! -e "${repo}/docs" ]] \
+    && grep -Eq 'herdr-config\.md.*CLAUDE\.local\.md' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${repo}/CLAUDE.local.md"
+}
+
+test_rejects_an_overlay_symlink_to_agents_before_seeding() {
+  local name repo rc
+  for name in AGENTS.md AGENTS.local.md; do
+    new_repo
+    repo="${SANDBOX}/example-project"
+    printf '# Existing agent instructions\r\nNo final newline' > "${SANDBOX}/before"
+    cp "${SANDBOX}/before" "${repo}/${name}"
+    ln -s "${name}" "${repo}/herdr-config.md"
+
+    rc=0
+    seed "${repo}" > /dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    [[ "${rc}" == "1" && ! -e "${repo}/docs" ]] \
+      && grep -Fq "herdr-config.md aliases ${name}" "${SANDBOX}/error" \
+      && cmp -s "${SANDBOX}/before" "${repo}/${name}" || return 1
+  done
+}
+
+test_seeding_rejects_dangling_instruction_aliases_before_writing() {
+  local row mode name destination repo head rc failed=0
+  local -a flags
+  for row in \
+      'seed CLAUDE.md herdr-config.md' \
+      'seed AGENTS.local.md herdr-config.md' \
+      'seed CLAUDE.local.md docs/tasks/_template.task.yaml' \
+      'amend CLAUDE.md rules/testing.md' \
+      'amend CLAUDE.local.md rules/personal.md'; do
+    read -r mode name destination <<< "${row}"
+    new_repo
+    repo="${SANDBOX}/example-project"
+    head="$(git -C "${repo}" rev-parse HEAD)"
+    flags=()
+    if [[ "${mode}" == amend ]]; then
+      mkdir "${repo}/docs"
+      printf 'Seeded from the Ribbon Protocol, ribbon 1.\n' > "${repo}/docs/README.md"
+      cp "${repo}/docs/README.md" "${SANDBOX}/before-docs"
+    fi
+    if [[ "${destination}" == rules/personal.md ]]; then
+      mkdir -p "${HOME}/.claude/rules"
+      printf '# Personal rule\n' > "${HOME}/.claude/rules/personal.md"
+      flags=(--import-rules personal.md)
+    fi
+    ln -s "${destination}" "${repo}/${name}"
+    cp "${repo}/AGENTS.md" "${SANDBOX}/before-agents"
+
+    rc=0
+    seed "${flags[@]}" "${repo}" > /dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    if [[ "${rc}" != "1" || -e "${repo}/${destination}" || -e "${repo}/rules" ]] \
+      || ! grep -Fq "${destination} aliases ${name}" "${SANDBOX}/error" \
+      || ! cmp -s "${SANDBOX}/before-agents" "${repo}/AGENTS.md" \
+      || [[ "$(readlink "${repo}/${name}")" != "${destination}" ]] \
+      || [[ "$(git -C "${repo}" rev-parse HEAD)" != "${head}" ]]; then
+      printf 'seed did not protect: %s\n' "${row}" >&2
+      failed=1
+    fi
+    if [[ "${mode}" == amend ]]; then
+      cmp -s "${SANDBOX}/before-docs" "${repo}/docs/README.md" || failed=1
+    elif [[ -e "${repo}/docs" ]]; then
+      failed=1
+    fi
+  done
+  return "${failed}"
 }
 
 test_creates_agents_md_when_missing() {
@@ -364,7 +495,7 @@ test_commit_excludes_untouched_agent_files() {
   new_repo
   printf '# ours\n<!-- ribbon:full-install:start -->\nx\n<!-- ribbon:full-install:end -->\n' \
     > "${SANDBOX}/example-project/AGENTS.md"
-  printf '@AGENTS.md\n@herdr-config.md\n' > "${SANDBOX}/example-project/CLAUDE.md"
+  printf '@AGENTS.md\n' > "${SANDBOX}/example-project/CLAUDE.md"
   printf 'staged edit\n' >> "${SANDBOX}/example-project/AGENTS.md"
   printf 'staged edit\n' >> "${SANDBOX}/example-project/CLAUDE.md"
   git -C "${SANDBOX}/example-project" add AGENTS.md CLAUDE.md
@@ -386,10 +517,16 @@ readonly TESTS=(
   test_import_rules_flag
   test_import_rules_missing_file_fails
   test_non_interactive_imports_nothing
-  test_creates_claude_md
+  test_leaves_missing_claude_files_absent
   test_commits_seed
   test_refuses_reseed
-  test_extends_existing_claude_md
+  test_preserves_existing_claude_files_byte_for_byte
+  test_warns_for_unlinked_claude_files_after_seeding
+  test_respects_a_claude_symlink_to_agents
+  test_rejects_an_agents_hardlink_to_claude_before_seeding
+  test_rejects_an_overlay_symlink_to_claude_before_seeding
+  test_rejects_an_overlay_symlink_to_agents_before_seeding
+  test_seeding_rejects_dangling_instruction_aliases_before_writing
   test_creates_agents_md_when_missing
   test_rejects_missing_directory
   test_rejects_unwritable_repo

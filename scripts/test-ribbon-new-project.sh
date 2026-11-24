@@ -131,12 +131,48 @@ test_agents_md_gets_single_pointer() {
     && [[ "$(grep -c 'ribbon:standalone:start' "${SANDBOX}/repos/example-project/AGENTS.md")" == "0" ]]
 }
 
-test_preserves_existing_agents_local_md() {
+test_install_appends_to_agents_files_without_rewriting_bytes() {
   new_sandbox
-  printf '# my local notes\n' > "${SANDBOX}/repos/example-project/AGENTS.local.md"
-  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
-  grep -q 'my local notes' "${SANDBOX}/repos/example-project/AGENTS.local.md" \
-    && [[ "$(block_count)" == "1" ]]
+  local repo="${SANDBOX}/repos/example-project" name bytes
+  for name in AGENTS.md AGENTS.local.md; do
+    printf '# Existing %s\r\nNo trailing newline' "${name}" > "${SANDBOX}/${name}"
+    cp "${SANDBOX}/${name}" "${repo}/${name}"
+  done
+
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+
+  for name in AGENTS.md AGENTS.local.md; do
+    bytes="$(wc -c < "${SANDBOX}/${name}")"
+    head -c "$((bytes))" "${repo}/${name}" | cmp -s "${SANDBOX}/${name}" - || return 1
+  done
+  grep -Fq 'read AGENTS.local.md' "${repo}/AGENTS.md" && [[ "$(block_count)" == "1" ]]
+}
+
+test_update_warns_for_unlinked_claude_files_without_editing_them() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  printf '# Existing shared Claude rules\r\nNo final newline' > "${SANDBOX}/CLAUDE.md"
+  printf '# Existing local Claude rules' > "${SANDBOX}/CLAUDE.local.md"
+  cp "${SANDBOX}/CLAUDE.md" "${SANDBOX}/CLAUDE.local.md" "${repo}/"
+
+  install example-project --update > /dev/null 2> "${SANDBOX}/warnings" || return 1
+
+  cmp -s "${SANDBOX}/CLAUDE.md" "${repo}/CLAUDE.md" \
+    && cmp -s "${SANDBOX}/CLAUDE.local.md" "${repo}/CLAUDE.local.md" \
+    && grep -Fq 'warning: CLAUDE.md does not point to AGENTS.md' "${SANDBOX}/warnings" \
+    && grep -Fq 'warning: CLAUDE.local.md does not point to AGENTS.local.md' "${SANDBOX}/warnings"
+}
+
+test_install_does_not_warn_for_linked_claude_files() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  printf '@./AGENTS.md\n' > "${repo}/CLAUDE.md"
+  ln -s AGENTS.local.md "${repo}/CLAUDE.local.md"
+
+  install example-project "${repo}" > /dev/null 2> "${SANDBOX}/warnings" || return 1
+
+  ! grep -E '^warning: CLAUDE(\.local)?\.md ' "${SANDBOX}/warnings"
 }
 
 test_copies_herdr_config() {
@@ -362,22 +398,22 @@ test_update_keeps_filled_belt() {
   grep -q '^| Senior architect | Ana |' "${local_md}"
 }
 
-test_update_refreshes_text_outside_belt() {
+test_update_leaves_managed_instructions_byte_identical() {
   new_sandbox
-  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
-  local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
-  sed -i "s/TODO(belt): a person's name/Ana/" "${local_md}"
-  sed -i '/ribbon:standalone:start/a stale line from the old template' "${local_md}"
-  install example-project --update >/dev/null 2>&1
-  if grep -q 'stale line from the old template' "${local_md}"; then
-    return 1
-  fi
-  grep -q '^| Senior architect | Ana |' "${local_md}"
+  local repo="${SANDBOX}/repos/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  sed -i '/ribbon:standalone:start/a preserved line inside the managed block' "${repo}/AGENTS.local.md"
+  cp "${repo}/AGENTS.md" "${repo}/AGENTS.local.md" "${SANDBOX}/"
+
+  install example-project --update >/dev/null 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/AGENTS.md" "${repo}/AGENTS.md" \
+    && cmp -s "${SANDBOX}/AGENTS.local.md" "${repo}/AGENTS.local.md"
 }
 
-test_update_keeps_belt_of_unmarked_block() {
+test_update_leaves_legacy_block_byte_identical() {
   new_sandbox
-  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1 || return 1
   local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
   cat > "${local_md}" <<'EOF'
 # my local notes
@@ -404,18 +440,25 @@ old rules text
 
 trailing local content
 EOF
-  install example-project --update >/dev/null 2>&1
-  grep -q '^| Senior architect | Ana | human | the problem | nothing |$' "${local_md}" \
-    && [[ "$(belt_count 'ribbon:belt:start')" == "1" ]]
+  cp "${local_md}" "${SANDBOX}/before"
+
+  install example-project --update >/dev/null 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/before" "${local_md}"
 }
 
-test_force_keeps_filled_belt() {
+test_force_leaves_managed_instructions_byte_identical() {
   new_sandbox
-  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
-  local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
-  sed -i "s/TODO(belt): a person's name/Ana/" "${local_md}"
-  install example-project "${SANDBOX}/repos/example-project" --force >/dev/null 2>&1
-  grep -q '^| Senior architect | Ana |' "${local_md}"
+  local repo="${SANDBOX}/repos/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  sed -i "s/TODO(belt): a person's name/Ana/" "${repo}/AGENTS.local.md"
+  sed -i '/ribbon:standalone:start/a preserved line inside the managed block' "${repo}/AGENTS.local.md"
+  cp "${repo}/AGENTS.md" "${repo}/AGENTS.local.md" "${SANDBOX}/"
+
+  install example-project "${repo}" --force >/dev/null 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/AGENTS.md" "${repo}/AGENTS.md" \
+    && cmp -s "${SANDBOX}/AGENTS.local.md" "${repo}/AGENTS.local.md"
 }
 
 test_update_keeps_one_belt_section() {
@@ -575,10 +618,239 @@ EOF
   [[ "${rc}" == "1" ]] && [[ -f "${PROJECTS}/example-project/docs/tasks/live-card.yaml" ]]
 }
 
+test_force_rejects_duplicate_blocks_before_rebuild() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/first-block"
+  cat "${SANDBOX}/first-block" >> "${repo}/AGENTS.local.md"
+  printf 'live work\n' > "${PROJECTS}/example-project/docs/tasks/live-card.yaml"
+
+  install example-project "${repo}" --force --yes >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == "1" ]] \
+    && grep -Fq 'AGENTS.local.md has unclosed, duplicated or out-of-order Ribbon markers' "${SANDBOX}/error" \
+    && grep -Fxq 'live work' "${PROJECTS}/example-project/docs/tasks/live-card.yaml"
+}
+
+test_force_rejects_an_agents_alias_of_claude_before_rebuild() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  printf '# Claude owns this file\r\n' > "${repo}/CLAUDE.local.md"
+  cp "${repo}/CLAUDE.local.md" "${SANDBOX}/before"
+  ln -sf CLAUDE.local.md "${repo}/AGENTS.local.md"
+  printf 'live work\n' > "${PROJECTS}/example-project/docs/tasks/live-card.yaml"
+
+  install example-project "${repo}" --force --yes >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == "1" ]] \
+    && grep -Eq 'AGENTS\.local\.md.*CLAUDE\.local\.md' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${repo}/CLAUDE.local.md" \
+    && grep -Fxq 'live work' "${PROJECTS}/example-project/docs/tasks/live-card.yaml"
+}
+
+test_force_refuses_to_rebuild_an_instance_holding_project_instructions() {
+  local name repo instance rc
+  for name in AGENTS.local.md CLAUDE.md; do
+    new_sandbox
+    repo="${SANDBOX}/repos/example-project"
+    instance="${PROJECTS}/example-project"
+    install example-project "${repo}" >/dev/null 2>&1 || return 1
+    if [[ "${name}" == AGENTS.local.md ]]; then
+      cp "${repo}/${name}" "${SANDBOX}/before"
+    else
+      printf '# Claude instructions\r\n' > "${SANDBOX}/before"
+    fi
+    cp "${SANDBOX}/before" "${instance}/instruction"
+    ln -sf "${instance}/instruction" "${repo}/${name}"
+
+    rc=0
+    install example-project "${repo}" --force --yes >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    if [[ "${rc}" != "1" ]] \
+      || ! grep -Fq "${name} points inside the instance" "${SANDBOX}/error" \
+      || ! cmp -s "${SANDBOX}/before" "${repo}/${name}"; then
+      printf 'rebuild did not protect %s\n' "${name}" >&2
+      return 1
+    fi
+  done
+}
+
+test_update_rejects_instruction_aliases_of_refresh_destinations() {
+  local row name directory destination kind repo rc failed=0
+  for row in \
+      'CLAUDE.md instance docs/README.md symlink' \
+      'CLAUDE.local.md instance docs/tasks/_template.task.yaml hardlink' \
+      'AGENTS.local.md instance project-repo hardlink' \
+      'AGENTS.md repo rules/testing.md hardlink'; do
+    read -r name directory destination kind <<< "${row}"
+    new_sandbox
+    repo="${SANDBOX}/repos/example-project"
+    install example-project "${repo}" >/dev/null 2>&1 || return 1
+    if [[ "${directory}" == instance ]]; then
+      destination="${PROJECTS}/example-project/${destination}"
+    else
+      destination="${repo}/${destination}"
+    fi
+    printf '# Protected instructions\r\nDo not rewrite' > "${SANDBOX}/before"
+    cp "${SANDBOX}/before" "${destination}"
+    if [[ "${kind}" == symlink ]]; then
+      ln -sf "${destination}" "${repo}/${name}"
+    else
+      ln -f "${destination}" "${repo}/${name}"
+    fi
+    printf 'original version\n' > "${SANDBOX}/version"
+    if [[ "${destination}" != "${PROJECTS}/example-project/docs/README.md" ]]; then
+      cp "${SANDBOX}/version" "${PROJECTS}/example-project/docs/README.md"
+    fi
+    cp "${PROJECTS}/example-project/docs/README.md" "${SANDBOX}/instance-readme"
+
+    rc=0
+    install example-project "${repo}" --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    if [[ "${rc}" != "1" ]] \
+      || ! grep -Fq "would overwrite ${name}" "${SANDBOX}/error" \
+      || ! cmp -s "${SANDBOX}/before" "${repo}/${name}" \
+      || ! cmp -s "${SANDBOX}/instance-readme" "${PROJECTS}/example-project/docs/README.md"; then
+      printf 'update did not protect: %s\n' "${row}" >&2
+      failed=1
+    fi
+  done
+  return "${failed}"
+}
+
+test_update_rejects_an_instruction_hardlink_to_the_managed_hook() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  git -C "${repo}" init -q
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  local hook="${repo}/.git/hooks/post-checkout"
+  printf '\n# Protected instructions\n' >> "${hook}"
+  ln "${hook}" "${repo}/CLAUDE.md"
+  cp "${hook}" "${SANDBOX}/before"
+  printf 'original version\n' > "${PROJECTS}/example-project/docs/README.md"
+
+  install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == "1" ]] \
+    && grep -Fq 'would overwrite CLAUDE.md' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${repo}/CLAUDE.md" \
+    && grep -Fxq 'original version' "${PROJECTS}/example-project/docs/README.md"
+}
+
+test_force_validates_overlay_destination_before_rebuild() {
+  local kind repo instance target rc failed=0
+  for kind in dangling inside via-instance; do
+    new_sandbox
+    repo="${SANDBOX}/repos/example-project"
+    instance="${PROJECTS}/example-project"
+    install example-project "${repo}" >/dev/null 2>&1 || return 1
+    if [[ "${kind}" == dangling ]]; then
+      target="${repo}/missing-overlay"
+    elif [[ "${kind}" == inside ]]; then
+      target="${instance}/custom-overlay"
+      printf 'custom overlay\n' > "${target}"
+    else
+      target="${instance}/overlay-link"
+      printf 'custom overlay outside the instance\n' > "${repo}/kept-overlay"
+      ln -s "${repo}/kept-overlay" "${target}"
+    fi
+    ln -sf "${target}" "${repo}/herdr-config.md"
+    printf 'live work\n' > "${instance}/docs/tasks/live-card.yaml"
+
+    rc=0
+    install example-project "${repo}" --force --yes >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    if [[ "${rc}" != "1" ]] \
+      || ! grep -Fq 'herdr-config.md' "${SANDBOX}/error" \
+      || ! grep -Fxq 'live work' "${instance}/docs/tasks/live-card.yaml" \
+      || [[ "$(readlink "${repo}/herdr-config.md")" != "${target}" ]]; then
+      printf 'rebuild did not refuse the %s overlay link before deletion\n' "${kind}" >&2
+      failed=1
+    fi
+  done
+  return "${failed}"
+}
+
+test_force_keeps_a_working_overlay_link_outside_the_instance() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  local live_card="${PROJECTS}/example-project/docs/tasks/live-card.yaml"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  printf 'custom overlay\n' > "${repo}/shared-overlay.md"
+  ln -sf shared-overlay.md "${repo}/herdr-config.md"
+  printf 'old instance work\n' > "${live_card}"
+
+  install example-project "${repo}" --force --yes >/dev/null 2>&1 || return 1
+
+  [[ ! -e "${live_card}" && "$(readlink "${repo}/herdr-config.md")" == shared-overlay.md ]] \
+    && grep -Fxq 'custom overlay' "${repo}/herdr-config.md"
+}
+
+test_rule_seeds_and_imports_keep_instruction_aliases_dangling() {
+  local row mode name destination repo instance rc failed=0
+  local -a flags
+  for row in \
+      'install CLAUDE.md rules/testing.md' \
+      'update CLAUDE.md rules/testing.md' \
+      'force CLAUDE.local.md rules/testing.md' \
+      'install CLAUDE.local.md rules/personal.md' \
+      'update CLAUDE.local.md rules/personal.md' \
+      'force CLAUDE.local.md rules/personal.md'; do
+    read -r mode name destination <<< "${row}"
+    new_sandbox
+    repo="${SANDBOX}/repos/example-project"
+    instance="${PROJECTS}/example-project"
+    flags=()
+    if [[ "${mode}" != install ]]; then
+      flags=("--${mode}")
+      mkdir -p "${instance}/docs/tasks"
+      printf 'live work\n' > "${instance}/docs/tasks/live-card.yaml"
+    fi
+    if [[ "${destination}" == rules/personal.md ]]; then
+      mkdir -p "${HOME}/.claude/rules"
+      printf '# Personal rule\n' > "${HOME}/.claude/rules/personal.md"
+      flags+=(--import-rules personal.md)
+    fi
+    ln -s "${destination}" "${repo}/${name}"
+    cp "${repo}/AGENTS.md" "${SANDBOX}/before"
+
+    rc=0
+    install example-project "${repo}" "${flags[@]}" --yes >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    if [[ "${rc}" != "1" || -e "${repo}/rules" || -e "${instance}/docs/README.md" ]] \
+      || ! grep -Fq "would overwrite ${name}" "${SANDBOX}/error" \
+      || ! cmp -s "${SANDBOX}/before" "${repo}/AGENTS.md" \
+      || [[ "$(readlink "${repo}/${name}")" != "${destination}" ]]; then
+      printf 'install did not protect: %s\n' "${row}" >&2
+      failed=1
+    fi
+    if [[ "${mode}" == install ]]; then
+      [[ ! -e "${instance}" ]] || failed=1
+    else
+      grep -Fxq 'live work' "${instance}/docs/tasks/live-card.yaml" || failed=1
+    fi
+  done
+  return "${failed}"
+}
+
+test_install_rejects_an_instruction_link_into_the_new_instance() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  ln -s "${instance}/docs/README.md" "${repo}/CLAUDE.md"
+
+  install example-project "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == "1" && ! -e "${instance}" ]] \
+    && grep -Fq 'CLAUDE.md points inside the instance' "${SANDBOX}/error"
+}
+
 test_force_keeps_legacy_block_without_belt_marks() {
   new_sandbox
-  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
-  cat > "${SANDBOX}/repos/example-project/AGENTS.local.md" <<'EOF'
+  local repo="${SANDBOX}/repos/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  cat > "${repo}/AGENTS.local.md" <<'EOF'
 <!-- ribbon:standalone:start -->
 # Ribbon Protocol, standalone mode
 ## The belt
@@ -586,9 +858,11 @@ test_force_keeps_legacy_block_without_belt_marks() {
 |---|---|
 <!-- ribbon:standalone:end -->
 EOF
-  install example-project "${SANDBOX}/repos/example-project" --force --yes \
-      >/dev/null 2>&1
-  grep -q 'ribbon:belt:start' "${SANDBOX}/repos/example-project/AGENTS.local.md"
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/before"
+
+  install example-project "${repo}" --force --yes >/dev/null 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.local.md"
 }
 
 test_rejects_surplus_positionals() {
@@ -656,7 +930,9 @@ readonly TESTS=(
   test_writes_pointer
   test_writes_agents_local_md
   test_agents_md_gets_single_pointer
-  test_preserves_existing_agents_local_md
+  test_install_appends_to_agents_files_without_rewriting_bytes
+  test_update_warns_for_unlinked_claude_files_without_editing_them
+  test_install_does_not_warn_for_linked_claude_files
   test_copies_herdr_config
   test_seeds_rules_into_repo
   test_update_seeds_rules_when_missing
@@ -684,9 +960,9 @@ readonly TESTS=(
   test_update_rewrites_version
   test_update_keeps_one_block
   test_update_keeps_filled_belt
-  test_update_refreshes_text_outside_belt
-  test_update_keeps_belt_of_unmarked_block
-  test_force_keeps_filled_belt
+  test_update_leaves_managed_instructions_byte_identical
+  test_update_leaves_legacy_block_byte_identical
+  test_force_leaves_managed_instructions_byte_identical
   test_update_keeps_one_belt_section
   test_update_keeps_belt_text_verbatim
   test_update_refuses_block_without_end_mark
@@ -702,6 +978,15 @@ readonly TESTS=(
   test_force_preflights_local_block
   test_force_preflights_marker_order
   test_force_preflights_belt_markers
+  test_force_rejects_duplicate_blocks_before_rebuild
+  test_force_rejects_an_agents_alias_of_claude_before_rebuild
+  test_force_refuses_to_rebuild_an_instance_holding_project_instructions
+  test_update_rejects_instruction_aliases_of_refresh_destinations
+  test_update_rejects_an_instruction_hardlink_to_the_managed_hook
+  test_force_validates_overlay_destination_before_rebuild
+  test_force_keeps_a_working_overlay_link_outside_the_instance
+  test_rule_seeds_and_imports_keep_instruction_aliases_dangling
+  test_install_rejects_an_instruction_link_into_the_new_instance
   test_force_keeps_legacy_block_without_belt_marks
   test_rejects_surplus_positionals
   test_import_rejects_directory_operand
