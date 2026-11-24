@@ -113,6 +113,7 @@ ribbon-protocol/
 │   ├── ribbon-new-project                     unpacks or updates a per-project standalone instance
 │   ├── ribbon-seed-project                    the full install into a project repository
 │   ├── standalone-post-checkout               the post-checkout hook template the installer copies into git projects
+│   ├── test-ribbon-bash-versions.sh           both installers under real bash 3.2 and 4.4 (opt-in, needs podman)
 │   ├── test-ribbon-new-project.sh             the standalone installer's test suite
 │   ├── test-ribbon-seed-project.sh            the full installer's test suite
 │   └── test-ribbon-worktree-links.sh          the worktree-link hook's test suite
@@ -138,6 +139,18 @@ plans, cards, ADRs and evidence, and the decision history is the project's histo
 project to `~/ribbon-protocol`, unpack a per-project instance to `~/ribbon-projects/<name>/`,
 and commit only the final artifacts — `docs/adrs/`, `docs/diagrams/` and the `rules/`
 conventions — to the project. See "Standalone: Ribbon for me" below.
+
+**Requirements.** Both installers need bash 4.4 or newer, GNU `realpath`, git and
+python3. Start them from any shell, zsh included: their first line runs them under bash.
+On macOS, `/bin/bash` is 3.2 and `realpath` is BSD's; git and python3 come with Xcode's
+Command Line Tools. Install the other two once:
+
+```sh
+brew install bash coreutils
+```
+
+Homebrew's `bin` must come before `/bin` on `PATH`, which `brew shellenv` arranges. The
+installers find Homebrew's `grealpath` on their own.
 
 ## Seed a project (full install) 👥
 
