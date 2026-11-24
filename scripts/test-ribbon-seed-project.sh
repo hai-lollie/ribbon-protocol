@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests for scripts/ribbon-seed-project (the full install): one function per
-# test, run in order by main. Each test builds its own throwaway git
-# repository; the real template repo provides the seeds. Names are generic.
+# test, run in order by main, once on the host's tools and once as a Mac with
+# Homebrew coreutils. Each test builds its own throwaway git repository; the
+# real template repo provides the seeds. Names are generic.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,6 +13,8 @@ readonly SCRIPT_DIR RIBBON_HOME SEEDER
 PASS=0
 FAIL=0
 SANDBOX=''
+MACOS_BIN=''
+COREUTILS_BIN=''
 
 #######################################
 # Record a test result (TAP, one line per test).
@@ -36,7 +39,75 @@ record() {
 cleanup() {
   [[ -n "${SANDBOX}" ]] && rm -rf "${SANDBOX}"
 }
-trap cleanup EXIT
+
+#######################################
+# Remove the last sandbox and the macOS stand-ins when the run ends.
+# Globals:
+#   MACOS_BIN, COREUTILS_BIN
+#######################################
+finish() {
+  cleanup
+  [[ -z "${MACOS_BIN}" ]] || rm -rf "${MACOS_BIN}"
+  [[ -z "${COREUTILS_BIN}" ]] || rm -rf "${COREUTILS_BIN}"
+}
+trap finish EXIT
+
+#######################################
+# Put stand-ins for a stock Mac's tools in a fresh directory. Its realpath is
+# BSD's: it takes only -q, rejects every other option with BSD's message and
+# fails on a path that does not exist (the host's realpath -e resolves). Its
+# grealpath is missing, since Homebrew's coreutils is not installed.
+# Globals:
+#   MACOS_BIN (set)
+#######################################
+make_stock_macos() {
+  local gnu_realpath
+  gnu_realpath="$(command -v realpath)"
+  MACOS_BIN="$(mktemp -d)"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'gnu_realpath=%q\n' "${gnu_realpath}"
+    cat <<'EOF'
+quiet=0
+while getopts ':q' flag; do
+  case "${flag}" in
+    q) quiet=1 ;;
+    *) printf 'realpath: illegal option -- %s\nusage: realpath [-q] [path ...]\n' "${OPTARG}" >&2
+       exit 1 ;;
+  esac
+done
+shift $((OPTIND - 1))
+(( $# > 0 )) || set -- .
+status=0
+for path in "$@"; do
+  if (( quiet )); then
+    "${gnu_realpath}" -e -- "${path}" 2>/dev/null || status=1
+  else
+    "${gnu_realpath}" -e -- "${path}" || status=1
+  fi
+done
+exit "${status}"
+EOF
+  } > "${MACOS_BIN}/realpath"
+  cat > "${MACOS_BIN}/grealpath" <<'EOF'
+#!/usr/bin/env bash
+printf 'grealpath: command not found\n' >&2
+exit 127
+EOF
+  chmod +x "${MACOS_BIN}/realpath" "${MACOS_BIN}/grealpath"
+}
+
+#######################################
+# Put Homebrew coreutils' grealpath, which is GNU realpath, in a fresh
+# directory.
+# Globals:
+#   COREUTILS_BIN (set)
+#######################################
+make_homebrew_coreutils() {
+  COREUTILS_BIN="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$(command -v realpath)" > "${COREUTILS_BIN}/grealpath"
+  chmod +x "${COREUTILS_BIN}/grealpath"
+}
 
 #######################################
 # Replace the sandbox with a fresh git repository holding a minimal AGENTS.md.
@@ -353,13 +424,29 @@ test_refuses_home_directory() {
   mkdir -p "${SANDBOX}/home" "${SANDBOX}/example-project"
   export HOME="${SANDBOX}/home"
   printf '# home AGENTS\n' > "${HOME}/AGENTS.md"
-  ! seed "${HOME}" >/dev/null 2>&1
-  [[ ! -e "${HOME}/docs" ]] && [[ ! -e "${HOME}/rules" ]]
+  local rc=0
+  seed "${HOME}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+  [[ "${rc}" == 1 && ! -e "${HOME}/docs" && ! -e "${HOME}/rules" ]] \
+    && grep -Fq 'refusing to seed your home directory' "${SANDBOX}/error"
 }
 
 test_refuses_template_as_project_repo() {
   new_repo
-  ! seed "${RIBBON_HOME}" >/dev/null 2>&1
+  local rc=0
+  seed "${RIBBON_HOME}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'refusing to seed the template repository itself' "${SANDBOX}/error"
+}
+
+# A stock Mac's BSD realpath has no -m, so nothing resolves a path that does
+# not exist yet: the seeder stops before any write or commit and names the fix.
+test_refuses_without_gnu_realpath() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  PATH="${MACOS_BIN}:${PATH}" "${SEEDER}" "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+  [[ "${rc}" == 1 && ! -e "${repo}/docs" && ! -e "${repo}/rules" ]] \
+    && [[ "$(git -C "${repo}" rev-list --count HEAD)" == 1 ]] \
+    && grep -Fq 'brew install coreutils' "${SANDBOX}/error"
 }
 
 test_seed_commit_includes_docs_subdirs() {
@@ -721,6 +808,7 @@ readonly TESTS=(
   test_usage_without_args
   test_refuses_home_directory
   test_refuses_template_as_project_repo
+  test_refuses_without_gnu_realpath
   test_seeder_merges_into_existing_rules
   test_seeder_merges_into_existing_docs
   test_seed_preserves_existing_docs_readme_byte_for_byte
@@ -748,15 +836,32 @@ readonly TESTS=(
   test_commit_excludes_untouched_agent_files
 )
 
-main() {
-  local test
+#######################################
+# Run every test once, labelling each result with the tools it ran on.
+# Arguments:
+#   1: the label after each test name, empty for the host's own tools.
+#######################################
+run_suite() {
+  local label="$1" test
   for test in "${TESTS[@]}"; do
     if "${test}" >/dev/null 2>&1; then
-      record "${test}" 0
+      record "${test}${label}" 0
     else
-      record "${test}" 1
+      record "${test}${label}" 1
     fi
   done
+}
+
+#######################################
+# Run the suite on the host's tools, then again as a Mac with Homebrew
+# coreutils, so no guard depends on GNU realpath being named realpath.
+#######################################
+main() {
+  make_stock_macos
+  make_homebrew_coreutils
+  run_suite ''
+  PATH="${COREUTILS_BIN}:${MACOS_BIN}:${PATH}"
+  run_suite ' [macOS + coreutils]'
   printf '1..%d\n' "$((PASS + FAIL))"
   (( FAIL == 0 ))
 }

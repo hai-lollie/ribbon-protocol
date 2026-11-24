@@ -40,6 +40,7 @@ DOC_SEEDS=()
 SELECTED_RULES=()
 SEED_VERSION=''
 EXISTING_PROJECT_DOCS_AND_RULES=()
+GNU_REALPATH=''
 
 #######################################
 # Print an error message to STDERR and exit.
@@ -183,6 +184,38 @@ collect_existing_project_docs_and_rules() {
   done
 }
 
+#######################################
+# Find GNU realpath, whose -m resolves a path that does not exist yet: the
+# system's realpath on Linux, Homebrew coreutils' grealpath on macOS, whose
+# own realpath has no -m (and none at all before macOS 13).
+# Globals:
+#   GNU_REALPATH (set)
+#######################################
+find_gnu_realpath() {
+  local candidate
+  for candidate in realpath grealpath; do
+    if "${candidate}" -m -- / >/dev/null 2>&1; then
+      GNU_REALPATH="${candidate}"
+      return 0
+    fi
+  done
+  die "needs GNU realpath to resolve paths that do not exist yet; on macOS: brew install coreutils"
+}
+
+#######################################
+# Print the canonical form of a path: every link followed, `.` and `..`
+# folded, and components that do not exist yet kept as written.
+# Globals:
+#   GNU_REALPATH
+# Arguments:
+#   A path.
+# Outputs:
+#   The canonical path on STDOUT.
+#######################################
+canonical_path() {
+  "${GNU_REALPATH}" -m -- "$1"
+}
+
 # Walk the link without dropping missing components canceled by `..`.
 missing_link_component_matches_write() {
   local pending="$1" destination="$2" parent='' component entry target hops=0
@@ -215,9 +248,9 @@ validate_existing_project_paths() {
     if [[ ! "${destination}" -ef "${path}" ]]; then
       [[ -L "${path}" ]] || continue
       if [[ -z "${resolved_destination}" ]]; then
-        resolved_destination="$(realpath -m -- "${destination}")"
+        resolved_destination="$(canonical_path "${destination}")"
       fi
-      target="$(realpath -m -- "${path}")"
+      target="$(canonical_path "${path}")"
       if [[ "${resolved_destination}" != "${target}" && "${resolved_destination}" != "${target%/}/"* ]] \
         && { [[ -e "${path}" ]] || ! missing_link_component_matches_write "${path}" "${resolved_destination}"; }; then
         continue
@@ -239,7 +272,7 @@ resolve_repo() {
   [[ -d "${PROJECT_REPO}" ]] || die "project repo not found: ${PROJECT_REPO}"
   [[ -w "${PROJECT_REPO}" && -x "${PROJECT_REPO}" ]] \
     || die "project repo is not writable with your permissions: ${PROJECT_REPO}"
-  PROJECT_REPO="$(realpath "${PROJECT_REPO}")"
+  PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
   validate_project_directory docs
   validate_project_directory rules
 
@@ -270,8 +303,8 @@ resolve_repo() {
 #######################################
 confirm_target() {
   local home_resolved ribbon_resolved
-  home_resolved="$(realpath "${HOME}")"
-  ribbon_resolved="$(realpath "${RIBBON_HOME}")"
+  home_resolved="$(canonical_path "${HOME}")"
+  ribbon_resolved="$(canonical_path "${RIBBON_HOME}")"
   [[ "${PROJECT_REPO}" != "${home_resolved}" ]] \
     || die "refusing to seed your home directory: ${PROJECT_REPO}"
   [[ "${PROJECT_REPO}" != "${ribbon_resolved}" ]] \
@@ -386,8 +419,8 @@ validate_instruction_destination() {
     path="${PROJECT_REPO}/${instruction}"
     if [[ ! "${destination}" -ef "${path}" ]]; then
       [[ -L "${path}" && ! -e "${path}" ]] || continue
-      resolved_destination="$(realpath -m -- "${destination}")"
-      resolved_instruction="$(realpath -m -- "${path}")"
+      resolved_destination="$(canonical_path "${destination}")"
+      resolved_instruction="$(canonical_path "${path}")"
       [[ "${resolved_destination}" == "${resolved_instruction}" ]] || continue
     fi
     if [[ "${name}" == AGENTS.md && "${instruction}" == CLAUDE* && ! -L "${destination}" && -L "${path}" ]]; then
@@ -680,6 +713,7 @@ EOF
 #######################################
 main() {
   parse_args "$@"
+  find_gnu_realpath
   validate_import_rules
   resolve_repo
   SEED_VERSION="$(head -1 "${RIBBON_HOME}/VERSION")"
