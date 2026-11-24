@@ -694,6 +694,200 @@ test_commit_excludes_untouched_agent_files() {
     && git -C "${SANDBOX}/example-project" diff --cached --name-only | grep -qx 'CLAUDE.md'
 }
 
+test_uninstall_preview_leaves_installation_unchanged() {
+  new_repo
+  local repo="${SANDBOX}/example-project" head
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  head="$(git -C "${repo}" rev-parse HEAD)"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+
+  seed --uninstall --yes "${repo}" </dev/null > "${SANDBOX}/preview" 2>&1 || return 1
+
+  grep -Fq 'docs/tasks/_template.plan.yaml' "${SANDBOX}/preview" \
+    && [[ -f "${repo}/docs/tasks/_template.plan.yaml" && -f "${repo}/docs/.ribbon-full-install" ]] \
+    && [[ -f "${repo}/docs/.ribbon-full-install-receipt" ]] \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md" \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]] \
+    && [[ -z "$(git -C "${repo}" status --porcelain)" ]]
+}
+
+test_uninstall_without_terminal_requires_explicit_yes() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+
+  seed --uninstall --remove-ribbon "${repo}" </dev/null > "${SANDBOX}/error" 2>&1 || rc=$?
+
+  [[ "${rc}" != 0 && -f "${repo}/docs/tasks/_template.plan.yaml" && -f "${repo}/docs/.ribbon-full-install" ]] \
+    && grep -Fq -- '--yes' "${SANDBOX}/error" \
+    && [[ -z "$(git -C "${repo}" status --porcelain)" ]]
+}
+
+test_uninstall_removes_only_unchanged_owned_full_install_content() {
+  new_repo
+  local repo="${SANDBOX}/example-project" head
+  mkdir "${repo}/docs"
+  printf '# Project README\r\nNo trailing newline' > "${repo}/docs/README.md"
+  cp "${repo}/docs/README.md" "${SANDBOX}/readme-before"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  head="$(git -C "${repo}" rev-parse HEAD)"
+  printf 'changed template bytes\r\n' > "${repo}/docs/tasks/_template.plan.yaml"
+  printf '# Live plan\n' > "${repo}/docs/tasks/live.plan.yaml"
+
+  seed --uninstall --remove-ribbon --yes "${repo}" </dev/null > "${SANDBOX}/output" 2>&1 || return 1
+
+  [[ ! -e "${repo}/docs/tasks/_template.task.yaml" && ! -e "${repo}/docs/.ribbon-full-install" ]] \
+    && [[ ! -e "${repo}/docs/.ribbon-full-install-receipt" ]] \
+    && [[ -f "${repo}/docs/adrs/_template.md" && -f "${repo}/docs/diagrams/README.md" && -f "${repo}/rules/testing.md" ]] \
+    && grep -Fq 'changed template bytes' "${repo}/docs/tasks/_template.plan.yaml" \
+    && grep -Fxq '# Live plan' "${repo}/docs/tasks/live.plan.yaml" \
+    && cmp -s "${SANDBOX}/readme-before" "${repo}/docs/README.md" \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md" \
+    && grep -Fq 'Review changed files manually' "${SANDBOX}/output" \
+    && grep -Fq 'docs/tasks/_template.plan.yaml' "${SANDBOX}/output" \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]] \
+    && [[ -z "$(git -C "${repo}" diff --cached --name-only)" ]]
+}
+
+test_uninstall_refuses_unproven_ownership() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  mkdir -p "${repo}/docs/tasks"
+  printf 'Seeded from the Ribbon Protocol, ribbon 1.\n' > "${repo}/docs/.ribbon-full-install"
+  printf '# Keep this file\n' > "${repo}/docs/tasks/_template.plan.yaml"
+
+  seed --uninstall --remove-ribbon --yes "${repo}" </dev/null > "${SANDBOX}/error" 2>&1 || rc=$?
+
+  [[ "${rc}" != 0 && -f "${repo}/docs/.ribbon-full-install" ]] \
+    && grep -Fq 'ownership' "${SANDBOX}/error" \
+    && grep -Fxq '# Keep this file' "${repo}/docs/tasks/_template.plan.yaml"
+}
+
+test_uninstall_stops_before_removal_when_a_parent_is_not_writable() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  chmod u-w "${repo}/docs/tasks"
+
+  seed --uninstall --remove-ribbon --yes "${repo}" </dev/null > "${SANDBOX}/error" 2>&1 || rc=$?
+
+  chmod u+w "${repo}/docs/tasks"
+  [[ "${rc}" != 0 && -f "${repo}/docs/.ribbon-full-install" && -f "${repo}/docs/tasks/_template.task.yaml" ]] \
+    && grep -Fiq 'permission' "${SANDBOX}/error" \
+    && grep -Fq 'docs/tasks' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md"
+}
+
+test_uninstall_keeps_an_edited_agents_block() {
+  new_repo
+  local repo="${SANDBOX}/example-project"
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  sed -i '/ribbon:full-install:start/a project edit inside the installed block' "${repo}/AGENTS.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/before"
+
+  seed --uninstall --remove-ribbon --yes "${repo}" </dev/null > "${SANDBOX}/output" 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.md" \
+    && grep -Fq 'Review changed files manually' "${SANDBOX}/output" \
+    && grep -Fxq '  AGENTS.md' "${SANDBOX}/output" \
+    && [[ ! -e "${repo}/docs/tasks/_template.task.yaml" ]]
+}
+
+test_uninstall_default_no_prompt_is_visible_with_stdout_redirected() {
+  new_repo
+  local repo="${SANDBOX}/example-project"
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+
+  python3 - "${SEEDER}" "${repo}" "${SANDBOX}/stdout" <<'PY' || return 1
+import os, pty, select, subprocess, sys, time
+seeder, repo, log = sys.argv[1:]
+master, slave = pty.openpty()
+with open(log, "wb") as output:
+    child = subprocess.Popen([seeder, "--uninstall", "--remove-ribbon", repo],
+                             stdin=slave, stdout=output, stderr=slave)
+    os.close(slave)
+    try:
+        terminal = b""
+        deadline = time.monotonic() + 4
+        while b"[y/N]" not in terminal and (remaining := deadline - time.monotonic()) > 0:
+            if not select.select([master], [], [], remaining)[0]:
+                break
+            terminal += os.read(master, 4096)
+        os.write(master, b"\n")
+        assert child.wait(timeout=4) == 0
+        assert b"[y/N]" in terminal, "confirmation prompt was not visible in the terminal"
+    finally:
+        os.close(master)
+        if child.poll() is None:
+            child.terminate()
+            child.wait(timeout=4)
+PY
+  grep -Fq 'Uninstall declined; nothing removed.' "${SANDBOX}/stdout" \
+    && [[ -f "${repo}/docs/.ribbon-full-install-receipt" ]] \
+    && [[ -z "$(git -C "${repo}" status --porcelain)" ]]
+}
+
+uninstall_fault_fixture() {
+  mkdir "${SANDBOX}/python"
+  cat > "${SANDBOX}/python/sitecustomize.py" <<'PY'
+import errno, os
+from pathlib import Path
+
+real_unlink = os.unlink
+first = True
+
+def unlink(path, *args, **kwargs):
+    global first
+    name = os.path.basename(os.fsdecode(path))
+    mode = os.environ["RIBBON_FAULT_MODE"]
+    if mode == "permission" and name == "herdr-config.md":
+        raise PermissionError(errno.EACCES, "Permission denied", path)
+    result = real_unlink(path, *args, **kwargs)
+    if mode == "swap" and first and name == "README.md":
+        first = False
+        docs = Path(os.environ["RIBBON_TEST_REPO"]) / "docs"
+        (docs / "tasks").rename(docs / "tasks-before")
+        (docs / "tasks").symlink_to(os.environ["RIBBON_TEST_OUTSIDE"], target_is_directory=True)
+    return result
+
+os.unlink = unlink
+PY
+}
+
+test_uninstall_reports_completed_paths_when_a_later_removal_fails() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  uninstall_fault_fixture
+
+  PYTHONPATH="${SANDBOX}/python" RIBBON_FAULT_MODE=permission \
+    seed --uninstall --remove-ribbon --yes "${repo}" </dev/null > "${SANDBOX}/error" 2>&1 || rc=$?
+
+  [[ "${rc}" != 0 && ! -e "${repo}/docs/README.md" ]] \
+    && [[ -f "${repo}/herdr-config.md" && -f "${repo}/docs/.ribbon-full-install-receipt" ]] \
+    && grep -Fq 'Completed before uninstall stopped:' "${SANDBOX}/error" \
+    && grep -Fxq '  docs/README.md' "${SANDBOX}/error" \
+    && grep -Fq 'Permission denied' "${SANDBOX}/error"
+}
+
+test_uninstall_never_follows_a_parent_swapped_during_removal() {
+  new_repo
+  local repo="${SANDBOX}/example-project" outside="${SANDBOX}/outside" rc=0
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  cp -R "${repo}/docs/tasks" "${outside}"
+  uninstall_fault_fixture
+
+  PYTHONPATH="${SANDBOX}/python" RIBBON_FAULT_MODE=swap RIBBON_TEST_REPO="${repo}" RIBBON_TEST_OUTSIDE="${outside}" \
+    seed --uninstall --remove-ribbon --yes "${repo}" </dev/null > "${SANDBOX}/error" 2>&1 || rc=$?
+
+  [[ "${rc}" != 0 && -L "${repo}/docs/tasks" && ! -e "${repo}/docs/README.md" ]] \
+    && cmp -s "${outside}/_template.plan.yaml" "${RIBBON_HOME}/docs/tasks/_template.plan.yaml" \
+    && [[ -f "${repo}/docs/tasks-before/_template.task.yaml" && -f "${repo}/docs/.ribbon-full-install-receipt" ]] \
+    && grep -Fq 'docs/tasks/' "${SANDBOX}/error"
+}
+
 readonly TESTS=(
   test_seeder_exists
   test_seeds_docs
@@ -746,6 +940,15 @@ readonly TESTS=(
   test_import_rules_rejects_paths
   test_seed_docs_enumeration_failure_aborts
   test_commit_excludes_untouched_agent_files
+  test_uninstall_preview_leaves_installation_unchanged
+  test_uninstall_without_terminal_requires_explicit_yes
+  test_uninstall_removes_only_unchanged_owned_full_install_content
+  test_uninstall_refuses_unproven_ownership
+  test_uninstall_stops_before_removal_when_a_parent_is_not_writable
+  test_uninstall_keeps_an_edited_agents_block
+  test_uninstall_default_no_prompt_is_visible_with_stdout_redirected
+  test_uninstall_reports_completed_paths_when_a_later_removal_fails
+  test_uninstall_never_follows_a_parent_swapped_during_removal
 )
 
 main() {
