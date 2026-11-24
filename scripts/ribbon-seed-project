@@ -5,11 +5,10 @@
 # Usage: scripts/ribbon-seed-project [--ribbon-home DIR] [--yes]
 #     [--import-rules F]... <project-repo-path>
 #
-# Copies docs/ into the project, stamps the seed version into
-# docs/README.md, appends the protocol to the project's AGENTS.md (or creates
-# one), copies herdr-config.md beside it, leaves Claude instruction files
-# untouched, seeds rules/ (coding conventions, one theme per file), and commits
-# everything as "Seed the Ribbon Protocol, ribbon N".
+# Seeds missing project docs and rules, writes a separate full-install
+# record, and appends the protocol to the project's AGENTS.md (or creates
+# one). Copies herdr-config.md beside it, leaves Claude instruction files
+# untouched, and commits as "Seed the Ribbon Protocol, ribbon N".
 #
 # An already-seeded project that predates rules/ gets a rules-only amendment
 # instead of a refusal. With --import-rules F (repeatable), copies F from
@@ -24,6 +23,8 @@ set -euo pipefail
 
 readonly START_MARK='<!-- ribbon:full-install:start -->'
 readonly END_MARK='<!-- ribbon:full-install:end -->'
+readonly SEED_RECORD='docs/.ribbon-full-install'
+readonly SEED_STAMP_PATTERN='Seeded from the Ribbon Protocol, ribbon [0-9]+\.'
 
 # State set by parse_args and consumed by the pipeline below.
 RIBBON_HOME=''
@@ -37,6 +38,8 @@ WRITTEN_PATHS=()
 AGENTS_WRITE_NEEDED=1
 DOC_SEEDS=()
 SELECTED_RULES=()
+SEED_VERSION=''
+EXISTING_PROJECT_DOCS_AND_RULES=()
 
 #######################################
 # Print an error message to STDERR and exit.
@@ -140,6 +143,90 @@ parse_args() {
     || die "unexpected extra arguments: ${positional[*]:1}"
 }
 
+path_present() {
+  [[ -e "$1" || -L "$1" ]]
+}
+
+# A planned write may use only real project directories, never a link or
+# another entry where a directory is needed.
+validate_project_directory() {
+  local directory="${PROJECT_REPO}/$1"
+  while [[ "${directory}" != "${PROJECT_REPO}" ]]; do
+    if [[ -L "${directory}" ]] || { [[ -e "${directory}" ]] && [[ ! -d "${directory}" ]]; }; then
+      die "unsafe project directory: ${directory}"
+    fi
+    directory="${directory%/*}"
+  done
+}
+
+collect_existing_project_docs_and_rules() {
+  local name path listing
+  local -a roots=()
+  for name in docs rules; do
+    path="${PROJECT_REPO}/${name}"
+    [[ ! -d "${path}" ]] || roots+=("${path}")
+  done
+  (( ${#roots[@]} > 0 )) || return 0
+  listing="$(mktemp)"
+  if ! find "${roots[@]}" \( -type f -o -type l \) -print0 > "${listing}"; then
+    rm -f "${listing}"
+    die "cannot inspect existing project docs and rules"
+  fi
+  while IFS= read -r -d '' path; do
+    EXISTING_PROJECT_DOCS_AND_RULES+=("${path}")
+  done < "${listing}"
+  rm -f "${listing}"
+  for path in "${EXISTING_PROJECT_DOCS_AND_RULES[@]}"; do
+    if [[ -L "${path}" && -d "${path}" ]]; then
+      die "unsafe project directory link: ${path}"
+    fi
+  done
+}
+
+# Walk the link without dropping missing components canceled by `..`.
+missing_link_component_matches_write() {
+  local pending="$1" destination="$2" parent='' component entry target hops=0
+  while [[ -n "${pending}" ]]; do
+    component="${pending%%/*}"
+    if [[ "${pending}" == */* ]]; then pending="${pending#*/}"; else pending=''; fi
+    case "${component}" in
+      ''|.) continue ;;
+      ..) parent="${parent%/*}"; continue ;;
+    esac
+    entry="${parent}/${component}"
+    if [[ -L "${entry}" ]]; then
+      if (( ++hops > 40 )); then return 1; fi
+      target="$(readlink -n -- "${entry}" && printf /)" || die "cannot read project link: ${entry}"
+      if [[ "${target}" == /* ]]; then parent=''; fi
+      pending="${target}${pending}"
+    else
+      if [[ ! -e "${entry}" && ( "${destination}" == "${entry}" || "${destination}" == "${entry}/"* ) ]]; then
+        return 0
+      fi
+      parent="${entry}"
+    fi
+  done
+  return 1
+}
+
+validate_existing_project_paths() {
+  local destination="$1" path resolved_destination='' target
+  for path in "${EXISTING_PROJECT_DOCS_AND_RULES[@]}"; do
+    if [[ ! "${destination}" -ef "${path}" ]]; then
+      [[ -L "${path}" ]] || continue
+      if [[ -z "${resolved_destination}" ]]; then
+        resolved_destination="$(realpath -m -- "${destination}")"
+      fi
+      target="$(realpath -m -- "${path}")"
+      if [[ "${resolved_destination}" != "${target}" && "${resolved_destination}" != "${target%/}/"* ]] \
+        && { [[ -e "${path}" ]] || ! missing_link_component_matches_write "${path}" "${resolved_destination}"; }; then
+        continue
+      fi
+    fi
+    die "${destination} would change existing project path: ${path#"${PROJECT_REPO}"/}"
+  done
+}
+
 #######################################
 # Validate inputs and resolve the project repository path.
 # Globals:
@@ -152,18 +239,26 @@ resolve_repo() {
   [[ -d "${PROJECT_REPO}" ]] || die "project repo not found: ${PROJECT_REPO}"
   [[ -w "${PROJECT_REPO}" && -x "${PROJECT_REPO}" ]] \
     || die "project repo is not writable with your permissions: ${PROJECT_REPO}"
-  AMEND=0
-  if [[ -f "${PROJECT_REPO}/docs/README.md" ]]; then
-    if [[ ! -f "${PROJECT_REPO}/rules/README.md" ]]; then
-      head -1 "${PROJECT_REPO}/docs/README.md" \
-        | grep -qE '^Seeded from the Ribbon Protocol, ribbon [0-9]+\.$' \
-        || die "${PROJECT_REPO} has its own docs/README.md without a Ribbon seed stamp; refusing to guess (merge template changes by hand)"
-      AMEND=1
-    else
-      die "${PROJECT_REPO} already has rules/README.md; refusing to guess it is Ribbon's (merge template changes by hand)"
-    fi
-  fi
   PROJECT_REPO="$(realpath "${PROJECT_REPO}")"
+  validate_project_directory docs
+  validate_project_directory rules
+
+  local record="${PROJECT_REPO}/${SEED_RECORD}" readme="${PROJECT_REPO}/docs/README.md"
+  if path_present "${record}"; then
+    if [[ -f "${record}" && ! -L "${record}" ]] && grep -qxE "${SEED_STAMP_PATTERN}" "${record}"; then
+      die "${PROJECT_REPO} is already full-installed (merge template changes by hand)"
+    fi
+    die "reserved seed record already exists: ${record}; left untouched"
+  fi
+
+  AMEND=0
+  if [[ -f "${readme}" && ! -L "${readme}" ]] \
+    && head -1 "${readme}" | grep -qxE "${SEED_STAMP_PATTERN}"; then
+    if path_present "${PROJECT_REPO}/rules/README.md"; then
+      die "${PROJECT_REPO} is already full-installed (merge template changes by hand)"
+    fi
+    AMEND=1
+  fi
 }
 
 #######################################
@@ -192,12 +287,13 @@ confirm_target() {
 }
 
 #######################################
-# Copy the template docs/ into the project and stamp the seed version.
+# Plan only missing template paths; an occupied entry belongs to the project.
 # Globals:
 #   RIBBON_HOME, PROJECT_REPO
 #######################################
 prepare_doc_seeds() {
   local raw_list f rel
+  local -a missing=()
   raw_list="$(mktemp)"
   if ! find "${RIBBON_HOME}/docs" -type f -print0 2>/dev/null | sort -z > "${raw_list}"; then
     rm -f "${raw_list}"
@@ -205,22 +301,44 @@ prepare_doc_seeds() {
   fi
   while IFS= read -r -d '' f; do
     rel="${f#"${RIBBON_HOME}"/}"
-    [[ -e "${PROJECT_REPO}/${rel}" ]] && continue
+    [[ "${rel}" != "${SEED_RECORD}" ]] || continue
     DOC_SEEDS+=("${rel}")
   done < "${raw_list}"
   rm -f "${raw_list}"
-  for rel in "${DOC_SEEDS[@]}"; do validate_instruction_destination "${rel}"; done
+  for rel in "${DOC_SEEDS[@]}"; do
+    validate_project_directory "${rel%/*}"
+    path_present "${PROJECT_REPO}/${rel}" && continue
+    validate_instruction_destination "${rel}"
+    missing+=("${rel}")
+  done
+  DOC_SEEDS=("${missing[@]}")
 }
 
 seed_docs() {
-  local version rel
-  version="$(head -1 "${RIBBON_HOME}/VERSION")"
+  local rel destination
   for rel in "${DOC_SEEDS[@]}"; do
-    mkdir -p "$(dirname "${PROJECT_REPO}/${rel}")"
-    cp "${RIBBON_HOME}/${rel}" "${PROJECT_REPO}/${rel}"
+    destination="${PROJECT_REPO}/${rel}"
+    mkdir -p "${destination%/*}"
+    if [[ "${rel}" == docs/README.md ]]; then
+      (set -o noclobber; sed "1s|<ribbon-version>|${SEED_VERSION}|" "${RIBBON_HOME}/${rel}" > "${destination}")
+    else
+      cp "${RIBBON_HOME}/${rel}" "${destination}"
+    fi
     WRITTEN_PATHS+=("${rel}")
   done
-  sed -i "1s|<ribbon-version>|${version}|" "${PROJECT_REPO}/docs/README.md"
+}
+
+write_seed_record() {
+  mkdir -p "${PROJECT_REPO}/docs"
+  (set -o noclobber; printf 'Seeded from the Ribbon Protocol, %s.\n' "${SEED_VERSION}" > "${PROJECT_REPO}/${SEED_RECORD}")
+  WRITTEN_PATHS+=("${SEED_RECORD}")
+}
+
+prepare_seed_record() {
+  validate_instruction_destination "${SEED_RECORD}"
+  if git -C "${PROJECT_REPO}" check-ignore -q -- "${SEED_RECORD}" 2>/dev/null; then
+    die "seed record is ignored by Git: ${SEED_RECORD}; allow it before installing"
+  fi
 }
 
 #######################################
@@ -234,7 +352,7 @@ visit_rule_seeds() {
   for f in "${RIBBON_HOME}/rules"/*.md; do
     [[ -e "${f}" ]] || continue
     rel="rules/${f##*/}"
-    [[ -e "${PROJECT_REPO}/${rel}" ]] && continue
+    path_present "${PROJECT_REPO}/${rel}" && continue
     "${visit}" "${rel}"
   done
 }
@@ -262,6 +380,7 @@ validate_instruction_destination() {
     && [[ -e "${destination}" || -L "${destination}" ]]; then
     [[ -f "${destination}" ]] || die "not a regular file: ${destination}"
   fi
+  validate_existing_project_paths "${destination}"
   for instruction in AGENTS.md AGENTS.local.md CLAUDE.md CLAUDE.local.md; do
     [[ "${instruction}" != "${name}" ]] || continue
     path="${PROJECT_REPO}/${instruction}"
@@ -377,8 +496,9 @@ print_summary() {
   cat <<EOF
 Seeded the Ribbon Protocol (${version}) into ${PROJECT_REPO}:
 
-  docs/           homes, schemas, templates, field guide
-  rules/          coding conventions, one theme per file
+  docs/           missing homes, schemas, templates and field guide added
+  rules/          missing coding conventions added; existing paths kept
+  seed record     ${SEED_RECORD}
   AGENTS.md       protocol appended (${START_MARK} .. ${END_MARK})
   herdr-config.md the optional Herdr overlay, beside AGENTS.md
   Claude files   left unchanged
@@ -423,7 +543,7 @@ prepare_user_rule_imports() {
 
   for f in "${SELECTED_RULES[@]}"; do
     [[ -f "${rules_dir}/${f}" ]] || die "--import-rules file not found: ${rules_dir}/${f}"
-    [[ -e "${PROJECT_REPO}/rules/${f}" ]] || validate_instruction_destination "rules/${f}"
+    path_present "${PROJECT_REPO}/rules/${f}" || validate_instruction_destination "rules/${f}"
   done
 }
 
@@ -431,7 +551,7 @@ import_user_rules() {
   [[ "${#SELECTED_RULES[@]}" -gt 0 ]] || return 0
   local rules_dir="${HOME}/.claude/rules" f imported=0 kept=0
   for f in "${SELECTED_RULES[@]}"; do
-    if [[ -e "${PROJECT_REPO}/rules/${f}" ]]; then
+    if path_present "${PROJECT_REPO}/rules/${f}"; then
       kept=$((kept + 1))
       continue
     fi
@@ -562,10 +682,17 @@ main() {
   parse_args "$@"
   validate_import_rules
   resolve_repo
+  SEED_VERSION="$(head -1 "${RIBBON_HOME}/VERSION")"
+  [[ "${SEED_VERSION}" =~ ^ribbon\ [0-9]+$ ]] || die "invalid Ribbon seed version: ${SEED_VERSION}"
   confirm_target
+  collect_existing_project_docs_and_rules
   if (( AMEND == 0 )); then
     prepare_instruction_files
     prepare_doc_seeds
+    prepare_seed_record
+  fi
+  if ! path_present "${PROJECT_REPO}/rules"; then
+    validate_instruction_destination rules
   fi
   visit_rule_seeds validate_instruction_destination
   prepare_user_rule_imports
@@ -584,6 +711,7 @@ main() {
   import_user_rules
   wire_agents_md
   wire_herdr
+  write_seed_record
   commit_seed
   print_summary
   warn_unlinked_claude_files

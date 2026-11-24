@@ -201,10 +201,8 @@ test_update_does_not_resurrect_deleted_theme() {
   new_sandbox
   install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
   rm "${SANDBOX}/repos/example-project/rules/testing.md"
-  echo 'corrupted' > "${SANDBOX}/repos/example-project/rules/README.md"
-  install example-project --update >/dev/null 2>&1
-  [[ ! -e "${SANDBOX}/repos/example-project/rules/testing.md" ]] \
-    && grep -q '# Coding rules' "${SANDBOX}/repos/example-project/rules/README.md"
+  install example-project --update >/dev/null 2>&1 || return 1
+  [[ ! -e "${SANDBOX}/repos/example-project/rules/testing.md" ]]
 }
 
 test_import_rules_flag() {
@@ -241,18 +239,216 @@ test_non_interactive_imports_nothing() {
     && [[ ! -f "${SANDBOX}/repos/example-project/rules/one.md" ]]
 }
 
-test_update_refreshes_rules_templates() {
+test_update_preserves_existing_project_rules_byte_for_byte() {
   new_sandbox
-  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
-  echo 'corrupted' > "${SANDBOX}/repos/example-project/rules/testing.md"
-  printf 'project-owned theme\n' > "${SANDBOX}/repos/example-project/rules/clojure.md"
-  install example-project --update >/dev/null 2>&1
-  local rules_now rules_want
-  rules_now="$(head -1 "${SANDBOX}/repos/example-project/rules/testing.md")"
-  rules_want="$(head -1 "${RIBBON_HOME}/rules/testing.md")"
-  [[ "${rules_now}" == "${rules_want}" ]] \
-    && [[ "$(cat "${SANDBOX}/repos/example-project/rules/clojure.md")" \
-          == "project-owned theme" ]]
+  local repo="${SANDBOX}/repos/example-project" name
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  for name in README.md testing.md clojure.md; do
+    printf '# Project-owned %s\r\nNo trailing newline' "${name}" > "${SANDBOX}/${name}"
+    cp "${SANDBOX}/${name}" "${repo}/rules/${name}"
+  done
+
+  install example-project --update >/dev/null 2>&1 || return 1
+
+  for name in README.md testing.md clojure.md; do
+    cmp -s "${SANDBOX}/${name}" "${repo}/rules/${name}" || return 1
+  done
+}
+
+test_update_does_not_write_to_a_rule_linked_to_project_instructions() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  ln -f "${repo}/AGENTS.md" "${repo}/rules/testing.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/before"
+
+  install example-project --update >/dev/null 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.md" \
+    && [[ "${repo}/AGENTS.md" -ef "${repo}/rules/testing.md" ]]
+}
+
+test_install_skips_dangling_project_rule_entries() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" name
+  mkdir -p "${repo}/rules" "${HOME}/.claude/rules"
+  printf 'import candidate\n' > "${HOME}/.claude/rules/personal.md"
+  for name in testing.md personal.md; do
+    ln -s "${SANDBOX}/missing-target" "${repo}/rules/${name}"
+  done
+
+  install example-project "${repo}" --import-rules personal.md >/dev/null 2>&1 || return 1
+
+  for name in testing.md personal.md; do
+    [[ "$(readlink "${repo}/rules/${name}")" == "${SANDBOX}/missing-target" && ! -e "${repo}/rules/${name}" ]] || return 1
+  done
+  [[ -f "${repo}/rules/README.md" ]]
+}
+
+test_force_rejects_linked_project_rules_before_rebuild() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" live_card="${PROJECTS}/example-project/docs/tasks/live-card.yaml" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mv "${repo}/rules" "${SANDBOX}/outside-rules"
+  ln -s "${SANDBOX}/outside-rules" "${repo}/rules"
+  printf 'live work\n' > "${live_card}"
+  mkdir -p "${HOME}/.claude/rules"
+  printf 'new rule\n' > "${HOME}/.claude/rules/new.md"
+
+  install example-project "${repo}" --force --yes --import-rules new.md >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${SANDBOX}/outside-rules/new.md" ]] \
+    && grep -Fq 'unsafe project directory' "${SANDBOX}/error" \
+    && grep -Fxq 'live work' "${live_card}" \
+    && [[ "$(readlink "${repo}/rules")" == "${SANDBOX}/outside-rules" ]]
+}
+
+test_update_rejects_linked_instance_directory_before_writing() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" docs="${PROJECTS}/example-project/docs" rc=0
+  local outside="${SANDBOX}/outside-tasks"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mv "${docs}/tasks" "${outside}"
+  ln -s "${outside}" "${docs}/tasks"
+  printf 'outside template bytes\r\nKeep me' > "${SANDBOX}/before-template"
+  cp "${SANDBOX}/before-template" "${outside}/_template.plan.yaml"
+  printf 'instance version unchanged\n' > "${docs}/README.md"
+
+  install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsafe instance directory' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before-template" "${outside}/_template.plan.yaml" \
+    && grep -Fxq 'instance version unchanged' "${docs}/README.md" \
+    && [[ "$(readlink "${docs}/tasks")" == "${outside}" ]]
+}
+
+test_update_rejects_a_linked_instance_template_before_writing() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" docs="${PROJECTS}/example-project/docs" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  printf 'outside bytes\r\nNo trailing newline' > "${SANDBOX}/before"
+  cp "${SANDBOX}/before" "${SANDBOX}/outside-template"
+  ln -sf "${SANDBOX}/outside-template" "${docs}/tasks/_template.plan.yaml"
+  printf 'instance version unchanged\n' > "${docs}/README.md"
+
+  install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsafe instance file' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${SANDBOX}/outside-template" \
+    && grep -Fxq 'instance version unchanged' "${docs}/README.md"
+}
+
+test_update_does_not_rewrite_a_project_readme_linked_to_instance() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" docs="${PROJECTS}/example-project/docs" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mkdir "${repo}/docs"
+  printf 'shared README bytes\r\nKeep me' > "${docs}/README.md"
+  ln "${docs}/README.md" "${repo}/docs/README.md"
+  cp "${repo}/docs/README.md" "${SANDBOX}/before"
+
+  install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'would change existing project path: docs/README.md' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${repo}/docs/README.md" \
+    && [[ "${repo}/docs/README.md" -ef "${docs}/README.md" ]]
+}
+
+test_force_preserves_a_project_readme_linked_to_live_instance_work() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mkdir "${repo}/docs"
+  printf '# Live work\n' > "${instance}/docs/tasks/live-card.yaml"
+  ln -s "${instance}/docs/tasks/live-card.yaml" "${repo}/docs/README.md"
+
+  install example-project "${repo}" --force --yes >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'docs/README.md points inside the instance' "${SANDBOX}/error" \
+    && grep -Fxq '# Live work' "${repo}/docs/README.md" \
+    && [[ "$(readlink "${repo}/docs/README.md")" == "${instance}/docs/tasks/live-card.yaml" ]]
+}
+
+test_force_rejects_a_project_directory_link_to_the_instance_parent() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mkdir "${repo}/docs"
+  ln -s "${PROJECTS}" "${repo}/docs/shared"
+  printf 'live work\n' > "${instance}/docs/tasks/live-card.yaml"
+
+  install example-project "${repo}" --force --yes >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsafe project directory link' "${SANDBOX}/error" \
+    && grep -Fxq 'live work' "${repo}/docs/shared/example-project/docs/tasks/live-card.yaml" \
+    && [[ "$(readlink "${repo}/docs/shared")" == "${PROJECTS}" ]]
+}
+
+test_update_rejects_a_linked_project_docs_root() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" outside="${SANDBOX}/outside-docs" rc=0
+  local version="${PROJECTS}/example-project/docs/README.md"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mkdir "${outside}"
+  ln -s "${outside}" "${repo}/docs"
+  ln -s "${version}" "${outside}/README.md"
+  printf 'shared version\n' > "${version}"
+
+  install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsafe project directory link' "${SANDBOX}/error" \
+    && grep -Fxq 'shared version' "${outside}/README.md" \
+    && [[ "$(readlink "${repo}/docs")" == "${outside}" ]]
+}
+
+test_update_keeps_links_to_missing_instance_directories_dangling() {
+  local name repo instance target rc failed=0
+  for name in docs/tasks docs/llm-context/history; do
+    new_sandbox
+    repo="${SANDBOX}/repos/example-project"
+    instance="${PROJECTS}/example-project"
+    install example-project "${repo}" >/dev/null 2>&1 || return 1
+    mkdir "${repo}/docs"
+    target="${instance}/${name}"
+    mv "${target}" "${SANDBOX}/kept-dir"
+    ln -s "${target}" "${repo}/docs/README.md"
+    printf 'instance stamp unchanged\n' > "${instance}/docs/README.md"
+
+    rc=0
+    install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    if [[ "${rc}" != 1 || -e "${target}" || "$(readlink "${repo}/docs/README.md")" != "${target}" ]] \
+      || ! grep -Fq 'would change existing project path: docs/README.md' "${SANDBOX}/error" \
+      || ! grep -Fxq 'instance stamp unchanged' "${instance}/docs/README.md"; then
+      printf 'update populated the linked directory: %s\n' "${name}" >&2
+      failed=1
+    fi
+  done
+  return "${failed}"
+}
+
+test_update_does_not_complete_a_missing_symlink_traversal() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" docs="${PROJECTS}/example-project/docs" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mkdir "${repo}/docs"
+  mv "${docs}/tasks" "${SANDBOX}/kept-tasks"
+  printf 'Existing instance content\n' > "${docs}/original.md"
+  ln -s "${docs}/tasks/../original.md" "${repo}/docs/README.md"
+  [[ ! -e "${repo}/docs/README.md" ]] || return 1
+  printf 'instance stamp unchanged\n' > "${docs}/README.md"
+
+  install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${docs}/tasks" && ! -e "${repo}/docs/README.md" ]] \
+    && grep -Fq 'would change existing project path: docs/README.md' "${SANDBOX}/error" \
+    && grep -Fxq 'instance stamp unchanged' "${docs}/README.md"
 }
 
 test_rerun_keeps_one_block() {
@@ -678,21 +874,16 @@ test_force_refuses_to_rebuild_an_instance_holding_project_instructions() {
 }
 
 test_update_rejects_instruction_aliases_of_refresh_destinations() {
-  local row name directory destination kind repo rc failed=0
+  local row name destination kind repo rc failed=0
   for row in \
-      'CLAUDE.md instance docs/README.md symlink' \
-      'CLAUDE.local.md instance docs/tasks/_template.task.yaml hardlink' \
-      'AGENTS.local.md instance project-repo hardlink' \
-      'AGENTS.md repo rules/testing.md hardlink'; do
-    read -r name directory destination kind <<< "${row}"
+      'CLAUDE.md docs/README.md symlink' \
+      'CLAUDE.local.md docs/tasks/_template.task.yaml hardlink' \
+      'AGENTS.local.md project-repo hardlink'; do
+    read -r name destination kind <<< "${row}"
     new_sandbox
     repo="${SANDBOX}/repos/example-project"
     install example-project "${repo}" >/dev/null 2>&1 || return 1
-    if [[ "${directory}" == instance ]]; then
-      destination="${PROJECTS}/example-project/${destination}"
-    else
-      destination="${repo}/${destination}"
-    fi
+    destination="${PROJECTS}/example-project/${destination}"
     printf '# Protected instructions\r\nDo not rewrite' > "${SANDBOX}/before"
     cp "${SANDBOX}/before" "${destination}"
     if [[ "${kind}" == symlink ]]; then
@@ -941,7 +1132,18 @@ readonly TESTS=(
   test_import_rules_missing_file_fails
   test_import_rules_preflight_before_any_write
   test_non_interactive_imports_nothing
-  test_update_refreshes_rules_templates
+  test_update_preserves_existing_project_rules_byte_for_byte
+  test_update_does_not_write_to_a_rule_linked_to_project_instructions
+  test_install_skips_dangling_project_rule_entries
+  test_force_rejects_linked_project_rules_before_rebuild
+  test_update_rejects_linked_instance_directory_before_writing
+  test_update_rejects_a_linked_instance_template_before_writing
+  test_update_does_not_rewrite_a_project_readme_linked_to_instance
+  test_force_preserves_a_project_readme_linked_to_live_instance_work
+  test_force_rejects_a_project_directory_link_to_the_instance_parent
+  test_update_rejects_a_linked_project_docs_root
+  test_update_keeps_links_to_missing_instance_directories_dangling
+  test_update_does_not_complete_a_missing_symlink_traversal
   test_rerun_keeps_one_block
   test_requires_projects_flag
   test_rejects_missing_projects_dir

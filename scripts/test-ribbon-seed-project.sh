@@ -89,9 +89,13 @@ test_seeds_docs() {
 
 test_stamps_version() {
   new_repo
-  seed "${SANDBOX}/example-project" >/dev/null 2>&1
-  head -1 "${SANDBOX}/example-project/docs/README.md" \
-    | grep -q "Seeded from the Ribbon Protocol, $(template_version)"
+  local repo="${SANDBOX}/example-project" stamp
+  stamp="Seeded from the Ribbon Protocol, $(template_version)."
+
+  seed "${repo}" >/dev/null 2>&1 || return 1
+
+  [[ "$(head -1 "${repo}/docs/README.md")" == "${stamp}" ]] \
+    && [[ "$(git -C "${repo}" show HEAD:docs/.ribbon-full-install)" == "${stamp}" ]]
 }
 
 test_appends_protocol_preserving_content() {
@@ -276,6 +280,7 @@ test_seeding_rejects_dangling_instruction_aliases_before_writing() {
   for row in \
       'seed CLAUDE.md herdr-config.md' \
       'seed AGENTS.local.md herdr-config.md' \
+      'seed CLAUDE.md docs/.ribbon-full-install' \
       'seed CLAUDE.local.md docs/tasks/_template.task.yaml' \
       'amend CLAUDE.md rules/testing.md' \
       'amend CLAUDE.local.md rules/personal.md'; do
@@ -386,21 +391,204 @@ test_seeder_merges_into_existing_docs() {
     && [[ ! -d "${SANDBOX}/example-project/docs/docs" ]]
 }
 
-test_amend_requires_ribbon_stamp() {
+test_seed_preserves_existing_docs_readme_byte_for_byte() {
   new_repo
-  mkdir -p "${SANDBOX}/example-project/docs"
-  printf '# My API documentation\n' > "${SANDBOX}/example-project/docs/README.md"
-  ! seed "${SANDBOX}/example-project" >/dev/null 2>&1
-  [[ ! -e "${SANDBOX}/example-project/rules" ]]
+  local repo="${SANDBOX}/example-project"
+  mkdir "${repo}/docs"
+  printf '# My API documentation\r\nNo trailing newline' > "${SANDBOX}/before"
+  cp "${SANDBOX}/before" "${repo}/docs/README.md"
+  git -C "${repo}" add docs/README.md
+
+  seed "${repo}" >/dev/null 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/before" "${repo}/docs/README.md" \
+    && [[ -f "${repo}/docs/tasks/_template.plan.yaml" ]] \
+    && [[ "$(git -C "${repo}" show HEAD:docs/.ribbon-full-install)" == "Seeded from the Ribbon Protocol, $(template_version)." ]] \
+    && ! git -C "${repo}" cat-file -e HEAD:docs/README.md \
+    && git -C "${repo}" diff --cached --name-only | grep -Fxq 'docs/README.md'
 }
 
-test_amend_rejects_false_stamp() {
+test_seed_refuses_to_change_a_readme_linked_to_agents() {
   new_repo
-  mkdir -p "${SANDBOX}/example-project/docs"
-  printf 'Seeded from the Ribbon Protocol, ribbon notes for an unrelated project.\n' \
-    > "${SANDBOX}/example-project/docs/README.md"
-  ! seed "${SANDBOX}/example-project" >/dev/null 2>&1
-  [[ ! -e "${SANDBOX}/example-project/rules" ]]
+  local repo="${SANDBOX}/example-project" rc=0
+  mkdir "${repo}/docs"
+  ln "${repo}/AGENTS.md" "${repo}/docs/README.md"
+  cp "${repo}/docs/README.md" "${SANDBOX}/before"
+
+  seed "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${repo}/docs/tasks" && ! -e "${repo}/rules" ]] \
+    && grep -Fq 'would change existing project path: docs/README.md' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${repo}/docs/README.md" \
+    && [[ "${repo}/docs/README.md" -ef "${repo}/AGENTS.md" ]]
+}
+
+test_seed_rejects_nested_project_directory_links_before_appending() {
+  new_repo
+  local repo="${SANDBOX}/example-project" outside="${SANDBOX}/outside" rc=0
+  mkdir "${repo}/docs" "${outside}"
+  ln -s "${outside}" "${repo}/docs/reference"
+  ln -s "${repo}/AGENTS.md" "${outside}/README.md"
+  cp "${outside}/README.md" "${SANDBOX}/before"
+
+  seed "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${repo}/docs/.ribbon-full-install" && ! -e "${repo}/rules" ]] \
+    && grep -Fq 'unsafe project directory link' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${outside}/README.md"
+}
+
+test_seed_keeps_a_link_to_a_missing_docs_directory_dangling() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  mkdir "${repo}/docs"
+  ln -s tasks "${repo}/docs/README.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/before"
+
+  seed "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${repo}/docs/tasks" && ! -e "${repo}/rules" ]] \
+    && grep -Fq 'would change existing project path: docs/README.md' "${SANDBOX}/error" \
+    && [[ "$(readlink "${repo}/docs/README.md")" == tasks ]] \
+    && cmp -s "${SANDBOX}/before" "${repo}/AGENTS.md"
+}
+
+test_seed_does_not_complete_a_missing_symlink_traversal() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  mkdir "${repo}/docs"
+  printf 'Existing project content\n' > "${repo}/docs/original.md"
+  ln -s tasks/../original.md "${repo}/docs/README.md"
+  [[ ! -e "${repo}/docs/README.md" ]] || return 1
+
+  seed "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${repo}/docs/tasks" && ! -e "${repo}/docs/README.md" ]] \
+    && grep -Fq 'would change existing project path: docs/README.md' "${SANDBOX}/error" \
+    && [[ "$(readlink "${repo}/docs/README.md")" == tasks/../original.md ]]
+}
+
+test_seed_allows_an_unrelated_missing_symlink_traversal() {
+  new_repo
+  local repo="${SANDBOX}/example-project"
+  mkdir "${repo}/docs"
+  printf 'Existing project content\n' > "${repo}/docs/original.md"
+  ln -s archive/../original.md "${repo}/docs/README.md"
+
+  seed "${repo}" >/dev/null 2>&1 || return 1
+
+  [[ -f "${repo}/docs/tasks/_template.plan.yaml" && ! -e "${repo}/docs/README.md" ]] \
+    && [[ "$(readlink "${repo}/docs/README.md")" == archive/../original.md ]]
+}
+
+test_seed_detection_does_not_require_a_ribbon_readme() {
+  new_repo
+  local repo="${SANDBOX}/example-project" head rc=0
+  mkdir "${repo}/docs"
+  printf '# Project docs\n' > "${repo}/docs/README.md"
+  seed "${repo}" >/dev/null 2>&1 || return 1
+  head="$(git -C "${repo}" rev-parse HEAD)"
+
+  seed "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]] \
+    && grep -Fq 'already full-installed' "${SANDBOX}/error"
+}
+
+test_similar_readme_text_does_not_select_legacy_amendment() {
+  new_repo
+  local repo="${SANDBOX}/example-project"
+  mkdir "${repo}/docs"
+  printf 'Seeded from the Ribbon Protocol, ribbon notes for an unrelated project.\n' > "${SANDBOX}/before"
+  cp "${SANDBOX}/before" "${repo}/docs/README.md"
+
+  seed "${repo}" >/dev/null 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/before" "${repo}/docs/README.md" \
+    && [[ -f "${repo}/docs/tasks/_template.plan.yaml" && -f "${repo}/docs/.ribbon-full-install" ]]
+}
+
+test_seed_refuses_an_unrelated_existing_seed_record() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  mkdir "${repo}/docs"
+  printf 'project-owned bytes\r\n' > "${SANDBOX}/before"
+  cp "${SANDBOX}/before" "${repo}/docs/.ribbon-full-install"
+
+  seed "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${repo}/docs/README.md" && ! -e "${repo}/rules" ]] \
+    && cmp -s "${SANDBOX}/before" "${repo}/docs/.ribbon-full-install" \
+    && grep -Fq 'reserved seed record' "${SANDBOX}/error"
+}
+
+test_seed_record_is_generated_not_copied_from_the_source() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template"
+  mkdir "${template}"
+  cp -R "${RIBBON_HOME}/docs" "${RIBBON_HOME}/rules" "${template}/"
+  cp "${RIBBON_HOME}/AGENTS.md" "${RIBBON_HOME}/VERSION" "${RIBBON_HOME}/herdr-config.md" "${template}/"
+  printf 'Seeded from the Ribbon Protocol, ribbon 999.\n' > "${template}/docs/.ribbon-full-install"
+
+  seed --ribbon-home "${template}" "${repo}" >/dev/null 2>&1 || return 1
+
+  [[ "$(git -C "${repo}" show HEAD:docs/.ribbon-full-install)" == "Seeded from the Ribbon Protocol, $(template_version)." ]]
+}
+
+test_ignored_seed_record_blocks_full_install_before_writes() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  printf 'docs/.*\n' > "${repo}/.gitignore"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/before"
+
+  seed "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${repo}/docs" && ! -e "${repo}/rules" ]] \
+    && grep -Fq 'seed record is ignored by Git' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${repo}/AGENTS.md"
+}
+
+test_seed_skips_dangling_docs_and_rule_entries() {
+  new_repo
+  local repo="${SANDBOX}/example-project" path
+  mkdir -p "${repo}/docs/tasks" "${repo}/rules" "${HOME}/.claude/rules"
+  printf 'import candidate\n' > "${HOME}/.claude/rules/personal.md"
+  for path in docs/tasks/README.md rules/testing.md rules/personal.md; do
+    ln -s "${SANDBOX}/missing-target" "${repo}/${path}"
+  done
+
+  seed "${repo}" --import-rules personal.md >/dev/null 2>&1 || return 1
+
+  for path in docs/tasks/README.md rules/testing.md rules/personal.md; do
+    [[ "$(readlink "${repo}/${path}")" == "${SANDBOX}/missing-target" && ! -e "${repo}/${path}" ]] || return 1
+  done
+  [[ -f "${repo}/docs/tasks/_template.plan.yaml" && -f "${repo}/rules/README.md" ]] \
+    && [[ -z "$(git -C "${repo}" ls-tree -r --name-only HEAD -- docs/tasks/README.md rules/testing.md rules/personal.md)" ]]
+}
+
+test_seed_rejects_unsafe_project_directory_before_writing() {
+  local kind repo rc failed=0
+  for kind in symlink file; do
+    new_repo
+    repo="${SANDBOX}/example-project"
+    mkdir "${repo}/docs" "${SANDBOX}/outside"
+    if [[ "${kind}" == symlink ]]; then
+      ln -s "${SANDBOX}/outside" "${repo}/docs/tasks"
+    else
+      printf 'project task index\n' > "${repo}/docs/tasks"
+    fi
+
+    rc=0
+    seed "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    if [[ "${rc}" != 1 || -e "${repo}/docs/adrs" || -e "${repo}/docs/README.md" || -e "${repo}/rules" ]] \
+      || ! grep -Fq 'unsafe project directory' "${SANDBOX}/error" \
+      || [[ -n "$(ls -A "${SANDBOX}/outside")" ]]; then
+      printf 'seed wrote through or around a %s directory collision\n' "${kind}" >&2
+      failed=1
+    fi
+  done
+  return "${failed}"
 }
 
 test_seeder_keeps_existing_docs_files() {
@@ -535,8 +723,19 @@ readonly TESTS=(
   test_refuses_template_as_project_repo
   test_seeder_merges_into_existing_rules
   test_seeder_merges_into_existing_docs
-  test_amend_requires_ribbon_stamp
-  test_amend_rejects_false_stamp
+  test_seed_preserves_existing_docs_readme_byte_for_byte
+  test_seed_refuses_to_change_a_readme_linked_to_agents
+  test_seed_rejects_nested_project_directory_links_before_appending
+  test_seed_keeps_a_link_to_a_missing_docs_directory_dangling
+  test_seed_does_not_complete_a_missing_symlink_traversal
+  test_seed_allows_an_unrelated_missing_symlink_traversal
+  test_seed_detection_does_not_require_a_ribbon_readme
+  test_similar_readme_text_does_not_select_legacy_amendment
+  test_seed_refuses_an_unrelated_existing_seed_record
+  test_seed_record_is_generated_not_copied_from_the_source
+  test_ignored_seed_record_blocks_full_install_before_writes
+  test_seed_skips_dangling_docs_and_rule_entries
+  test_seed_rejects_unsafe_project_directory_before_writing
   test_seeder_keeps_existing_docs_files
   test_literal_pathspec_import
   test_import_rejects_directory_operand
