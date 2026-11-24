@@ -447,13 +447,18 @@ EOF
   cmp -s "${SANDBOX}/before" "${local_md}"
 }
 
-test_force_keeps_filled_belt() {
+test_force_leaves_managed_instructions_byte_identical() {
   new_sandbox
-  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
-  local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
-  sed -i "s/TODO(belt): a person's name/Ana/" "${local_md}"
-  install example-project "${SANDBOX}/repos/example-project" --force >/dev/null 2>&1
-  grep -q '^| Senior architect | Ana |' "${local_md}"
+  local repo="${SANDBOX}/repos/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  sed -i "s/TODO(belt): a person's name/Ana/" "${repo}/AGENTS.local.md"
+  sed -i '/ribbon:standalone:start/a preserved line inside the managed block' "${repo}/AGENTS.local.md"
+  cp "${repo}/AGENTS.md" "${repo}/AGENTS.local.md" "${SANDBOX}/"
+
+  install example-project "${repo}" --force >/dev/null 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/AGENTS.md" "${repo}/AGENTS.md" \
+    && cmp -s "${SANDBOX}/AGENTS.local.md" "${repo}/AGENTS.local.md"
 }
 
 test_update_keeps_one_belt_section() {
@@ -788,7 +793,7 @@ readonly TESTS=(
   test_update_keeps_filled_belt
   test_update_leaves_managed_instructions_byte_identical
   test_update_leaves_legacy_block_byte_identical
-  test_force_keeps_filled_belt
+  test_force_leaves_managed_instructions_byte_identical
   test_update_keeps_one_belt_section
   test_update_keeps_belt_text_verbatim
   test_update_refuses_block_without_end_mark

@@ -234,23 +234,27 @@ seed_rules() {
 }
 
 #######################################
-# Refuse a destination that could change a Claude-owned file. A Claude
-# symlink to a real AGENTS file is the supported direction, not an alias
-# from AGENTS back to Claude.
+# Refuse an overlay copy that would overwrite an instruction file, or an
+# AGENTS append that would change a Claude-owned file. A Claude symlink to a
+# real AGENTS file is the supported direction, not an alias back to Claude.
 # Globals:
 #   PROJECT_REPO
 #######################################
 validate_instruction_destination() {
-  local name="$1" destination="${PROJECT_REPO}/$1" claude
+  local name="$1" destination="${PROJECT_REPO}/$1" instruction
+  local -a protected=(CLAUDE.md CLAUDE.local.md)
   if [[ -e "${destination}" || -L "${destination}" ]]; then
     [[ -f "${destination}" ]] || die "not a regular file: ${destination}"
   fi
-  for claude in CLAUDE.md CLAUDE.local.md; do
-    [[ "${destination}" -ef "${PROJECT_REPO}/${claude}" ]] || continue
-    if [[ "${name}" == AGENTS.md && ! -L "${destination}" && -L "${PROJECT_REPO}/${claude}" ]]; then
+  if [[ "${name}" == herdr-config.md ]]; then
+    protected+=(AGENTS.md AGENTS.local.md)
+  fi
+  for instruction in "${protected[@]}"; do
+    [[ "${destination}" -ef "${PROJECT_REPO}/${instruction}" ]] || continue
+    if [[ "${name}" == AGENTS.md && ! -L "${destination}" && -L "${PROJECT_REPO}/${instruction}" ]]; then
       continue
     fi
-    die "${name} aliases ${claude}; refusing to write it"
+    die "${name} aliases ${instruction}; refusing to write it"
   done
 }
 

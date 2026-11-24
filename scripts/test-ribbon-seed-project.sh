@@ -252,6 +252,24 @@ test_rejects_an_overlay_symlink_to_claude_before_seeding() {
     && cmp -s "${SANDBOX}/before" "${repo}/CLAUDE.local.md"
 }
 
+test_rejects_an_overlay_symlink_to_agents_before_seeding() {
+  local name repo rc
+  for name in AGENTS.md AGENTS.local.md; do
+    new_repo
+    repo="${SANDBOX}/example-project"
+    printf '# Existing agent instructions\r\nNo final newline' > "${SANDBOX}/before"
+    cp "${SANDBOX}/before" "${repo}/${name}"
+    ln -s "${name}" "${repo}/herdr-config.md"
+
+    rc=0
+    seed "${repo}" > /dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    [[ "${rc}" == "1" && ! -e "${repo}/docs" ]] \
+      && grep -Fq "herdr-config.md aliases ${name}" "${SANDBOX}/error" \
+      && cmp -s "${SANDBOX}/before" "${repo}/${name}" || return 1
+  done
+}
+
 test_creates_agents_md_when_missing() {
   new_repo
   rm "${SANDBOX}/example-project/AGENTS.md"
@@ -460,6 +478,7 @@ readonly TESTS=(
   test_respects_a_claude_symlink_to_agents
   test_rejects_an_agents_hardlink_to_claude_before_seeding
   test_rejects_an_overlay_symlink_to_claude_before_seeding
+  test_rejects_an_overlay_symlink_to_agents_before_seeding
   test_creates_agents_md_when_missing
   test_rejects_missing_directory
   test_rejects_unwritable_repo
