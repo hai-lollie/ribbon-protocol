@@ -35,6 +35,8 @@ AMEND=0
 ASSUME_YES=0
 WRITTEN_PATHS=()
 AGENTS_WRITE_NEEDED=1
+DOC_SEEDS=()
+SELECTED_RULES=()
 
 #######################################
 # Print an error message to STDERR and exit.
@@ -194,24 +196,30 @@ confirm_target() {
 # Globals:
 #   RIBBON_HOME, PROJECT_REPO
 #######################################
-seed_docs() {
-  local version
-  version="$(head -1 "${RIBBON_HOME}/VERSION")"
-  mkdir -p "${PROJECT_REPO}/docs"
+prepare_doc_seeds() {
   local raw_list f rel
   raw_list="$(mktemp)"
-  if ! find "${RIBBON_HOME}/docs" -type f > "${raw_list}" 2>/dev/null; then
+  if ! find "${RIBBON_HOME}/docs" -type f -print0 2>/dev/null | sort -z > "${raw_list}"; then
     rm -f "${raw_list}"
     die "cannot enumerate ${RIBBON_HOME}/docs (check permissions); nothing was copied or committed"
   fi
-  while IFS= read -r f; do
+  while IFS= read -r -d '' f; do
     rel="${f#"${RIBBON_HOME}"/}"
     [[ -e "${PROJECT_REPO}/${rel}" ]] && continue
-    mkdir -p "$(dirname "${PROJECT_REPO}/${rel}")"
-    cp "${f}" "${PROJECT_REPO}/${rel}"
-    WRITTEN_PATHS+=("${rel}")
-  done < <(sort "${raw_list}")
+    DOC_SEEDS+=("${rel}")
+  done < "${raw_list}"
   rm -f "${raw_list}"
+  for rel in "${DOC_SEEDS[@]}"; do validate_instruction_destination "${rel}"; done
+}
+
+seed_docs() {
+  local version rel
+  version="$(head -1 "${RIBBON_HOME}/VERSION")"
+  for rel in "${DOC_SEEDS[@]}"; do
+    mkdir -p "$(dirname "${PROJECT_REPO}/${rel}")"
+    cp "${RIBBON_HOME}/${rel}" "${PROJECT_REPO}/${rel}"
+    WRITTEN_PATHS+=("${rel}")
+  done
   sed -i "1s|<ribbon-version>|${version}|" "${PROJECT_REPO}/docs/README.md"
 }
 
@@ -221,37 +229,49 @@ seed_docs() {
 # Globals:
 #   RIBBON_HOME, PROJECT_REPO, WRITTEN_PATHS (appended)
 #######################################
-seed_rules() {
-  mkdir -p "${PROJECT_REPO}/rules"
-  local f base
+visit_rule_seeds() {
+  local visit="$1" f rel
   for f in "${RIBBON_HOME}/rules"/*.md; do
     [[ -e "${f}" ]] || continue
-    base="$(basename "${f}")"
-    [[ -e "${PROJECT_REPO}/rules/${base}" ]] && continue
-    cp "${f}" "${PROJECT_REPO}/rules/${base}"
-    WRITTEN_PATHS+=("rules/${base}")
+    rel="rules/${f##*/}"
+    [[ -e "${PROJECT_REPO}/${rel}" ]] && continue
+    "${visit}" "${rel}"
   done
 }
 
+copy_rule_seed() {
+  cp "${RIBBON_HOME}/$1" "${PROJECT_REPO}/$1"
+  WRITTEN_PATHS+=("$1")
+}
+
+seed_rules() {
+  mkdir -p "${PROJECT_REPO}/rules"
+  visit_rule_seeds copy_rule_seed
+}
+
 #######################################
-# Refuse an overlay copy that would overwrite an instruction file, or an
-# AGENTS append that would change a Claude-owned file. A Claude symlink to a
-# real AGENTS file is the supported direction, not an alias back to Claude.
+# Refuse any seed that would write through an instruction alias, including
+# a dangling link whose target the seed would create. Claude -> AGENTS.md
+# is intentional wiring, not a Claude-owned destination.
 # Globals:
 #   PROJECT_REPO
 #######################################
 validate_instruction_destination() {
-  local name="$1" destination="${PROJECT_REPO}/$1" instruction
-  local -a protected=(CLAUDE.md CLAUDE.local.md)
-  if [[ -e "${destination}" || -L "${destination}" ]]; then
+  local name="$1" destination="${PROJECT_REPO}/$1" instruction path resolved_destination resolved_instruction
+  if [[ "${name}" == AGENTS.md || "${name}" == herdr-config.md ]] \
+    && [[ -e "${destination}" || -L "${destination}" ]]; then
     [[ -f "${destination}" ]] || die "not a regular file: ${destination}"
   fi
-  if [[ "${name}" == herdr-config.md ]]; then
-    protected+=(AGENTS.md AGENTS.local.md)
-  fi
-  for instruction in "${protected[@]}"; do
-    [[ "${destination}" -ef "${PROJECT_REPO}/${instruction}" ]] || continue
-    if [[ "${name}" == AGENTS.md && ! -L "${destination}" && -L "${PROJECT_REPO}/${instruction}" ]]; then
+  for instruction in AGENTS.md AGENTS.local.md CLAUDE.md CLAUDE.local.md; do
+    [[ "${instruction}" != "${name}" ]] || continue
+    path="${PROJECT_REPO}/${instruction}"
+    if [[ ! "${destination}" -ef "${path}" ]]; then
+      [[ -L "${path}" && ! -e "${path}" ]] || continue
+      resolved_destination="$(realpath -m -- "${destination}")"
+      resolved_instruction="$(realpath -m -- "${path}")"
+      [[ "${resolved_destination}" == "${resolved_instruction}" ]] || continue
+    fi
+    if [[ "${name}" == AGENTS.md && "${instruction}" == CLAUDE* && ! -L "${destination}" && -L "${path}" ]]; then
       continue
     fi
     die "${name} aliases ${instruction}; refusing to write it"
@@ -377,7 +397,7 @@ EOF
 # Globals:
 #   HOME, PROJECT_REPO, IMPORT_RULES, IMPORT_NOTE (set)
 #######################################
-import_user_rules() {
+prepare_user_rule_imports() {
   local rules_dir="${HOME}/.claude/rules"
   local -a candidates=()
   local f
@@ -388,23 +408,29 @@ import_user_rules() {
   fi
   IMPORT_NOTE=''
 
-  local -a chosen=()
   if [[ "${#IMPORT_RULES[@]}" -gt 0 ]]; then
-    chosen=("${IMPORT_RULES[@]}")
+    SELECTED_RULES=("${IMPORT_RULES[@]}")
   elif [[ "${#candidates[@]}" -eq 0 ]]; then
     return 0
   elif [[ -t 0 ]]; then
     pick_rules "${candidates[@]}"
-    chosen=("${PICKED[@]}")
+    SELECTED_RULES=("${PICKED[@]}")
   else
     printf 'note: %d rule file(s) in %s not imported (not interactive); re-run in a terminal or pass --import-rules\n' \
       "${#candidates[@]}" "${rules_dir}" >&2
     return 0
   fi
 
-  local imported=0 kept=0
-  for f in "${chosen[@]}"; do
+  for f in "${SELECTED_RULES[@]}"; do
     [[ -f "${rules_dir}/${f}" ]] || die "--import-rules file not found: ${rules_dir}/${f}"
+    [[ -e "${PROJECT_REPO}/rules/${f}" ]] || validate_instruction_destination "rules/${f}"
+  done
+}
+
+import_user_rules() {
+  [[ "${#SELECTED_RULES[@]}" -gt 0 ]] || return 0
+  local rules_dir="${HOME}/.claude/rules" f imported=0 kept=0
+  for f in "${SELECTED_RULES[@]}"; do
     if [[ -e "${PROJECT_REPO}/rules/${f}" ]]; then
       kept=$((kept + 1))
       continue
@@ -537,6 +563,12 @@ main() {
   validate_import_rules
   resolve_repo
   confirm_target
+  if (( AMEND == 0 )); then
+    prepare_instruction_files
+    prepare_doc_seeds
+  fi
+  visit_rule_seeds validate_instruction_destination
+  prepare_user_rule_imports
   if (( AMEND == 1 )); then
     seed_rules
     import_user_rules
@@ -547,7 +579,6 @@ main() {
     warn_unlinked_claude_files
     return
   fi
-  prepare_instruction_files
   seed_docs
   seed_rules
   import_user_rules

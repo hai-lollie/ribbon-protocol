@@ -160,7 +160,8 @@ the template when it does not live at `~/ribbon-protocol`.
 Neither installer creates or edits `CLAUDE.md` or `CLAUDE.local.md`. After a successful
 install or update, the installer warns when both files in a pair exist but the Claude
 file has no direct AGENTS import or symlink. See the wiring examples below to link them
-yourself.
+yourself. If a planned copy would populate a dangling instruction link, the installer
+stops before writing project or instance files.
 
 Then fill the belt (next section), and tell your architect to read `AGENTS.md`,
 `docs/README.md` and `docs/field-guide.md`, in that order. An architect inside Herdr also reads

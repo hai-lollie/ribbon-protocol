@@ -270,6 +270,53 @@ test_rejects_an_overlay_symlink_to_agents_before_seeding() {
   done
 }
 
+test_seeding_rejects_dangling_instruction_aliases_before_writing() {
+  local row mode name destination repo head rc failed=0
+  local -a flags
+  for row in \
+      'seed CLAUDE.md herdr-config.md' \
+      'seed AGENTS.local.md herdr-config.md' \
+      'seed CLAUDE.local.md docs/tasks/_template.task.yaml' \
+      'amend CLAUDE.md rules/testing.md' \
+      'amend CLAUDE.local.md rules/personal.md'; do
+    read -r mode name destination <<< "${row}"
+    new_repo
+    repo="${SANDBOX}/example-project"
+    head="$(git -C "${repo}" rev-parse HEAD)"
+    flags=()
+    if [[ "${mode}" == amend ]]; then
+      mkdir "${repo}/docs"
+      printf 'Seeded from the Ribbon Protocol, ribbon 1.\n' > "${repo}/docs/README.md"
+      cp "${repo}/docs/README.md" "${SANDBOX}/before-docs"
+    fi
+    if [[ "${destination}" == rules/personal.md ]]; then
+      mkdir -p "${HOME}/.claude/rules"
+      printf '# Personal rule\n' > "${HOME}/.claude/rules/personal.md"
+      flags=(--import-rules personal.md)
+    fi
+    ln -s "${destination}" "${repo}/${name}"
+    cp "${repo}/AGENTS.md" "${SANDBOX}/before-agents"
+
+    rc=0
+    seed "${flags[@]}" "${repo}" > /dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    if [[ "${rc}" != "1" || -e "${repo}/${destination}" || -e "${repo}/rules" ]] \
+      || ! grep -Fq "${destination} aliases ${name}" "${SANDBOX}/error" \
+      || ! cmp -s "${SANDBOX}/before-agents" "${repo}/AGENTS.md" \
+      || [[ "$(readlink "${repo}/${name}")" != "${destination}" ]] \
+      || [[ "$(git -C "${repo}" rev-parse HEAD)" != "${head}" ]]; then
+      printf 'seed did not protect: %s\n' "${row}" >&2
+      failed=1
+    fi
+    if [[ "${mode}" == amend ]]; then
+      cmp -s "${SANDBOX}/before-docs" "${repo}/docs/README.md" || failed=1
+    elif [[ -e "${repo}/docs" ]]; then
+      failed=1
+    fi
+  done
+  return "${failed}"
+}
+
 test_creates_agents_md_when_missing() {
   new_repo
   rm "${SANDBOX}/example-project/AGENTS.md"
@@ -479,6 +526,7 @@ readonly TESTS=(
   test_rejects_an_agents_hardlink_to_claude_before_seeding
   test_rejects_an_overlay_symlink_to_claude_before_seeding
   test_rejects_an_overlay_symlink_to_agents_before_seeding
+  test_seeding_rejects_dangling_instruction_aliases_before_writing
   test_creates_agents_md_when_missing
   test_rejects_missing_directory
   test_rejects_unwritable_repo

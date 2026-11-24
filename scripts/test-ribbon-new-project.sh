@@ -788,6 +788,64 @@ test_force_keeps_a_working_overlay_link_outside_the_instance() {
     && grep -Fxq 'custom overlay' "${repo}/herdr-config.md"
 }
 
+test_rule_seeds_and_imports_keep_instruction_aliases_dangling() {
+  local row mode name destination repo instance rc failed=0
+  local -a flags
+  for row in \
+      'install CLAUDE.md rules/testing.md' \
+      'update CLAUDE.md rules/testing.md' \
+      'force CLAUDE.local.md rules/testing.md' \
+      'install CLAUDE.local.md rules/personal.md' \
+      'update CLAUDE.local.md rules/personal.md' \
+      'force CLAUDE.local.md rules/personal.md'; do
+    read -r mode name destination <<< "${row}"
+    new_sandbox
+    repo="${SANDBOX}/repos/example-project"
+    instance="${PROJECTS}/example-project"
+    flags=()
+    if [[ "${mode}" != install ]]; then
+      flags=("--${mode}")
+      mkdir -p "${instance}/docs/tasks"
+      printf 'live work\n' > "${instance}/docs/tasks/live-card.yaml"
+    fi
+    if [[ "${destination}" == rules/personal.md ]]; then
+      mkdir -p "${HOME}/.claude/rules"
+      printf '# Personal rule\n' > "${HOME}/.claude/rules/personal.md"
+      flags+=(--import-rules personal.md)
+    fi
+    ln -s "${destination}" "${repo}/${name}"
+    cp "${repo}/AGENTS.md" "${SANDBOX}/before"
+
+    rc=0
+    install example-project "${repo}" "${flags[@]}" --yes >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    if [[ "${rc}" != "1" || -e "${repo}/rules" || -e "${instance}/docs/README.md" ]] \
+      || ! grep -Fq "would overwrite ${name}" "${SANDBOX}/error" \
+      || ! cmp -s "${SANDBOX}/before" "${repo}/AGENTS.md" \
+      || [[ "$(readlink "${repo}/${name}")" != "${destination}" ]]; then
+      printf 'install did not protect: %s\n' "${row}" >&2
+      failed=1
+    fi
+    if [[ "${mode}" == install ]]; then
+      [[ ! -e "${instance}" ]] || failed=1
+    else
+      grep -Fxq 'live work' "${instance}/docs/tasks/live-card.yaml" || failed=1
+    fi
+  done
+  return "${failed}"
+}
+
+test_install_rejects_an_instruction_link_into_the_new_instance() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  ln -s "${instance}/docs/README.md" "${repo}/CLAUDE.md"
+
+  install example-project "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == "1" && ! -e "${instance}" ]] \
+    && grep -Fq 'CLAUDE.md points inside the instance' "${SANDBOX}/error"
+}
+
 test_force_keeps_legacy_block_without_belt_marks() {
   new_sandbox
   local repo="${SANDBOX}/repos/example-project"
@@ -927,6 +985,8 @@ readonly TESTS=(
   test_update_rejects_an_instruction_hardlink_to_the_managed_hook
   test_force_validates_overlay_destination_before_rebuild
   test_force_keeps_a_working_overlay_link_outside_the_instance
+  test_rule_seeds_and_imports_keep_instruction_aliases_dangling
+  test_install_rejects_an_instruction_link_into_the_new_instance
   test_force_keeps_legacy_block_without_belt_marks
   test_rejects_surplus_positionals
   test_import_rejects_directory_operand
