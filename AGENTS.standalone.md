@@ -24,8 +24,8 @@ this file and nothing more.
 ## The belt
 
 Fill this table in — it is yours, in this local file. Replace every `TODO(belt)`.
-The `ribbon:belt` marks around this section stay: `--update` refreshes the rest of
-this block and keeps exactly what is between them.
+Keep the `ribbon:belt` marks around this section. The installer leaves this whole
+standalone block, including your table, unchanged on `--update` and `--force`.
 
 | Role | Agent | Model | Writes | Never |
 |---|---|---|---|---|

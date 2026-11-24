@@ -7,8 +7,8 @@
 #
 # Copies docs/ into the project, stamps the seed version into
 # docs/README.md, appends the protocol to the project's AGENTS.md (or creates
-# one), copies herdr-config.md beside it, keeps any CLAUDE.md import story
-# intact, seeds rules/ (coding conventions, one theme per file), and commits
+# one), copies herdr-config.md beside it, leaves Claude instruction files
+# untouched, seeds rules/ (coding conventions, one theme per file), and commits
 # everything as "Seed the Ribbon Protocol, ribbon N".
 #
 # An already-seeded project that predates rules/ gets a rules-only amendment
@@ -34,6 +34,7 @@ IMPORT_RULES=()
 AMEND=0
 ASSUME_YES=0
 WRITTEN_PATHS=()
+AGENTS_WRITE_NEEDED=1
 
 #######################################
 # Print an error message to STDERR and exit.
@@ -233,18 +234,53 @@ seed_rules() {
 }
 
 #######################################
-# Append the protocol to the project's AGENTS.md, or create one. The
-# appended copy is wrapped in markers so a later re-seed can find it.
+# Refuse a destination that could change a Claude-owned file. A Claude
+# symlink to a real AGENTS file is the supported direction, not an alias
+# from AGENTS back to Claude.
 # Globals:
-#   RIBBON_HOME, PROJECT_REPO
+#   PROJECT_REPO
+#######################################
+validate_instruction_destination() {
+  local name="$1" destination="${PROJECT_REPO}/$1" claude
+  if [[ -e "${destination}" || -L "${destination}" ]]; then
+    [[ -f "${destination}" ]] || die "not a regular file: ${destination}"
+  fi
+  for claude in CLAUDE.md CLAUDE.local.md; do
+    [[ "${destination}" -ef "${PROJECT_REPO}/${claude}" ]] || continue
+    if [[ "${name}" == AGENTS.md && ! -L "${destination}" && -L "${PROJECT_REPO}/${claude}" ]]; then
+      continue
+    fi
+    die "${name} aliases ${claude}; refusing to write it"
+  done
+}
+
+#######################################
+# Determine which instruction destinations will be written before seeding.
+#######################################
+prepare_instruction_files() {
+  local agents="${PROJECT_REPO}/AGENTS.md"
+  if [[ -f "${agents}" ]]; then
+    [[ -r "${agents}" ]] || die "not readable: ${agents}"
+    if grep -Fq "${START_MARK}" "${agents}"; then
+      AGENTS_WRITE_NEEDED=0
+    else
+      [[ -w "${agents}" ]] || die "not writable: ${agents}"
+    fi
+  fi
+  if (( AGENTS_WRITE_NEEDED == 1 )); then
+    validate_instruction_destination AGENTS.md
+  fi
+  validate_instruction_destination herdr-config.md
+}
+
+#######################################
+# Append the marked protocol to AGENTS.md, or create it when absent.
 #######################################
 wire_agents_md() {
+  (( AGENTS_WRITE_NEEDED == 1 )) || return 0
   if [[ ! -f "${PROJECT_REPO}/AGENTS.md" ]]; then
     cp "${RIBBON_HOME}/AGENTS.md" "${PROJECT_REPO}/AGENTS.md"
     WRITTEN_PATHS+=("AGENTS.md")
-    return
-  fi
-  if grep -q "${START_MARK}" "${PROJECT_REPO}/AGENTS.md"; then
     return
   fi
   {
@@ -266,19 +302,21 @@ wire_herdr() {
 }
 
 #######################################
-# Create CLAUDE.md with the imports, or extend an existing one without
-# overwriting it.
-# Globals:
-#   PROJECT_REPO
+# Warn about existing Claude files without a direct AGENTS import or link.
+# Never create, modify or stage either Claude file.
 #######################################
-wire_claude_md() {
-  if [[ ! -e "${PROJECT_REPO}/CLAUDE.md" ]]; then
-    printf '@AGENTS.md\n@herdr-config.md\n' > "${PROJECT_REPO}/CLAUDE.md"
-    WRITTEN_PATHS+=("CLAUDE.md")
-  elif ! grep -qxF '@herdr-config.md' "${PROJECT_REPO}/CLAUDE.md"; then
-    printf '\n@herdr-config.md\n' >> "${PROJECT_REPO}/CLAUDE.md"
-    WRITTEN_PATHS+=("CLAUDE.md")
-  fi
+warn_unlinked_claude_files() {
+  local suffix agents claude
+  for suffix in .md .local.md; do
+    agents="AGENTS${suffix}"
+    claude="CLAUDE${suffix}"
+    [[ -f "${PROJECT_REPO}/${agents}" && -f "${PROJECT_REPO}/${claude}" ]] || continue
+    if [[ -L "${PROJECT_REPO}/${claude}" && "${PROJECT_REPO}/${claude}" -ef "${PROJECT_REPO}/${agents}" ]] \
+      || grep -Eq "^@(\./)?${agents//./\\.}[[:space:]]*$" "${PROJECT_REPO}/${claude}" 2>/dev/null; then
+      continue
+    fi
+    printf 'warning: %s does not point to %s; left unchanged\n' "${claude}" "${agents}" >&2
+  done
 }
 
 #######################################
@@ -319,7 +357,7 @@ Seeded the Ribbon Protocol (${version}) into ${PROJECT_REPO}:
   rules/          coding conventions, one theme per file
   AGENTS.md       protocol appended (${START_MARK} .. ${END_MARK})
   herdr-config.md the optional Herdr overlay, beside AGENTS.md
-  CLAUDE.md       imports preserved or created
+  Claude files   left unchanged
   git:            ${COMMIT_NOTE}
 
 Next: fill the belt — open AGENTS.md, replace every TODO(belt) with your
@@ -502,16 +540,18 @@ main() {
       || die "every Ribbon theme is already present in ${PROJECT_REPO}; nothing to amend"
     commit_amend
     print_amend_summary
+    warn_unlinked_claude_files
     return
   fi
+  prepare_instruction_files
   seed_docs
   seed_rules
   import_user_rules
   wire_agents_md
   wire_herdr
-  wire_claude_md
   commit_seed
   print_summary
+  warn_unlinked_claude_files
 }
 
 main "$@"

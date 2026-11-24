@@ -151,12 +151,16 @@ The script copies `docs/` (homes, schemas, templates, field guide) and `rules/`
 (coding conventions, one theme per file) into the project,
 stamps the seed version into `docs/README.md`, appends the protocol to the project's
 `AGENTS.md` — creating one when none exists, preserving everything already there —
-copies `herdr-config.md` beside it, keeps any existing `CLAUDE.md` and adds the missing
-`@herdr-config.md` import without overwriting, and commits it all as one
+copies `herdr-config.md` beside it, and commits the seed as one
 `Seed the Ribbon Protocol, ribbon N` commit. It refuses to re-seed; a seeded project
 merges later template changes by hand (see "Versioning"), and one that predates
 `rules/` gets a rules-only amendment instead of a refusal. Point `--ribbon-home` at
 the template when it does not live at `~/ribbon-protocol`.
+
+Neither installer creates or edits `CLAUDE.md` or `CLAUDE.local.md`. After a successful
+install or update, the installer warns when both files in a pair exist but the Claude
+file has no direct AGENTS import or symlink. See the wiring examples below to link them
+yourself.
 
 Then fill the belt (next section), and tell your architect to read `AGENTS.md`,
 `docs/README.md` and `docs/field-guide.md`, in that order. An architect inside Herdr also reads
@@ -181,9 +185,9 @@ mkdir -p ~/ribbon-projects
 # unpack an instance for a project
 ~/ribbon-protocol/scripts/ribbon-new-project --projects ~/ribbon-projects my-project ~/dev/my-project
 
-# when a new "ribbon N" appears: refresh template files, seed version and the
-# AGENTS.md block — your filled-in belt is kept between its marks, live plans,
-# cards and reports are never touched, and the repo path is read from the instance
+# when a new "ribbon N" appears: refresh template files and the seed version
+# without rewriting any agent instructions, live plans, cards or reports.
+# The repo path is read from the instance.
 ~/ribbon-protocol/scripts/ribbon-new-project --update my-project --projects ~/ribbon-projects
 
 # rebuild an instance from scratch (discards its working files)
@@ -209,19 +213,24 @@ a hook it owns, while a hook without its mark or a custom `core.hooksPath` is le
 The linked files belong in the project's `.gitignore`.
 
 This project uses `AGENTS.md`. If you use Claude Code, connect its instruction
-files once per project — either as symlinks:
+files yourself once per project — either as symlinks in this direction:
 
     ln -s AGENTS.md CLAUDE.md
     ln -s AGENTS.local.md CLAUDE.local.md
 
-or as imports: create `CLAUDE.md` with `@AGENTS.md` as its content (add
-`@AGENTS.local.md` on the next line if Claude should read the local block too).
+or as imports: add `@AGENTS.md` to `CLAUDE.md` and, if you use a local file,
+`@AGENTS.local.md` to `CLAUDE.local.md`. Put each import on its own line. If you use
+the Herdr overlay with Claude Code, also add `@herdr-config.md` in the Claude
+instructions. The installers do not make these changes for you.
 
 `--projects` has no default: pass wherever your instances should live. `--force`
 rebuilds an existing instance; when a new `ribbon N` appears, `--update` refreshes an
-instance's template and schema files, seed version and `AGENTS.local.md` block — your
-filled-in belt is kept, and live plans, cards and reports are never touched. Instances
-are personal and unversioned.
+instance's template and schema files and seed version. Both modes append a missing
+standalone block or pointer but leave existing instructions byte-for-byte intact,
+including the filled-in belt. If you relocate an instance or template checkout,
+update the paths in `AGENTS.local.md` by hand. `--force` refuses to rebuild when
+an agent or Claude instruction symlink resolves inside the instance. `--update`
+never touches live plans, cards or reports. Instances are personal and unversioned.
 
 ## Fill the belt 🎗️
 
@@ -287,12 +296,12 @@ by copying it to your own theme file rather than editing it in place.
 `VERSION` holds `ribbon N`. A project writes the version it was seeded from on the first
 line of its `docs/README.md`; both seed scripts stamp it automatically. When a new
 `ribbon N` appears, a standalone instance refreshes with `scripts/ribbon-new-project
---update <name> --projects DIR` — template and schema files, seed version and the
-AGENTS.md block, with the filled-in belt kept; never live plans, cards or reports. A
-full-installed project merges by
-hand: diff your `docs/` against the template's and copy what changed; the protocol text
-in `AGENTS.md` is replaced whole between its markers, and `herdr-config.md` is copied
-beside it again. Preserve an existing project's own `CLAUDE.md` imports.
+--update <name> --projects DIR` — template and schema files and seed version, never
+existing agent instructions, live plans, cards or reports. A full-installed project
+merges by hand: diff your `docs/` against the template's and copy what changed,
+update the Ribbon instructions in `AGENTS.md` without disturbing the project's own
+instructions, and copy `herdr-config.md` beside it. Preserve the project's own
+Claude instructions.
 
 ## The reference guide
 
