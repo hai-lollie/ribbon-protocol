@@ -423,6 +423,36 @@ test_seed_refuses_to_change_a_readme_linked_to_agents() {
     && [[ "${repo}/docs/README.md" -ef "${repo}/AGENTS.md" ]]
 }
 
+test_seed_rejects_nested_project_directory_links_before_appending() {
+  new_repo
+  local repo="${SANDBOX}/example-project" outside="${SANDBOX}/outside" rc=0
+  mkdir "${repo}/docs" "${outside}"
+  ln -s "${outside}" "${repo}/docs/reference"
+  ln -s "${repo}/AGENTS.md" "${outside}/README.md"
+  cp "${outside}/README.md" "${SANDBOX}/before"
+
+  seed "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${repo}/docs/.ribbon-full-install" && ! -e "${repo}/rules" ]] \
+    && grep -Fq 'unsafe project directory link' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${outside}/README.md"
+}
+
+test_seed_keeps_a_link_to_a_missing_docs_directory_dangling() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  mkdir "${repo}/docs"
+  ln -s tasks "${repo}/docs/README.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/before"
+
+  seed "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${repo}/docs/tasks" && ! -e "${repo}/rules" ]] \
+    && grep -Fq 'would change existing project path: docs/README.md' "${SANDBOX}/error" \
+    && [[ "$(readlink "${repo}/docs/README.md")" == tasks ]] \
+    && cmp -s "${SANDBOX}/before" "${repo}/AGENTS.md"
+}
+
 test_seed_detection_does_not_require_a_ribbon_readme() {
   new_repo
   local repo="${SANDBOX}/example-project" head rc=0
@@ -667,6 +697,8 @@ readonly TESTS=(
   test_seeder_merges_into_existing_docs
   test_seed_preserves_existing_docs_readme_byte_for_byte
   test_seed_refuses_to_change_a_readme_linked_to_agents
+  test_seed_rejects_nested_project_directory_links_before_appending
+  test_seed_keeps_a_link_to_a_missing_docs_directory_dangling
   test_seed_detection_does_not_require_a_ribbon_readme
   test_similar_readme_text_does_not_select_legacy_amendment
   test_seed_refuses_an_unrelated_existing_seed_record

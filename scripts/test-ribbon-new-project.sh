@@ -373,6 +373,66 @@ test_force_preserves_a_project_readme_linked_to_live_instance_work() {
     && [[ "$(readlink "${repo}/docs/README.md")" == "${instance}/docs/tasks/live-card.yaml" ]]
 }
 
+test_force_rejects_a_project_directory_link_to_the_instance_parent() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mkdir "${repo}/docs"
+  ln -s "${PROJECTS}" "${repo}/docs/shared"
+  printf 'live work\n' > "${instance}/docs/tasks/live-card.yaml"
+
+  install example-project "${repo}" --force --yes >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsafe project directory link' "${SANDBOX}/error" \
+    && grep -Fxq 'live work' "${repo}/docs/shared/example-project/docs/tasks/live-card.yaml" \
+    && [[ "$(readlink "${repo}/docs/shared")" == "${PROJECTS}" ]]
+}
+
+test_update_rejects_a_linked_project_docs_root() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" outside="${SANDBOX}/outside-docs" rc=0
+  local version="${PROJECTS}/example-project/docs/README.md"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mkdir "${outside}"
+  ln -s "${outside}" "${repo}/docs"
+  ln -s "${version}" "${outside}/README.md"
+  printf 'shared version\n' > "${version}"
+
+  install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsafe project directory link' "${SANDBOX}/error" \
+    && grep -Fxq 'shared version' "${outside}/README.md" \
+    && [[ "$(readlink "${repo}/docs")" == "${outside}" ]]
+}
+
+test_update_keeps_links_to_missing_instance_directories_dangling() {
+  local name repo instance target rc failed=0
+  for name in docs/tasks docs/llm-context/history; do
+    new_sandbox
+    repo="${SANDBOX}/repos/example-project"
+    instance="${PROJECTS}/example-project"
+    install example-project "${repo}" >/dev/null 2>&1 || return 1
+    mkdir "${repo}/docs"
+    target="${instance}/${name}"
+    mv "${target}" "${SANDBOX}/kept-dir"
+    ln -s "${target}" "${repo}/docs/README.md"
+    printf 'instance stamp unchanged\n' > "${instance}/docs/README.md"
+
+    rc=0
+    install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    if [[ "${rc}" != 1 || -e "${target}" || "$(readlink "${repo}/docs/README.md")" != "${target}" ]] \
+      || ! grep -Fq 'would change existing project path: docs/README.md' "${SANDBOX}/error" \
+      || ! grep -Fxq 'instance stamp unchanged' "${instance}/docs/README.md"; then
+      printf 'update populated the linked directory: %s\n' "${name}" >&2
+      failed=1
+    fi
+  done
+  return "${failed}"
+}
+
 test_rerun_keeps_one_block() {
   new_sandbox
   install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
@@ -1062,6 +1122,9 @@ readonly TESTS=(
   test_update_rejects_a_linked_instance_template_before_writing
   test_update_does_not_rewrite_a_project_readme_linked_to_instance
   test_force_preserves_a_project_readme_linked_to_live_instance_work
+  test_force_rejects_a_project_directory_link_to_the_instance_parent
+  test_update_rejects_a_linked_project_docs_root
+  test_update_keeps_links_to_missing_instance_directories_dangling
   test_rerun_keeps_one_block
   test_requires_projects_flag
   test_rejects_missing_projects_dir

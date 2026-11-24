@@ -149,8 +149,10 @@ conventions — to the project. See "Standalone: Ribbon for me" below.
 
 The script adds missing `docs/` (homes, schemas, templates, field guide) and `rules/`
 (coding conventions) files. Existing paths are kept, including symlinks with missing
-targets. The installer refuses linked or non-directory parents and planned writes
-that would also change an existing project doc or rule through a link. An existing
+targets. Both installers refuse directory symlinks in project `docs/` or `rules/`
+instead of following them into another tree. They also refuse unsafe write parents
+and planned writes that would change or populate a linked project doc or rule,
+including when the link's target is not there yet. An existing
 `docs/README.md` is **not edited or appended to**. When the installer creates
 `docs/README.md`, it includes the seed version in that new file.
 The separate `docs/.ribbon-full-install` record identifies the full install whether

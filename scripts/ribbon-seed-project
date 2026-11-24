@@ -176,6 +176,11 @@ collect_existing_project_docs_and_rules() {
     EXISTING_PROJECT_DOCS_AND_RULES+=("${path}")
   done < "${listing}"
   rm -f "${listing}"
+  for path in "${EXISTING_PROJECT_DOCS_AND_RULES[@]}"; do
+    if [[ -L "${path}" && -d "${path}" ]]; then
+      die "unsafe project directory link: ${path}"
+    fi
+  done
 }
 
 validate_existing_project_paths() {
@@ -187,8 +192,7 @@ validate_existing_project_paths() {
         resolved_destination="$(realpath -m -- "${destination}")"
       fi
       target="$(realpath -m -- "${path}")"
-      if [[ "${resolved_destination}" != "${target}" ]] \
-        && ! { [[ -d "${path}" ]] && [[ "${resolved_destination}" == "${target%/}/"* ]]; }; then
+      if [[ "${resolved_destination}" != "${target}" && "${resolved_destination}" != "${target%/}/"* ]]; then
         continue
       fi
     fi
@@ -659,6 +663,9 @@ main() {
     prepare_instruction_files
     prepare_doc_seeds
     prepare_seed_record
+  fi
+  if ! path_present "${PROJECT_REPO}/rules"; then
+    validate_instruction_destination rules
   fi
   visit_rule_seeds validate_instruction_destination
   prepare_user_rule_imports

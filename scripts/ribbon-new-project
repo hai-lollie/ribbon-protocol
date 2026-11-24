@@ -226,6 +226,9 @@ collect_existing_project_docs_and_rules() {
   local -a roots=()
   for name in docs rules; do
     path="${PROJECT_REPO}/${name}"
+    if [[ -L "${path}" && -d "${path}" ]]; then
+      die "unsafe project directory link: ${path}"
+    fi
     if [[ -d "${path}" && ! -L "${path}" ]]; then
       roots+=("${path}")
     elif path_present "${path}"; then
@@ -242,6 +245,11 @@ collect_existing_project_docs_and_rules() {
     EXISTING_PROJECT_DOCS_AND_RULES+=("${path}")
   done < "${listing}"
   rm -f "${listing}"
+  for path in "${EXISTING_PROJECT_DOCS_AND_RULES[@]}"; do
+    if [[ -L "${path}" && -d "${path}" ]]; then
+      die "unsafe project directory link: ${path}"
+    fi
+  done
 }
 
 validate_existing_project_paths() {
@@ -253,8 +261,7 @@ validate_existing_project_paths() {
         resolved_destination="$(realpath -m -- "${destination}")"
       fi
       target="$(realpath -m -- "${path}")"
-      if [[ "${resolved_destination}" != "${target}" ]] \
-        && ! { [[ -d "${path}" ]] && [[ "${resolved_destination}" == "${target%/}/"* ]]; }; then
+      if [[ "${resolved_destination}" != "${target}" && "${resolved_destination}" != "${target%/}/"* ]]; then
         continue
       fi
     fi
@@ -364,6 +371,11 @@ validate_instance_refresh_destination() {
 
 validate_update_instruction_aliases() {
   (( UPDATE == 1 )) || return 0
+  local directory
+  for directory in "${INSTANCE}/docs" "${INSTANCE}/docs/tasks" \
+      "${INSTANCE}/docs/llm-context" "${INSTANCE}/docs/llm-context/history"; do
+    [[ -d "${directory}" ]] || validate_refresh_destination "${directory}"
+  done
   validate_instance_refresh_destination "${INSTANCE}/docs/README.md"
   validate_instance_refresh_destination "${INSTANCE}/project-repo"
   visit_instance_template_refreshes validate_instance_refresh_destination
@@ -941,6 +953,9 @@ main() {
   validate_instance_seed_instruction_links
   prepare_instruction_files
   validate_update_instruction_aliases
+  if ! path_present "${PROJECT_REPO}/rules"; then
+    validate_refresh_destination "${PROJECT_REPO}/rules"
+  fi
   visit_project_rule_copies validate_refresh_destination
   prepare_herdr_destination
   prepare_worktree_hook
