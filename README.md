@@ -191,6 +191,33 @@ When `docs/README.md` is project-owned, the protocol's "The homes" section in
 `AGENTS.md` still lists Ribbon's paths. An architect inside Herdr also reads
 `herdr-config.md` before execution.
 
+## Uninstall a full installation
+
+The uninstall starts with a read-only preview:
+
+```sh
+~/ribbon-protocol/scripts/ribbon-seed-project --uninstall .
+~/ribbon-protocol/scripts/ribbon-seed-project --uninstall --remove-ribbon .
+```
+
+The second command shows the plan and asks `[y/N]`. For a non-interactive
+removal, add `--yes`; `--yes` alone does not turn a preview into a removal.
+No uninstall command stages or commits changes. If a permission error occurs,
+the command stops and reports the affected path and any paths already processed.
+It never elevates privileges or recursively deletes directories.
+
+New full seeds write an ownership receipt at `docs/.ribbon-full-install-receipt`.
+Uninstall checks the receipt and the current contents before removing individually
+recorded, unchanged full-install files or removing an unchanged Ribbon block
+from an existing `AGENTS.md`. It preserves ADRs, diagrams, rules, live plans and
+reports, and project-owned files. Changed paths are left in place and listed at
+the end for manual review. A legacy or incomplete install without a valid
+ownership receipt is not removed automatically. This command does not uninstall
+or create a separate standalone instance.
+
+The receipt is project data, not a signature. Run removal only in a project
+whose contents you trust, and review the preview before confirming.
+
 ## Standalone: Ribbon for me 👩
 
 For a project where you want the guardrails but cannot (or do not want to) check the

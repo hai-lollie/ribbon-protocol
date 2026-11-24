@@ -32,6 +32,7 @@ set -euo pipefail
 readonly START_MARK='<!-- ribbon:full-install:start -->'
 readonly END_MARK='<!-- ribbon:full-install:end -->'
 readonly SEED_RECORD='docs/.ribbon-full-install'
+readonly INSTALL_RECEIPT='docs/.ribbon-full-install-receipt'
 readonly SEED_STAMP_PATTERN='Seeded from the Ribbon Protocol, ribbon [0-9]+\.'
 
 # State set by parse_args and consumed by the pipeline below.
@@ -42,7 +43,11 @@ IMPORT_NOTE=''
 IMPORT_RULES=()
 AMEND=0
 ASSUME_YES=0
+UNINSTALL=0
+REMOVE_RIBBON=0
 WRITTEN_PATHS=()
+OWNED_INSTALL_FILES=()
+AGENTS_BLOCK_DIGEST=''
 AGENTS_WRITE_NEEDED=1
 DOC_SEEDS=()
 SELECTED_RULES=()
@@ -72,6 +77,7 @@ usage() {
 Usage:
   scripts/ribbon-seed-project [--ribbon-home DIR] [--yes] [--import-rules F]... \
       <project-repo-path>
+  scripts/ribbon-seed-project --uninstall [--remove-ribbon] [--yes] <project-repo-path>
 
 The full install: seeds a project repository with the Ribbon Protocol and
 commits it for every collaborator. A project seeded before rules/ existed
@@ -87,7 +93,9 @@ Options:
                      anything is written. Default in a terminal: a
                      multi-select picker offers the files. Non-interactive
                      runs skip with a note and never hang.
-  --yes              Skip the terminal confirmation prompt.
+  --uninstall        Preview removal of a recorded full install; no writes by default.
+  --remove-ribbon    Apply the uninstall plan after confirmation; requires --uninstall.
+  --yes              Skip confirmation; required for non-interactive removal.
   -h, --help         Show this help and exit.
 
 Examples:
@@ -133,6 +141,8 @@ parse_args() {
     case "$1" in
       --ribbon-home) shift; ribbon_home_override="${1:-}"; shift ;;
       --yes) ASSUME_YES=1; shift ;;
+      --uninstall) UNINSTALL=1; shift ;;
+      --remove-ribbon) REMOVE_RIBBON=1; shift ;;
       --import-rules)
         shift
         [[ $# -gt 0 && -n "$1" && "$1" != --* ]] \
@@ -154,6 +164,25 @@ parse_args() {
 
 path_present() {
   [[ -e "$1" || -L "$1" ]]
+}
+
+file_digest() {
+  local checksum
+  checksum="$(sha256sum)" || return 1
+  printf '%s\n' "${checksum%% *}"
+}
+
+record_owned_doc() {
+  local rel="$1" name="${1##*/}"
+  case "${rel}" in
+    docs/README.md|docs/field-guide.md|docs/tasks/README.md|docs/llm-context/README.md)
+      OWNED_INSTALL_FILES+=("${rel}") ;;
+    *)
+      if [[ "${rel%/*}" == docs/tasks && "${name}" == _template.* ]] \
+        || [[ "${rel%/*}" == docs/llm-context && "${name}" == _*.md ]]; then
+        OWNED_INSTALL_FILES+=("${rel}")
+      fi ;;
+  esac
 }
 
 # A planned write may use only real project directories, never a link or
@@ -342,7 +371,7 @@ prepare_doc_seeds() {
   fi
   while IFS= read -r -d '' f; do
     rel="${f#"${RIBBON_HOME}"/}"
-    [[ "${rel}" != "${SEED_RECORD}" ]] || continue
+    [[ "${rel}" != "${SEED_RECORD}" && "${rel}" != "${INSTALL_RECEIPT}" ]] || continue
     DOC_SEEDS+=("${rel}")
   done < "${raw_list}"
   rm -f "${raw_list}"
@@ -366,6 +395,7 @@ seed_docs() {
       cp "${RIBBON_HOME}/${rel}" "${destination}"
     fi
     WRITTEN_PATHS+=("${rel}")
+    record_owned_doc "${rel}"
   done
 }
 
@@ -373,13 +403,232 @@ write_seed_record() {
   mkdir -p "${PROJECT_REPO}/docs"
   (set -o noclobber; printf 'Seeded from the Ribbon Protocol, %s.\n' "${SEED_VERSION}" > "${PROJECT_REPO}/${SEED_RECORD}")
   WRITTEN_PATHS+=("${SEED_RECORD}")
+  OWNED_INSTALL_FILES+=("${SEED_RECORD}")
 }
 
 prepare_seed_record() {
-  validate_instruction_destination "${SEED_RECORD}"
-  if git -C "${PROJECT_REPO}" check-ignore -q -- "${SEED_RECORD}" 2>/dev/null; then
-    die "seed record is ignored by Git: ${SEED_RECORD}; allow it before installing"
-  fi
+  local rel
+  for rel in "${SEED_RECORD}" "${INSTALL_RECEIPT}"; do
+    if path_present "${PROJECT_REPO}/${rel}"; then
+      die "reserved install metadata already exists: ${rel}"
+    fi
+    validate_instruction_destination "${rel}"
+    if git -C "${PROJECT_REPO}" check-ignore -q -- "${rel}" 2>/dev/null; then
+      die "seed record is ignored by Git: ${rel}; allow it before installing"
+    fi
+  done
+}
+
+write_install_receipt() {
+  local rel digest
+  (
+    set -o noclobber
+    {
+      printf 'ribbon-full-install-receipt-v1\0'
+      for rel in "${OWNED_INSTALL_FILES[@]}"; do
+        digest="$(file_digest < "${PROJECT_REPO}/${rel}")"
+        printf 'file\0%s\0%s\0' "${rel}" "${digest}"
+      done
+      if [[ -n "${AGENTS_BLOCK_DIGEST}" ]]; then
+        printf 'block\0AGENTS.md\0%s\0' "${AGENTS_BLOCK_DIGEST}"
+      fi
+    } > "${PROJECT_REPO}/${INSTALL_RECEIPT}"
+  )
+  WRITTEN_PATHS+=("${INSTALL_RECEIPT}")
+}
+
+uninstall_full_install() {
+  [[ -n "${PROJECT_REPO}" && -d "${PROJECT_REPO}" ]] || die "uninstall requires an existing project directory"
+  PROJECT_REPO="$(realpath "${PROJECT_REPO}")"
+  [[ "${PROJECT_REPO}" != / && "${PROJECT_REPO}" != "$(realpath "${HOME}")" \
+    && "${PROJECT_REPO}" != "$(realpath -m "${RIBBON_HOME}")" ]] \
+    || die "refusing to uninstall from the filesystem root, home, or template repository"
+  python3 -c "$(cat <<'PY'
+from contextlib import contextmanager
+import errno
+import hashlib
+import os
+from pathlib import Path, PurePosixPath
+import re
+import secrets
+import stat
+import sys
+
+root = Path(sys.argv[1])
+receipt, marker, start, end = sys.argv[2:6]
+apply, yes = (flag == "1" for flag in sys.argv[6:8])
+start = b"\n" + start.encode() + b"\n"
+end = end.encode() + b"\n"
+
+def refuse(message):
+    raise SystemExit(f"ribbon-seed-project: {message}")
+
+def permitted(name):
+    path = PurePosixPath(name)
+    if path.as_posix() != name or path.is_absolute() or ".." in path.parts:
+        return False
+    return name in {"AGENTS.md", "herdr-config.md", marker, "docs/README.md",
+                    "docs/field-guide.md", "docs/tasks/README.md", "docs/llm-context/README.md"} or (
+        (str(path.parent) == "docs/tasks" and path.name.startswith("_template.")) or
+        (str(path.parent) == "docs/llm-context" and path.name.startswith("_") and path.suffix == ".md")
+    )
+
+@contextmanager
+def bound_parent(name):
+    fd = os.dup(root_fd)
+    parts = PurePosixPath(name).parts
+    try:
+        for component in parts[:-1]:
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd, parts[-1]
+    finally:
+        os.close(fd)
+
+def snapshot_at(fd, leaf, name):
+    before = os.stat(leaf, dir_fd=fd, follow_symlinks=False)
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        return None, None
+    with os.fdopen(os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd), "rb") as stream:
+        current = os.fstat(stream.fileno())
+        if not same_inode(current, before) or current.st_nlink != 1:
+            raise OSError(f"path changed during uninstall: {name}")
+        return before, stream.read()
+
+def snapshot(name):
+    try:
+        with bound_parent(name) as (fd, leaf):
+            return snapshot_at(fd, leaf, name)
+    except FileNotFoundError:
+        return None, b""
+    except PermissionError as error:
+        raise PermissionError(error.errno, error.strerror, name) from error
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            return None, None
+        raise
+
+def same_inode(first, second):
+    return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+def replace_block(fd, leaf, replacement, mode):
+    temporary = ".ribbon-agents-" + secrets.token_hex(12)
+    temp_fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=fd)
+    try:
+        with os.fdopen(temp_fd, "wb") as stream:
+            stream.write(replacement)
+            os.fchmod(stream.fileno(), stat.S_IMODE(mode))
+        os.replace(temporary, leaf, src_dir_fd=fd, dst_dir_fd=fd)
+        temporary = None
+    finally:
+        if temporary is not None:
+            os.unlink(temporary, dir_fd=fd)
+
+def display(name):
+    return name if name.isprintable() else repr(name)
+
+def unchanged_block(data):
+    if data.count(start) != 1 or data.count(end) != 1:
+        return None, None
+    lo = data.index(start)
+    hi = data.index(end) + len(end)
+    if hi <= lo:
+        return None, None
+    return data[lo:hi], data[:lo] + data[hi:]
+
+def report_changed(changed):
+    if changed:
+        print("Review changed files manually; these were left in place:")
+        for name in changed:
+            print(f"  {display(name)}")
+
+def uninstall():
+    receipt_stat, proof = snapshot(receipt)
+    if receipt_stat is None:
+        refuse("no safe full-install ownership receipt; nothing removed")
+    fields = proof.split(b"\0")
+    if fields[0] != b"ribbon-full-install-receipt-v1" or fields[-1] != b"" or len(fields[1:-1]) % 3:
+        refuse("invalid full-install ownership receipt; nothing removed")
+    plan, changed, seen = [], [], set()
+    for idx in range(1, len(fields) - 1, 3):
+        kind, raw_path, digest = fields[idx:idx + 3]
+        name = os.fsdecode(raw_path)
+        if (name in seen or not permitted(name) or kind not in (b"file", b"block")
+                or (kind == b"block" and name != "AGENTS.md")
+                or not re.fullmatch(b"[0-9a-f]{64}", digest)):
+            refuse("invalid ownership entry in full-install receipt; nothing removed")
+        seen.add(name)
+        info, content = snapshot(name)
+        if info is None:
+            if content is None:
+                changed.append(name)
+            continue
+        owned, remaining = unchanged_block(content) if kind == b"block" else (content, None)
+        if owned is None or hashlib.sha256(owned).hexdigest().encode() != digest:
+            changed.append(name)
+        else:
+            plan.append((name, info, content, remaining))
+    if marker not in seen:
+        refuse("incomplete full-install ownership receipt; nothing removed")
+    plan.append((receipt, receipt_stat, proof, None))
+    print("Would remove Ribbon-owned paths or blocks:")
+    for name, _, _, replacement in plan:
+        print(f"  {display(name)}" + (" (Ribbon block only)" if replacement is not None else ""))
+    if not apply:
+        print("Dry run only; use --uninstall --remove-ribbon to apply.")
+    elif not yes:
+        if not sys.stdin.isatty():
+            refuse("non-interactive removal requires --yes; nothing removed")
+        sys.stdout.flush()
+        print("Remove these Ribbon files and blocks? [y/N] ", end="", file=sys.stderr, flush=True)
+        if input().strip().lower() not in ("y", "yes"):
+            print("Uninstall declined; nothing removed.")
+            return
+    if apply:
+        for name, _, _, replacement in plan:
+            path = root / name
+            if not os.access(path.parent, os.W_OK | os.X_OK) or (
+                    replacement is not None and not os.access(path, os.W_OK)):
+                report_changed(changed)
+                refuse(f"permission denied: {name}; nothing removed")
+        for name, original, content, _ in plan:
+            now, current = snapshot(name)
+            if now is None or not same_inode(original, now) or current != content:
+                refuse(f"path changed since preview: {name}; nothing removed")
+        completed = []
+        for name, original, content, replacement in plan:
+            try:
+                with bound_parent(name) as (fd, leaf):
+                    now, current = snapshot_at(fd, leaf, name)
+                    if now is None or not same_inode(original, now) or current != content:
+                        raise OSError("path changed since preview")
+                    if replacement is None:
+                        os.unlink(leaf, dir_fd=fd)
+                    else:
+                        replace_block(fd, leaf, replacement, now.st_mode)
+                completed.append(name)
+            except OSError as error:
+                if completed:
+                    print("Completed before uninstall stopped:", file=sys.stderr)
+                    for path in completed:
+                        print(f"  {display(path)}", file=sys.stderr)
+                report_changed(changed)
+                refuse(f"uninstall stopped at {display(name)}: {error}")
+        print("Full-install removal complete. No Git changes were staged.")
+    report_changed(changed)
+
+try:
+    root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        uninstall()
+    finally:
+        os.close(root_fd)
+except (OSError, EOFError) as error:
+    refuse(f"uninstall stopped: {error}")
+PY
+)" "${PROJECT_REPO}" "${INSTALL_RECEIPT}" "${SEED_RECORD}" "${START_MARK}" "${END_MARK}" \
+    "${REMOVE_RIBBON}" "${ASSUME_YES}"
 }
 
 #######################################
@@ -460,18 +709,22 @@ prepare_instruction_files() {
 #######################################
 # Append the marked protocol to AGENTS.md, or create it when absent.
 #######################################
+full_instruction_block() {
+  printf '\n%s\n' "${START_MARK}"
+  cat "${RIBBON_HOME}/AGENTS.md"
+  printf '%s\n' "${END_MARK}"
+}
+
 wire_agents_md() {
   (( AGENTS_WRITE_NEEDED == 1 )) || return 0
   if [[ ! -f "${PROJECT_REPO}/AGENTS.md" ]]; then
     cp "${RIBBON_HOME}/AGENTS.md" "${PROJECT_REPO}/AGENTS.md"
     WRITTEN_PATHS+=("AGENTS.md")
+    OWNED_INSTALL_FILES+=("AGENTS.md")
     return
   fi
-  {
-    printf '\n%s\n' "${START_MARK}"
-    cat "${RIBBON_HOME}/AGENTS.md"
-    printf '%s\n' "${END_MARK}"
-  } >> "${PROJECT_REPO}/AGENTS.md"
+  AGENTS_BLOCK_DIGEST="$(full_instruction_block | file_digest)"
+  full_instruction_block >> "${PROJECT_REPO}/AGENTS.md"
   WRITTEN_PATHS+=("AGENTS.md")
 }
 
@@ -481,6 +734,9 @@ wire_agents_md() {
 #   RIBBON_HOME, PROJECT_REPO
 #######################################
 wire_herdr() {
+  if ! path_present "${PROJECT_REPO}/herdr-config.md"; then
+    OWNED_INSTALL_FILES+=("herdr-config.md")
+  fi
   cp "${RIBBON_HOME}/herdr-config.md" "${PROJECT_REPO}/herdr-config.md"
   WRITTEN_PATHS+=("herdr-config.md")
 }
@@ -540,6 +796,7 @@ Seeded the Ribbon Protocol (${version}) into ${PROJECT_REPO}:
   docs/           missing homes, schemas, templates and field guide added
   rules/          missing coding conventions added; existing paths kept
   seed record     ${SEED_RECORD}
+  uninstall proof ${INSTALL_RECEIPT}
   AGENTS.md       protocol appended (${START_MARK} .. ${END_MARK})
   herdr-config.md the optional Herdr overlay, beside AGENTS.md
   Claude files   left unchanged
@@ -722,6 +979,12 @@ EOF
 main() {
   parse_args "$@"
   find_gnu_realpath
+  if (( UNINSTALL == 1 )); then
+    [[ "${#IMPORT_RULES[@]}" -eq 0 ]] || die "--import-rules cannot be used with --uninstall"
+    uninstall_full_install
+    return
+  fi
+  (( REMOVE_RIBBON == 0 )) || die "--remove-ribbon requires --uninstall"
   validate_import_rules
   resolve_repo
   SEED_VERSION="$(head -1 "${RIBBON_HOME}/VERSION")"
@@ -754,6 +1017,7 @@ main() {
   wire_agents_md
   wire_herdr
   write_seed_record
+  write_install_receipt
   commit_seed
   print_summary
   warn_unlinked_claude_files
