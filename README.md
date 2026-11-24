@@ -228,9 +228,11 @@ rebuilds an existing instance; when a new `ribbon N` appears, `--update` refresh
 instance's template and schema files and seed version. Both modes append a missing
 standalone block or pointer but leave existing instructions byte-for-byte intact,
 including the filled-in belt. If you relocate an instance or template checkout,
-update the paths in `AGENTS.local.md` by hand. `--force` refuses to rebuild when
-an agent or Claude instruction symlink resolves inside the instance. `--update`
-never touches live plans, cards or reports. Instances are personal and unversioned.
+update the paths in `AGENTS.local.md` by hand. Before writing, an update refuses
+to refresh a file that also serves as an agent or Claude instruction file. Before
+`--force` deletes the old instance, it rejects broken overlay destinations and
+instruction or overlay symlinks that depend on the instance. `--update` never
+touches live plans, cards or reports. Instances are personal and unversioned.
 
 ## Fill the belt 🎗️
 

@@ -677,6 +677,117 @@ test_force_refuses_to_rebuild_an_instance_holding_project_instructions() {
   done
 }
 
+test_update_rejects_instruction_aliases_of_refresh_destinations() {
+  local row name directory destination kind repo rc failed=0
+  for row in \
+      'CLAUDE.md instance docs/README.md symlink' \
+      'CLAUDE.local.md instance docs/tasks/_template.task.yaml hardlink' \
+      'AGENTS.local.md instance project-repo hardlink' \
+      'AGENTS.md repo rules/testing.md hardlink'; do
+    read -r name directory destination kind <<< "${row}"
+    new_sandbox
+    repo="${SANDBOX}/repos/example-project"
+    install example-project "${repo}" >/dev/null 2>&1 || return 1
+    if [[ "${directory}" == instance ]]; then
+      destination="${PROJECTS}/example-project/${destination}"
+    else
+      destination="${repo}/${destination}"
+    fi
+    printf '# Protected instructions\r\nDo not rewrite' > "${SANDBOX}/before"
+    cp "${SANDBOX}/before" "${destination}"
+    if [[ "${kind}" == symlink ]]; then
+      ln -sf "${destination}" "${repo}/${name}"
+    else
+      ln -f "${destination}" "${repo}/${name}"
+    fi
+    printf 'original version\n' > "${SANDBOX}/version"
+    if [[ "${destination}" != "${PROJECTS}/example-project/docs/README.md" ]]; then
+      cp "${SANDBOX}/version" "${PROJECTS}/example-project/docs/README.md"
+    fi
+    cp "${PROJECTS}/example-project/docs/README.md" "${SANDBOX}/instance-readme"
+
+    rc=0
+    install example-project "${repo}" --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    if [[ "${rc}" != "1" ]] \
+      || ! grep -Fq "would overwrite ${name}" "${SANDBOX}/error" \
+      || ! cmp -s "${SANDBOX}/before" "${repo}/${name}" \
+      || ! cmp -s "${SANDBOX}/instance-readme" "${PROJECTS}/example-project/docs/README.md"; then
+      printf 'update did not protect: %s\n' "${row}" >&2
+      failed=1
+    fi
+  done
+  return "${failed}"
+}
+
+test_update_rejects_an_instruction_hardlink_to_the_managed_hook() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  git -C "${repo}" init -q
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  local hook="${repo}/.git/hooks/post-checkout"
+  printf '\n# Protected instructions\n' >> "${hook}"
+  ln "${hook}" "${repo}/CLAUDE.md"
+  cp "${hook}" "${SANDBOX}/before"
+  printf 'original version\n' > "${PROJECTS}/example-project/docs/README.md"
+
+  install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == "1" ]] \
+    && grep -Fq 'would overwrite CLAUDE.md' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${repo}/CLAUDE.md" \
+    && grep -Fxq 'original version' "${PROJECTS}/example-project/docs/README.md"
+}
+
+test_force_validates_overlay_destination_before_rebuild() {
+  local kind repo instance target rc failed=0
+  for kind in dangling inside via-instance; do
+    new_sandbox
+    repo="${SANDBOX}/repos/example-project"
+    instance="${PROJECTS}/example-project"
+    install example-project "${repo}" >/dev/null 2>&1 || return 1
+    if [[ "${kind}" == dangling ]]; then
+      target="${repo}/missing-overlay"
+    elif [[ "${kind}" == inside ]]; then
+      target="${instance}/custom-overlay"
+      printf 'custom overlay\n' > "${target}"
+    else
+      target="${instance}/overlay-link"
+      printf 'custom overlay outside the instance\n' > "${repo}/kept-overlay"
+      ln -s "${repo}/kept-overlay" "${target}"
+    fi
+    ln -sf "${target}" "${repo}/herdr-config.md"
+    printf 'live work\n' > "${instance}/docs/tasks/live-card.yaml"
+
+    rc=0
+    install example-project "${repo}" --force --yes >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+    if [[ "${rc}" != "1" ]] \
+      || ! grep -Fq 'herdr-config.md' "${SANDBOX}/error" \
+      || ! grep -Fxq 'live work' "${instance}/docs/tasks/live-card.yaml" \
+      || [[ "$(readlink "${repo}/herdr-config.md")" != "${target}" ]]; then
+      printf 'rebuild did not refuse the %s overlay link before deletion\n' "${kind}" >&2
+      failed=1
+    fi
+  done
+  return "${failed}"
+}
+
+test_force_keeps_a_working_overlay_link_outside_the_instance() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  local live_card="${PROJECTS}/example-project/docs/tasks/live-card.yaml"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  printf 'custom overlay\n' > "${repo}/shared-overlay.md"
+  ln -sf shared-overlay.md "${repo}/herdr-config.md"
+  printf 'old instance work\n' > "${live_card}"
+
+  install example-project "${repo}" --force --yes >/dev/null 2>&1 || return 1
+
+  [[ ! -e "${live_card}" && "$(readlink "${repo}/herdr-config.md")" == shared-overlay.md ]] \
+    && grep -Fxq 'custom overlay' "${repo}/herdr-config.md"
+}
+
 test_force_keeps_legacy_block_without_belt_marks() {
   new_sandbox
   local repo="${SANDBOX}/repos/example-project"
@@ -812,6 +923,10 @@ readonly TESTS=(
   test_force_rejects_duplicate_blocks_before_rebuild
   test_force_rejects_an_agents_alias_of_claude_before_rebuild
   test_force_refuses_to_rebuild_an_instance_holding_project_instructions
+  test_update_rejects_instruction_aliases_of_refresh_destinations
+  test_update_rejects_an_instruction_hardlink_to_the_managed_hook
+  test_force_validates_overlay_destination_before_rebuild
+  test_force_keeps_a_working_overlay_link_outside_the_instance
   test_force_keeps_legacy_block_without_belt_marks
   test_rejects_surplus_positionals
   test_import_rejects_directory_operand

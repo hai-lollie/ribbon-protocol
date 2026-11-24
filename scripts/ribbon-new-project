@@ -36,11 +36,13 @@ PROJECT_NAME=''
 PROJECT_REPO=''
 INSTANCE=''
 HERDR_NOTE=''
+HERDR_COPY_NEEDED=0
 IMPORT_NOTE=''
 IMPORT_RULES=()
 ASSUME_YES=0
 NEEDS_REBUILD=0
 WORKTREE_NOTE=''
+WORKTREE_HOOK=''
 LOCAL_BLOCK=''
 AGENTS_POINTER_NEEDED=0
 
@@ -207,17 +209,87 @@ rebuild_instance() {
 #######################################
 # A force rebuild may discard instance files, not the project's instructions.
 #######################################
+path_uses_instance() {
+  local path="$1" enters
+  enters="$(python3 - "${INSTANCE}" "${path}" <<'PY'
+from collections import deque
+import os
+from pathlib import Path
+import sys
+
+instance, path = map(Path, sys.argv[1:])
+# The directory entry passed to rm matters, even if that entry is a symlink.
+root = instance.parent.resolve() / instance.name
+parent = Path("/")
+pending = deque(path.absolute().parts[1:])
+links = 0
+while pending:
+    component = pending.popleft()
+    if component == "..":
+        parent = parent.parent
+        continue
+    entry = parent / component
+    if entry == root or root in entry.parents:
+        print("yes")
+        break
+    if not entry.is_symlink():
+        parent = entry
+        continue
+    links += 1
+    if links > 40:
+        sys.exit("too many symlink hops")
+    target = Path(os.readlink(entry))
+    parts = target.parts
+    if target.is_absolute():
+        parent = Path("/")
+        parts = parts[1:]
+    pending.extendleft(reversed(parts))
+else:
+    print("no")
+PY
+)" || die "cannot check where ${path} points"
+  [[ "${enters}" == yes ]]
+}
+
 validate_rebuild_instruction_targets() {
   (( NEEDS_REBUILD == 1 )) || return 0
-  local root name target
-  root="$(realpath -m "${INSTANCE}")"
+  local name
   for name in AGENTS.md AGENTS.local.md CLAUDE.md CLAUDE.local.md; do
     [[ -L "${PROJECT_REPO}/${name}" ]] || continue
-    target="$(realpath -m "${PROJECT_REPO}/${name}")"
-    if [[ "${target}" == "${root}" || "${target}" == "${root}/"* ]]; then
+    if path_uses_instance "${PROJECT_REPO}/${name}"; then
       die "${name} points inside the instance; refusing to rebuild ${INSTANCE}"
     fi
   done
+}
+
+#######################################
+# Compare refresh destinations by identity so neither a symlink nor a
+# hardlink bypasses instruction-file preservation.
+#######################################
+validate_refresh_destination() {
+  local destination="$1" name instruction resolved_destination resolved_instruction
+  for name in AGENTS.md AGENTS.local.md CLAUDE.md CLAUDE.local.md; do
+    instruction="${PROJECT_REPO}/${name}"
+    if [[ "${destination}" -ef "${instruction}" ]]; then
+      die "${destination} would overwrite ${name}; refusing to continue"
+    fi
+    # A link to a not-yet-existing destination has no inode to compare.
+    if [[ -L "${instruction}" && ! -e "${instruction}" ]]; then
+      resolved_destination="$(realpath -m -- "${destination}")"
+      resolved_instruction="$(realpath -m -- "${instruction}")"
+      if [[ "${resolved_instruction}" == "${resolved_destination}" ]]; then
+        die "${destination} would overwrite ${name}; refusing to continue"
+      fi
+    fi
+  done
+}
+
+validate_update_instruction_aliases() {
+  (( UPDATE == 1 )) || return 0
+  validate_refresh_destination "${INSTANCE}/docs/README.md"
+  validate_refresh_destination "${INSTANCE}/project-repo"
+  visit_instance_template_refreshes validate_refresh_destination
+  visit_project_rule_refreshes validate_refresh_destination
 }
 
 #######################################
@@ -414,6 +486,22 @@ confirm_target() {
 # Globals:
 #   UPDATE, RIBBON_HOME, INSTANCE
 #######################################
+visit_instance_template_refreshes() {
+  local visit="$1" template
+  for template in "${RIBBON_HOME}/docs/tasks"/README.md "${RIBBON_HOME}/docs/tasks"/_template.*; do
+    [[ -e "${template}" ]] || continue
+    "${visit}" "${INSTANCE}/docs/tasks/${template##*/}" "${template}"
+  done
+  for template in "${RIBBON_HOME}/docs/llm-context"/README.md "${RIBBON_HOME}/docs/llm-context"/_*.md; do
+    [[ -e "${template}" ]] || continue
+    "${visit}" "${INSTANCE}/docs/llm-context/${template##*/}" "${template}"
+  done
+}
+
+copy_refreshed_file() {
+  cp "$2" "${1%/*}/"
+}
+
 unpack_docs() {
   mkdir -p "${INSTANCE}/docs/tasks" "${INSTANCE}/docs/llm-context/history"
   if (( UPDATE == 0 )); then
@@ -421,13 +509,7 @@ unpack_docs() {
     cp -R "${RIBBON_HOME}/docs/llm-context/." "${INSTANCE}/docs/llm-context/"
     return
   fi
-  local f
-  for f in "${RIBBON_HOME}/docs/tasks"/README.md "${RIBBON_HOME}/docs/tasks"/_template.*; do
-    [[ -e "${f}" ]] && cp "${f}" "${INSTANCE}/docs/tasks/"
-  done
-  for f in "${RIBBON_HOME}/docs/llm-context"/README.md "${RIBBON_HOME}/docs/llm-context"/_*.md; do
-    [[ -e "${f}" ]] && cp "${f}" "${INSTANCE}/docs/llm-context/"
-  done
+  visit_instance_template_refreshes copy_refreshed_file
 }
 
 #######################################
@@ -438,6 +520,16 @@ unpack_docs() {
 # Globals:
 #   UPDATE, RIBBON_HOME, PROJECT_REPO
 #######################################
+visit_project_rule_refreshes() {
+  [[ -f "${PROJECT_REPO}/rules/README.md" ]] || return 0
+  local visit="$1" template destination
+  for template in "${RIBBON_HOME}/rules"/README.md "${RIBBON_HOME}/rules"/testing.md; do
+    destination="${PROJECT_REPO}/rules/${template##*/}"
+    [[ -e "${template}" && -e "${destination}" ]] || continue
+    "${visit}" "${destination}" "${template}"
+  done
+}
+
 seed_rules() {
   mkdir -p "${PROJECT_REPO}/rules"
   if (( UPDATE == 0 )) || [[ ! -f "${PROJECT_REPO}/rules/README.md" ]]; then
@@ -451,12 +543,7 @@ seed_rules() {
     return
   fi
   # Refresh only the themes the project kept; never resurrect a deleted one.
-  local f
-  for f in "${RIBBON_HOME}/rules"/README.md "${RIBBON_HOME}/rules"/testing.md; do
-    if [[ -e "${f}" && -e "${PROJECT_REPO}/rules/$(basename "${f}")" ]]; then
-      cp "${f}" "${PROJECT_REPO}/rules/"
-    fi
-  done
+  visit_project_rule_refreshes copy_refreshed_file
 }
 
 #######################################
@@ -641,28 +728,37 @@ pick_rules() {
 }
 
 #######################################
-# Copy herdr-config.md beside the project AGENTS.md when none is there.
-# Globals:
-#   RIBBON_HOME, PROJECT_REPO, HERDR_NOTE (set)
+# Validate the overlay before a rebuild can remove its target. A regular
+# file or working external symlink is kept; an absent file is seeded.
 #######################################
-wire_herdr() {
+prepare_herdr_destination() {
+  local overlay="${PROJECT_REPO}/herdr-config.md"
   HERDR_NOTE='herdr-config.md already present, left unchanged'
-  if [[ ! -f "${PROJECT_REPO}/herdr-config.md" ]]; then
+  if [[ -e "${overlay}" || -L "${overlay}" ]]; then
+    [[ -f "${overlay}" ]] || die "herdr-config.md is not a regular file or working symlink"
+    if (( NEEDS_REBUILD == 1 )) && [[ -L "${overlay}" ]] && path_uses_instance "${overlay}"; then
+      die "herdr-config.md points inside the instance; refusing to rebuild ${INSTANCE}"
+    fi
+    return 0
+  fi
+  [[ -f "${RIBBON_HOME}/herdr-config.md" && -r "${RIBBON_HOME}/herdr-config.md" ]] \
+    || die "overlay template is missing or unreadable: ${RIBBON_HOME}/herdr-config.md"
+  validate_refresh_destination "${overlay}"
+  HERDR_COPY_NEEDED=1
+}
+
+wire_herdr() {
+  if (( HERDR_COPY_NEEDED == 1 )); then
     cp "${RIBBON_HOME}/herdr-config.md" "${PROJECT_REPO}/herdr-config.md"
     HERDR_NOTE='herdr-config.md copied beside AGENTS.md'
   fi
 }
 
 #######################################
-# Install or refresh the post-checkout hook that links this machine's
-# untracked local files into every new worktree. Skips — with a note saying
-# why — when the project is not a git repository, is not the repository's
-# main worktree, or its hooks directory is custom or unwritable; a hook
-# without the ribbon mark is never touched.
-# Globals:
-#   RIBBON_HOME, PROJECT_REPO, WORKTREE_NOTE (set)
+# Pick the post-checkout destination without writing anything. Foreign
+# hooks and custom hook paths are left alone.
 #######################################
-wire_worktree_links() {
+prepare_worktree_hook() {
   WORKTREE_NOTE='post-checkout hook installed — new worktrees get links to the local files'
   local worktrees
   if ! worktrees="$(git -C "${PROJECT_REPO}" worktree list --porcelain 2>/dev/null)"; then
@@ -685,14 +781,6 @@ wire_worktree_links() {
     WORKTREE_NOTE='core.hooksPath points elsewhere — left as is, post-checkout hook not installed'
     return 0
   fi
-  if [[ ! -d "${hooks_dir}" ]] && ! mkdir -p "${hooks_dir}"; then
-    WORKTREE_NOTE='hooks directory missing and cannot be created — post-checkout hook not installed'
-    return 0
-  fi
-  if [[ ! -w "${hooks_dir}" ]]; then
-    WORKTREE_NOTE='hooks directory not writable — post-checkout hook not installed'
-    return 0
-  fi
   local hook="${hooks_dir}/post-checkout"
   if [[ -e "${hook}" || -L "${hook}" ]]; then
     local mark=''
@@ -703,8 +791,23 @@ wire_worktree_links() {
     fi
     WORKTREE_NOTE='post-checkout hook refreshed from the template'
   fi
-  if ! cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${hook}" 2>/dev/null \
-     || ! chmod 0755 "${hook}" 2>/dev/null; then
+  validate_refresh_destination "${hook}"
+  WORKTREE_HOOK="${hook}"
+}
+
+wire_worktree_links() {
+  [[ -n "${WORKTREE_HOOK}" ]] || return 0
+  local hooks_dir="${WORKTREE_HOOK%/*}"
+  if [[ ! -d "${hooks_dir}" ]] && ! mkdir -p "${hooks_dir}"; then
+    WORKTREE_NOTE='hooks directory missing and cannot be created — post-checkout hook not installed'
+    return 0
+  fi
+  if [[ ! -w "${hooks_dir}" ]]; then
+    WORKTREE_NOTE='hooks directory not writable — post-checkout hook not installed'
+    return 0
+  fi
+  if ! cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${WORKTREE_HOOK}" 2>/dev/null \
+      || ! chmod 0755 "${WORKTREE_HOOK}" 2>/dev/null; then
     WORKTREE_NOTE='post-checkout hook could not be written — left as is'
   fi
 }
@@ -759,6 +862,9 @@ main() {
   resolve_repo
   validate_rebuild_instruction_targets
   prepare_instruction_files
+  validate_update_instruction_aliases
+  prepare_herdr_destination
+  prepare_worktree_hook
   confirm_target
   rebuild_instance
   unpack_docs
