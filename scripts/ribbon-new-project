@@ -47,6 +47,7 @@ LOCAL_BLOCK=''
 AGENTS_POINTER_NEEDED=0
 SELECTED_RULES=()
 EXISTING_PROJECT_DOCS_AND_RULES=()
+GNU_REALPATH=''
 
 #######################################
 # Validate every --import-rules file before any mutating step, so a typo
@@ -252,6 +253,38 @@ collect_existing_project_docs_and_rules() {
   done
 }
 
+#######################################
+# Find GNU realpath, whose -m resolves a path that does not exist yet: the
+# system's realpath on Linux, Homebrew coreutils' grealpath on macOS, whose
+# own realpath has no -m (and none at all before macOS 13).
+# Globals:
+#   GNU_REALPATH (set)
+#######################################
+find_gnu_realpath() {
+  local candidate
+  for candidate in realpath grealpath; do
+    if "${candidate}" -m -- / >/dev/null 2>&1; then
+      GNU_REALPATH="${candidate}"
+      return 0
+    fi
+  done
+  die "needs GNU realpath to resolve paths that do not exist yet; on macOS: brew install coreutils"
+}
+
+#######################################
+# Print the canonical form of a path: every link followed, `.` and `..`
+# folded, and components that do not exist yet kept as written.
+# Globals:
+#   GNU_REALPATH
+# Arguments:
+#   A path.
+# Outputs:
+#   The canonical path on STDOUT.
+#######################################
+canonical_path() {
+  "${GNU_REALPATH}" -m -- "$1"
+}
+
 # Walk the link without dropping missing components canceled by `..`.
 missing_link_component_matches_write() {
   local pending="$1" destination="$2" parent='' component entry target hops=0
@@ -284,9 +317,9 @@ validate_existing_project_paths() {
     if [[ ! "${destination}" -ef "${path}" ]]; then
       [[ -L "${path}" ]] || continue
       if [[ -z "${resolved_destination}" ]]; then
-        resolved_destination="$(realpath -m -- "${destination}")"
+        resolved_destination="$(canonical_path "${destination}")"
       fi
-      target="$(realpath -m -- "${path}")"
+      target="$(canonical_path "${path}")"
       if [[ "${resolved_destination}" != "${target}" && "${resolved_destination}" != "${target%/}/"* ]] \
         && { [[ -e "${path}" ]] || ! missing_link_component_matches_write "${path}" "${resolved_destination}"; }; then
         continue
@@ -379,8 +412,8 @@ validate_refresh_destination() {
     fi
     # A link to a not-yet-existing destination has no inode to compare.
     if [[ -L "${instruction}" && ! -e "${instruction}" ]]; then
-      resolved_destination="$(realpath -m -- "${destination}")"
-      resolved_instruction="$(realpath -m -- "${instruction}")"
+      resolved_destination="$(canonical_path "${destination}")"
+      resolved_instruction="$(canonical_path "${instruction}")"
       if [[ "${resolved_instruction}" == "${resolved_destination}" ]]; then
         die "${destination} would overwrite ${name}; refusing to continue"
       fi
@@ -555,10 +588,10 @@ resolve_repo() {
     [[ -w "${PROJECT_REPO}/AGENTS.local.md" ]] \
       || die "AGENTS.local.md is not writable with your permissions: ${PROJECT_REPO}/AGENTS.local.md"
   fi
-  PROJECT_REPO="$(realpath "${PROJECT_REPO}")"
-  local instance_resolved ribbon_resolved
-  instance_resolved="$(realpath -m "${INSTANCE}")"
-  ribbon_resolved="$(realpath "${RIBBON_HOME}")"
+  PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
+  local instance_resolved ribbon_resolved home_resolved
+  instance_resolved="$(canonical_path "${INSTANCE}")"
+  ribbon_resolved="$(canonical_path "${RIBBON_HOME}")"
   if [[ "${PROJECT_REPO}" == "${instance_resolved}" || "${PROJECT_REPO}" == "${instance_resolved}"/* \
       || "${instance_resolved}" == "${PROJECT_REPO}"/* ]]; then
     die "project repo and instance path overlap: ${PROJECT_REPO} vs ${INSTANCE}"
@@ -568,7 +601,8 @@ resolve_repo() {
       || "${ribbon_resolved}" == "${instance_resolved}"/* ]]; then
     die "refusing to use an instance path that overlaps the template repository: ${INSTANCE}"
   fi
-  [[ "${instance_resolved}" != "$(realpath "${HOME}")" ]] \
+  home_resolved="$(canonical_path "${HOME}")"
+  [[ "${instance_resolved}" != "${home_resolved}" ]] \
     || die "refusing to use your home directory as the instance: ${INSTANCE}"
 }
 
@@ -581,8 +615,8 @@ resolve_repo() {
 #######################################
 confirm_target() {
   local home_resolved ribbon_resolved
-  home_resolved="$(realpath "${HOME}")"
-  ribbon_resolved="$(realpath "${RIBBON_HOME}")"
+  home_resolved="$(canonical_path "${HOME}")"
+  ribbon_resolved="$(canonical_path "${RIBBON_HOME}")"
   [[ "${PROJECT_REPO}" != "${home_resolved}" ]] \
     || die "refusing to install into your home directory: ${PROJECT_REPO}"
   [[ "${PROJECT_REPO}" != "${ribbon_resolved}" ]] \
@@ -970,6 +1004,7 @@ EOF
 main() {
   parse_args "$@"
   validate_flags
+  find_gnu_realpath
   validate_import_rules
   validate_projects_dir
   validate_template
