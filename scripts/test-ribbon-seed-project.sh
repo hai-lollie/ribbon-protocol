@@ -694,6 +694,90 @@ test_commit_excludes_untouched_agent_files() {
     && git -C "${SANDBOX}/example-project" diff --cached --name-only | grep -qx 'CLAUDE.md'
 }
 
+test_uninstall_preview_leaves_installation_unchanged() {
+  new_repo
+  local repo="${SANDBOX}/example-project" head
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  head="$(git -C "${repo}" rev-parse HEAD)"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+
+  seed --uninstall --yes "${repo}" </dev/null > "${SANDBOX}/preview" 2>&1 || return 1
+
+  grep -Fq 'docs/tasks/_template.plan.yaml' "${SANDBOX}/preview" \
+    && [[ -f "${repo}/docs/tasks/_template.plan.yaml" && -f "${repo}/docs/.ribbon-full-install" ]] \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md" \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]] \
+    && [[ -z "$(git -C "${repo}" status --porcelain)" ]]
+}
+
+test_uninstall_without_terminal_requires_explicit_yes() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+
+  seed --uninstall --remove-ribbon "${repo}" </dev/null > "${SANDBOX}/error" 2>&1 || rc=$?
+
+  [[ "${rc}" != 0 && -f "${repo}/docs/tasks/_template.plan.yaml" && -f "${repo}/docs/.ribbon-full-install" ]] \
+    && grep -Fq -- '--yes' "${SANDBOX}/error" \
+    && [[ -z "$(git -C "${repo}" status --porcelain)" ]]
+}
+
+test_uninstall_removes_only_unchanged_owned_full_install_content() {
+  new_repo
+  local repo="${SANDBOX}/example-project" head
+  mkdir "${repo}/docs"
+  printf '# Project README\r\nNo trailing newline' > "${repo}/docs/README.md"
+  cp "${repo}/docs/README.md" "${SANDBOX}/readme-before"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  head="$(git -C "${repo}" rev-parse HEAD)"
+  printf 'changed template bytes\r\n' > "${repo}/docs/tasks/_template.plan.yaml"
+  printf '# Live plan\n' > "${repo}/docs/tasks/live.plan.yaml"
+
+  seed --uninstall --remove-ribbon --yes "${repo}" </dev/null > "${SANDBOX}/output" 2>&1 || return 1
+
+  [[ ! -e "${repo}/docs/tasks/_template.task.yaml" && ! -e "${repo}/docs/.ribbon-full-install" ]] \
+    && [[ -f "${repo}/docs/adrs/_template.md" && -f "${repo}/docs/diagrams/README.md" && -f "${repo}/rules/testing.md" ]] \
+    && grep -Fq 'changed template bytes' "${repo}/docs/tasks/_template.plan.yaml" \
+    && grep -Fxq '# Live plan' "${repo}/docs/tasks/live.plan.yaml" \
+    && cmp -s "${SANDBOX}/readme-before" "${repo}/docs/README.md" \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md" \
+    && grep -Fq 'Review changed files manually' "${SANDBOX}/output" \
+    && grep -Fq 'docs/tasks/_template.plan.yaml' "${SANDBOX}/output" \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]] \
+    && [[ -z "$(git -C "${repo}" diff --cached --name-only)" ]]
+}
+
+test_uninstall_refuses_unproven_ownership() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  mkdir -p "${repo}/docs/tasks"
+  printf 'Seeded from the Ribbon Protocol, ribbon 1.\n' > "${repo}/docs/.ribbon-full-install"
+  printf '# Keep this file\n' > "${repo}/docs/tasks/_template.plan.yaml"
+
+  seed --uninstall --remove-ribbon --yes "${repo}" </dev/null > "${SANDBOX}/error" 2>&1 || rc=$?
+
+  [[ "${rc}" != 0 && -f "${repo}/docs/.ribbon-full-install" ]] \
+    && grep -Fq 'ownership' "${SANDBOX}/error" \
+    && grep -Fxq '# Keep this file' "${repo}/docs/tasks/_template.plan.yaml"
+}
+
+test_uninstall_stops_before_removal_when_a_parent_is_not_writable() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  chmod u-w "${repo}/docs/tasks"
+
+  seed --uninstall --remove-ribbon --yes "${repo}" </dev/null > "${SANDBOX}/error" 2>&1 || rc=$?
+
+  chmod u+w "${repo}/docs/tasks"
+  [[ "${rc}" != 0 && -f "${repo}/docs/.ribbon-full-install" && -f "${repo}/docs/tasks/_template.task.yaml" ]] \
+    && grep -Fiq 'permission' "${SANDBOX}/error" \
+    && grep -Fq 'docs/tasks' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md"
+}
+
 readonly TESTS=(
   test_seeder_exists
   test_seeds_docs
@@ -746,6 +830,11 @@ readonly TESTS=(
   test_import_rules_rejects_paths
   test_seed_docs_enumeration_failure_aborts
   test_commit_excludes_untouched_agent_files
+  test_uninstall_preview_leaves_installation_unchanged
+  test_uninstall_without_terminal_requires_explicit_yes
+  test_uninstall_removes_only_unchanged_owned_full_install_content
+  test_uninstall_refuses_unproven_ownership
+  test_uninstall_stops_before_removal_when_a_parent_is_not_writable
 )
 
 main() {
