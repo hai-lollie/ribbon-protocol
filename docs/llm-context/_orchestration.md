@@ -83,6 +83,15 @@ evidence only.
 A settled state alone is never a card pass. Link the card's report and commit as completion
 evidence. Monitor reviewers as well as coders.
 
+## Cleanup requests
+
+| Reporting agent and report | Path left in place | Why removal is wanted | Blocks the assignment? | Architect decision and approval evidence, if required |
+|---|---|---|---|---|
+| <agent and report or helper response> | <absolute path> | <reason> | <yes/no> | <kept, deferred or cleanup performed by architect> |
+
+Agents other than the architect leave files in place, even in scratch roots. The architect
+records and decides on the requests; this table does not itself authorize removal.
+
 ## Questions and timed-out decisions
 
 | Question | Tool message/session | Asked | 45-minute deadline and timer evidence | Recommended default | Answer or timeout action | Decision-log entry |
