@@ -16,6 +16,7 @@ SANDBOX=''
 PROJECTS=''
 MACOS_BIN=''
 COREUTILS_BIN=''
+HOST_GNU_REALPATH=''
 
 #######################################
 # Record a test result (TAP, one line per test).
@@ -54,20 +55,37 @@ finish() {
 trap finish EXIT
 
 #######################################
+# Find the host's GNU realpath, which both stand-ins resolve with: realpath
+# on Linux, grealpath on a Mac with Homebrew coreutils.
+# Globals:
+#   HOST_GNU_REALPATH (set)
+#######################################
+find_host_gnu_realpath() {
+  local candidate
+  for candidate in realpath grealpath; do
+    if "${candidate}" -m -- / >/dev/null 2>&1; then
+      HOST_GNU_REALPATH="$(command -v "${candidate}")"
+      return 0
+    fi
+  done
+  printf 'needs GNU realpath on the host; on macOS: brew install coreutils\n' >&2
+  return 1
+}
+
+#######################################
 # Put stand-ins for a stock Mac's tools in a fresh directory. Its realpath is
 # BSD's: it takes only -q, rejects every other option with BSD's message and
-# fails on a path that does not exist (the host's realpath -e resolves). Its
-# grealpath is missing, since Homebrew's coreutils is not installed.
+# fails on a path that does not exist (the host's GNU realpath -e resolves).
+# Its grealpath is missing, since Homebrew's coreutils is not installed.
 # Globals:
+#   HOST_GNU_REALPATH
 #   MACOS_BIN (set)
 #######################################
 make_stock_macos() {
-  local gnu_realpath
-  gnu_realpath="$(command -v realpath)"
   MACOS_BIN="$(mktemp -d)"
   {
     printf '#!/usr/bin/env bash\n'
-    printf 'gnu_realpath=%q\n' "${gnu_realpath}"
+    printf 'gnu_realpath=%q\n' "${HOST_GNU_REALPATH}"
     cat <<'EOF'
 quiet=0
 while getopts ':q' flag; do
@@ -102,11 +120,12 @@ EOF
 # Put Homebrew coreutils' grealpath, which is GNU realpath, in a fresh
 # directory.
 # Globals:
+#   HOST_GNU_REALPATH
 #   COREUTILS_BIN (set)
 #######################################
 make_homebrew_coreutils() {
   COREUTILS_BIN="$(mktemp -d)"
-  printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$(command -v realpath)" > "${COREUTILS_BIN}/grealpath"
+  printf '#!/usr/bin/env bash\nexec %q "$@"\n' "${HOST_GNU_REALPATH}" > "${COREUTILS_BIN}/grealpath"
   chmod +x "${COREUTILS_BIN}/grealpath"
 }
 
@@ -1315,6 +1334,7 @@ run_suite() {
 # coreutils, so no guard depends on GNU realpath being named realpath.
 #######################################
 main() {
+  find_host_gnu_realpath || return 1
   make_stock_macos
   make_homebrew_coreutils
   run_suite ''
