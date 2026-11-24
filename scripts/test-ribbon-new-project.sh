@@ -201,10 +201,8 @@ test_update_does_not_resurrect_deleted_theme() {
   new_sandbox
   install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
   rm "${SANDBOX}/repos/example-project/rules/testing.md"
-  echo 'corrupted' > "${SANDBOX}/repos/example-project/rules/README.md"
-  install example-project --update >/dev/null 2>&1
-  [[ ! -e "${SANDBOX}/repos/example-project/rules/testing.md" ]] \
-    && grep -q '# Coding rules' "${SANDBOX}/repos/example-project/rules/README.md"
+  install example-project --update >/dev/null 2>&1 || return 1
+  [[ ! -e "${SANDBOX}/repos/example-project/rules/testing.md" ]]
 }
 
 test_import_rules_flag() {
@@ -241,18 +239,68 @@ test_non_interactive_imports_nothing() {
     && [[ ! -f "${SANDBOX}/repos/example-project/rules/one.md" ]]
 }
 
-test_update_refreshes_rules_templates() {
+test_update_preserves_existing_project_rules_byte_for_byte() {
   new_sandbox
-  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
-  echo 'corrupted' > "${SANDBOX}/repos/example-project/rules/testing.md"
-  printf 'project-owned theme\n' > "${SANDBOX}/repos/example-project/rules/clojure.md"
-  install example-project --update >/dev/null 2>&1
-  local rules_now rules_want
-  rules_now="$(head -1 "${SANDBOX}/repos/example-project/rules/testing.md")"
-  rules_want="$(head -1 "${RIBBON_HOME}/rules/testing.md")"
-  [[ "${rules_now}" == "${rules_want}" ]] \
-    && [[ "$(cat "${SANDBOX}/repos/example-project/rules/clojure.md")" \
-          == "project-owned theme" ]]
+  local repo="${SANDBOX}/repos/example-project" name
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  for name in README.md testing.md clojure.md; do
+    printf '# Project-owned %s\r\nNo trailing newline' "${name}" > "${SANDBOX}/${name}"
+    cp "${SANDBOX}/${name}" "${repo}/rules/${name}"
+  done
+
+  install example-project --update >/dev/null 2>&1 || return 1
+
+  for name in README.md testing.md clojure.md; do
+    cmp -s "${SANDBOX}/${name}" "${repo}/rules/${name}" || return 1
+  done
+}
+
+test_update_does_not_write_to_a_rule_linked_to_project_instructions() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  ln -f "${repo}/AGENTS.md" "${repo}/rules/testing.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/before"
+
+  install example-project --update >/dev/null 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.md" \
+    && [[ "${repo}/AGENTS.md" -ef "${repo}/rules/testing.md" ]]
+}
+
+test_install_skips_dangling_project_rule_entries() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" name
+  mkdir -p "${repo}/rules" "${HOME}/.claude/rules"
+  printf 'import candidate\n' > "${HOME}/.claude/rules/personal.md"
+  for name in testing.md personal.md; do
+    ln -s "${SANDBOX}/missing-target" "${repo}/rules/${name}"
+  done
+
+  install example-project "${repo}" --import-rules personal.md >/dev/null 2>&1 || return 1
+
+  for name in testing.md personal.md; do
+    [[ "$(readlink "${repo}/rules/${name}")" == "${SANDBOX}/missing-target" && ! -e "${repo}/rules/${name}" ]] || return 1
+  done
+  [[ -f "${repo}/rules/README.md" ]]
+}
+
+test_force_rejects_linked_project_rules_before_rebuild() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" live_card="${PROJECTS}/example-project/docs/tasks/live-card.yaml" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mv "${repo}/rules" "${SANDBOX}/outside-rules"
+  ln -s "${SANDBOX}/outside-rules" "${repo}/rules"
+  printf 'live work\n' > "${live_card}"
+  mkdir -p "${HOME}/.claude/rules"
+  printf 'new rule\n' > "${HOME}/.claude/rules/new.md"
+
+  install example-project "${repo}" --force --yes --import-rules new.md >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${SANDBOX}/outside-rules/new.md" ]] \
+    && grep -Fq 'unsafe project directory' "${SANDBOX}/error" \
+    && grep -Fxq 'live work' "${live_card}" \
+    && [[ "$(readlink "${repo}/rules")" == "${SANDBOX}/outside-rules" ]]
 }
 
 test_rerun_keeps_one_block() {
@@ -678,21 +726,16 @@ test_force_refuses_to_rebuild_an_instance_holding_project_instructions() {
 }
 
 test_update_rejects_instruction_aliases_of_refresh_destinations() {
-  local row name directory destination kind repo rc failed=0
+  local row name destination kind repo rc failed=0
   for row in \
-      'CLAUDE.md instance docs/README.md symlink' \
-      'CLAUDE.local.md instance docs/tasks/_template.task.yaml hardlink' \
-      'AGENTS.local.md instance project-repo hardlink' \
-      'AGENTS.md repo rules/testing.md hardlink'; do
-    read -r name directory destination kind <<< "${row}"
+      'CLAUDE.md docs/README.md symlink' \
+      'CLAUDE.local.md docs/tasks/_template.task.yaml hardlink' \
+      'AGENTS.local.md project-repo hardlink'; do
+    read -r name destination kind <<< "${row}"
     new_sandbox
     repo="${SANDBOX}/repos/example-project"
     install example-project "${repo}" >/dev/null 2>&1 || return 1
-    if [[ "${directory}" == instance ]]; then
-      destination="${PROJECTS}/example-project/${destination}"
-    else
-      destination="${repo}/${destination}"
-    fi
+    destination="${PROJECTS}/example-project/${destination}"
     printf '# Protected instructions\r\nDo not rewrite' > "${SANDBOX}/before"
     cp "${SANDBOX}/before" "${destination}"
     if [[ "${kind}" == symlink ]]; then
@@ -941,7 +984,10 @@ readonly TESTS=(
   test_import_rules_missing_file_fails
   test_import_rules_preflight_before_any_write
   test_non_interactive_imports_nothing
-  test_update_refreshes_rules_templates
+  test_update_preserves_existing_project_rules_byte_for_byte
+  test_update_does_not_write_to_a_rule_linked_to_project_instructions
+  test_install_skips_dangling_project_rule_entries
+  test_force_rejects_linked_project_rules_before_rebuild
   test_rerun_keeps_one_block
   test_requires_projects_flag
   test_rejects_missing_projects_dir

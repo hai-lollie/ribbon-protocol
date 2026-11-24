@@ -147,11 +147,17 @@ conventions — to the project. See "Standalone: Ribbon for me" below.
 ~/ribbon-protocol/scripts/ribbon-seed-project .
 ```
 
-The script copies `docs/` (homes, schemas, templates, field guide) and `rules/`
-(coding conventions, one theme per file) into the project,
-stamps the seed version into `docs/README.md`, appends the protocol to the project's
-`AGENTS.md` — creating one when none exists, preserving everything already there —
-copies `herdr-config.md` beside it, and commits the seed as one
+The script adds missing `docs/` (homes, schemas, templates, field guide) and `rules/`
+(coding conventions) files. Existing paths are kept, including symlinks with missing
+targets. It refuses to write through a linked directory or a file where it needs a
+directory. An existing `docs/README.md` is **not edited or appended to**. When the
+installer creates `docs/README.md`, it includes the seed version in that new file.
+The separate `docs/.ribbon-full-install` record identifies the full install whether
+or not the project already had a README. That record must not be ignored by Git.
+
+The script also appends the protocol to the project's `AGENTS.md` (creating one when
+none exists), copies `herdr-config.md` beside it, and in a Git repository commits
+the installer-written files as one
 `Seed the Ribbon Protocol, ribbon N` commit. It refuses to re-seed; a seeded project
 merges later template changes by hand (see "Versioning"), and one that predates
 `rules/` gets a rules-only amendment instead of a refusal. Point `--ribbon-home` at
@@ -163,10 +169,11 @@ file has no direct AGENTS import or symlink. See the wiring examples below to li
 yourself. If a planned copy would populate a dangling instruction link, the installer
 stops before writing project or instance files.
 
-Then fill the belt (next section), and tell your architect to read `AGENTS.md`,
-`docs/README.md` and `docs/field-guide.md`, in that order. An architect inside Herdr also reads
-`herdr-config.md` before execution. That is the full context: an architect who has never heard of
-the protocol can start from those files.
+Then fill the belt (next section). Tell your architect to read `AGENTS.md`, the
+Ribbon `docs/README.md` if the installer supplied one, and `docs/field-guide.md`.
+When `docs/README.md` is project-owned, the protocol's "The homes" section in
+`AGENTS.md` still lists Ribbon's paths. An architect inside Herdr also reads
+`herdr-config.md` before execution.
 
 ## Standalone: Ribbon for me 👩
 
@@ -233,7 +240,9 @@ update the paths in `AGENTS.local.md` by hand. Before writing, an update refuses
 to refresh a file that also serves as an agent or Claude instruction file. Before
 `--force` deletes the old instance, it rejects broken overlay destinations and
 instruction or overlay symlinks that depend on the instance. `--update` never
-touches live plans, cards or reports. Instances are personal and unversioned.
+touches live plans, cards or reports. These operations affect the separate
+managed instance; they never replace or delete existing project `docs/` or
+`rules/` entries. Instances are personal and unversioned.
 
 ## Fill the belt 🎗️
 
@@ -286,18 +295,19 @@ project themes are never overwritten. A non-interactive run skips with a note;
 `--import-rules xunit-patterns.md --import-rules clojure-preferences.md` (one file per
 occurrence) does it without a prompt.
 
-The bundled `rules/testing.md` is a theme like any other: `rm rules/testing.md` if
-the project does not want it. `--update` refreshes the themes a project kept and
-never resurrects a deleted one — delete a single theme to retire just that theme;
-delete the whole `rules/` directory (or only its `README.md`) and `--update` seeds
-it again, treating the project as one that predates `rules/`. Ownership is by file
-name: a kept bundled theme is refreshed with the template's content, so customize
-by copying it to your own theme file rather than editing it in place.
+The bundled `rules/testing.md` is a theme like any other: customize it in the
+project or retire it by removing the file and its card references. `--update`
+neither rewrites kept themes nor restores individual deleted ones. If the whole
+`rules/` directory or its `README.md` is missing, `--update` treats the project as
+one that predates the bundled rules and adds missing files without changing
+existing ones. Bring later template revisions into project rules by hand.
 
 ## Versioning
 
-`VERSION` holds `ribbon N`. A project writes the version it was seeded from on the first
-line of its `docs/README.md`; both seed scripts stamp it automatically. When a new
+`VERSION` holds `ribbon N`. A full installation records its seed version in
+`docs/.ribbon-full-install` and recognizes older installations by their Ribbon
+stamp in `docs/README.md`. A standalone installation records its version in the
+standalone instance's `docs/README.md`, not the project's. When a new
 `ribbon N` appears, a standalone instance refreshes with `scripts/ribbon-new-project
 --update <name> --projects DIR` — template and schema files and seed version, never
 existing agent instructions, live plans, cards or reports. A full-installed project

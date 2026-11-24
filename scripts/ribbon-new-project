@@ -195,6 +195,17 @@ validate_projects_dir() {
     || die "--projects dir is not writable with your permissions: ${PROJECTS_DIR}"
 }
 
+path_present() {
+  [[ -e "$1" || -L "$1" ]]
+}
+
+validate_project_rules_directory() {
+  local rules="${PROJECT_REPO}/rules"
+  if [[ -L "${rules}" ]] || { [[ -e "${rules}" ]] && [[ ! -d "${rules}" ]]; }; then
+    die "unsafe project directory: ${rules}"
+  fi
+}
+
 #######################################
 # Rebuild the instance from scratch, but only after validation and
 # confirmation — a declined or invalid run must never delete data.
@@ -514,27 +525,21 @@ unpack_docs() {
 }
 
 #######################################
-# Copy the template's rules/ themes into the project repository. A full
-# install merges the template themes, skipping project-owned files; --update
-# overwrites only template-owned themes (README.md, testing.md), preserving
-# project-added ones and never resurrecting a deleted one.
+# Seed missing project themes without replacing any existing entry.
+# --update does not restore deliberately removed themes in an established
+# rules directory.
 # Globals:
 #   UPDATE, RIBBON_HOME, PROJECT_REPO
 #######################################
 visit_project_rule_copies() {
   local visit="$1" template destination
-  if (( UPDATE == 0 )) || [[ ! -f "${PROJECT_REPO}/rules/README.md" ]]; then
-    for template in "${RIBBON_HOME}/rules"/*.md; do
-      destination="${PROJECT_REPO}/rules/${template##*/}"
-      [[ -e "${template}" && ! -e "${destination}" ]] || continue
-      "${visit}" "${destination}" "${template}"
-    done
-    return
+  if (( UPDATE == 1 )) && path_present "${PROJECT_REPO}/rules/README.md"; then
+    return 0
   fi
-  # Refresh only themes the project kept; never resurrect a deleted one.
-  for template in "${RIBBON_HOME}/rules"/README.md "${RIBBON_HOME}/rules"/testing.md; do
+  for template in "${RIBBON_HOME}/rules"/*.md; do
     destination="${PROJECT_REPO}/rules/${template##*/}"
-    [[ -e "${template}" && -e "${destination}" ]] || continue
+    [[ -e "${template}" ]] || continue
+    path_present "${destination}" && continue
     "${visit}" "${destination}" "${template}"
   done
 }
@@ -646,7 +651,7 @@ prepare_user_rule_imports() {
 
   for f in "${SELECTED_RULES[@]}"; do
     [[ -f "${rules_dir}/${f}" ]] || die "--import-rules file not found: ${rules_dir}/${f}"
-    [[ -e "${PROJECT_REPO}/rules/${f}" ]] || validate_refresh_destination "${PROJECT_REPO}/rules/${f}"
+    path_present "${PROJECT_REPO}/rules/${f}" || validate_refresh_destination "${PROJECT_REPO}/rules/${f}"
   done
 }
 
@@ -654,7 +659,7 @@ import_user_rules() {
   [[ "${#SELECTED_RULES[@]}" -gt 0 ]] || return 0
   local rules_dir="${HOME}/.claude/rules" f imported=0 kept=0
   for f in "${SELECTED_RULES[@]}"; do
-    if [[ -e "${PROJECT_REPO}/rules/${f}" ]]; then
+    if path_present "${PROJECT_REPO}/rules/${f}"; then
       kept=$((kept + 1))
       continue
     fi
@@ -843,7 +848,7 @@ ${mode} Ribbon Protocol instance for ${PROJECT_NAME}:
   artifacts go to: ${PROJECT_REPO}/docs/adrs, ${PROJECT_REPO}/docs/diagrams
   AGENTS.local.md: ${local_note}
   AGENTS.md:       ${pointer_note}
-  rules:           rules/README.md, rules/testing.md seeded; project themes preserved
+  rules:           existing project themes left unchanged; missing themes added when seeding
 ${import_line}  gitignore:       add AGENTS.local.md — it is personal to this machine
   herdr:           ${HERDR_NOTE}
   worktrees:       ${WORKTREE_NOTE}
@@ -864,6 +869,7 @@ main() {
   validate_projects_dir
   validate_template
   resolve_repo
+  validate_project_rules_directory
   validate_instance_seed_instruction_links
   prepare_instruction_files
   validate_update_instruction_aliases
