@@ -181,6 +181,12 @@ Disposable validation spikes are written only by the architect herself or a Herd
 under `/tmp` or `~/tmp`. A spike is not production evidence until the card's required verification
 and independent acceptance prove the behavior in the project.
 
+The core protocol's file-removal rule applies inside every writable root, including scratch
+paths created by a spike. Use existing harness controls to prevent non-architect removal
+where possible. If the harness cannot prevent removal, record that gap in the orchestration
+report under `Permission enforcement`. Before a plan exists, use the security evidence folder
+for a security review and the architect's assignment journal for other work.
+
 ## Exclusive file ownership and parallel cards
 
 Every coder and reviewer works in its own worktree on its own branch, sequential work included,
@@ -259,6 +265,13 @@ tab is no longer needed; it never closes another agent's tab.
 Every briefing, including entry-level coder, security and reviewer briefings, names the exact
 report path for that assignment. It tells the agent to record findings and learnings in that
 report and not to write project, user-level or harness memory, directly or indirectly.
+
+Every non-architect briefing, including for a research helper or spike, says to leave files in
+place, not to request permission to remove them, and to report the path, reason and whether it
+blocks the assignment. The architect logs the request and decision under `Cleanup requests` in
+the orchestration report or in the same pre-plan record used for permission enforcement. If a
+removal prompt still appears, do not approve it for the agent; have the agent continue without
+removal or stop at the blocker.
 
 The first briefing contains:
 

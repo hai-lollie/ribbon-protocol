@@ -100,6 +100,25 @@ and says to put findings and learnings there and leave memory unchanged. The arc
 what comes back and decides what, if anything, belongs in memory. Normal stop lines and notes
 still apply; the report does not replace them or authorize changes beyond the assignment.
 
+## File removal
+
+Among LLM agents, only the architect may request approval for or carry out file removal.
+The applicable permission and approval rules still apply. This rule does not bind the senior
+architect or the trusted verifier running independently of an agent.
+
+For a non-architect LLM agent, writable access is not permission to delete a file or directory,
+directly or through a command, script, tool or another agent. This includes files it created,
+even scratch under `/tmp` and `~/tmp`, with or without Herdr. Editing an approved file or making
+an explicitly authorized move to an unoccupied path is not file removal.
+
+Leave the file in place. Under `Cleanup requests` in the assigned report, record its absolute path,
+why removal is wanted and whether it blocks the assignment. A helper without a report returns
+those details to its parent without writing an artifact. Continue if possible. If a required
+step cannot run without removal, including a cleanup step in a check the agent must run,
+stop and report the blocker through the normal handoff instead of opening a removal approval
+prompt. The architect records the request, decision and any required approval evidence in
+its assignment journal or in the record named by the Herdr overlay.
+
 ## The loop
 
 1. **Architect.** The senior architect states the problem, the constraints, what success
