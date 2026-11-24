@@ -39,6 +39,7 @@ AGENTS_WRITE_NEEDED=1
 DOC_SEEDS=()
 SELECTED_RULES=()
 SEED_VERSION=''
+EXISTING_PROJECT_DOCS_AND_RULES=()
 
 #######################################
 # Print an error message to STDERR and exit.
@@ -155,6 +156,43 @@ validate_project_directory() {
       die "unsafe project directory: ${directory}"
     fi
     directory="${directory%/*}"
+  done
+}
+
+collect_existing_project_docs_and_rules() {
+  local name path listing
+  local -a roots=()
+  for name in docs rules; do
+    path="${PROJECT_REPO}/${name}"
+    [[ ! -d "${path}" ]] || roots+=("${path}")
+  done
+  (( ${#roots[@]} > 0 )) || return 0
+  listing="$(mktemp)"
+  if ! find "${roots[@]}" \( -type f -o -type l \) -print0 > "${listing}"; then
+    rm -f "${listing}"
+    die "cannot inspect existing project docs and rules"
+  fi
+  while IFS= read -r -d '' path; do
+    EXISTING_PROJECT_DOCS_AND_RULES+=("${path}")
+  done < "${listing}"
+  rm -f "${listing}"
+}
+
+validate_existing_project_paths() {
+  local destination="$1" path resolved_destination='' target
+  for path in "${EXISTING_PROJECT_DOCS_AND_RULES[@]}"; do
+    if [[ ! "${destination}" -ef "${path}" ]]; then
+      [[ -L "${path}" ]] || continue
+      if [[ -z "${resolved_destination}" ]]; then
+        resolved_destination="$(realpath -m -- "${destination}")"
+      fi
+      target="$(realpath -m -- "${path}")"
+      if [[ "${resolved_destination}" != "${target}" ]] \
+        && ! { [[ -d "${path}" ]] && [[ "${resolved_destination}" == "${target%/}/"* ]]; }; then
+        continue
+      fi
+    fi
+    die "${destination} would change existing project path: ${path#"${PROJECT_REPO}"/}"
   done
 }
 
@@ -311,6 +349,7 @@ validate_instruction_destination() {
     && [[ -e "${destination}" || -L "${destination}" ]]; then
     [[ -f "${destination}" ]] || die "not a regular file: ${destination}"
   fi
+  validate_existing_project_paths "${destination}"
   for instruction in AGENTS.md AGENTS.local.md CLAUDE.md CLAUDE.local.md; do
     [[ "${instruction}" != "${name}" ]] || continue
     path="${PROJECT_REPO}/${instruction}"
@@ -615,6 +654,7 @@ main() {
   SEED_VERSION="$(head -1 "${RIBBON_HOME}/VERSION")"
   [[ "${SEED_VERSION}" =~ ^ribbon\ [0-9]+$ ]] || die "invalid Ribbon seed version: ${SEED_VERSION}"
   confirm_target
+  collect_existing_project_docs_and_rules
   if (( AMEND == 0 )); then
     prepare_instruction_files
     prepare_doc_seeds

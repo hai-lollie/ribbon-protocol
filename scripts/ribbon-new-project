@@ -46,6 +46,7 @@ WORKTREE_HOOK=''
 LOCAL_BLOCK=''
 AGENTS_POINTER_NEEDED=0
 SELECTED_RULES=()
+EXISTING_PROJECT_DOCS_AND_RULES=()
 
 #######################################
 # Validate every --import-rules file before any mutating step, so a typo
@@ -206,6 +207,61 @@ validate_project_rules_directory() {
   fi
 }
 
+validate_instance_write_directories() {
+  local directory
+  local -a directories=("${INSTANCE}")
+  if (( UPDATE == 1 )); then
+    directories+=("${INSTANCE}/docs" "${INSTANCE}/docs/tasks"
+      "${INSTANCE}/docs/llm-context" "${INSTANCE}/docs/llm-context/history")
+  fi
+  for directory in "${directories[@]}"; do
+    if [[ -L "${directory}" ]] || { [[ -e "${directory}" ]] && [[ ! -d "${directory}" ]]; }; then
+      die "unsafe instance directory: ${directory}"
+    fi
+  done
+}
+
+collect_existing_project_docs_and_rules() {
+  local name path listing
+  local -a roots=()
+  for name in docs rules; do
+    path="${PROJECT_REPO}/${name}"
+    if [[ -d "${path}" && ! -L "${path}" ]]; then
+      roots+=("${path}")
+    elif path_present "${path}"; then
+      EXISTING_PROJECT_DOCS_AND_RULES+=("${path}")
+    fi
+  done
+  (( ${#roots[@]} > 0 )) || return 0
+  listing="$(mktemp)"
+  if ! find "${roots[@]}" \( -type f -o -type l \) -print0 > "${listing}"; then
+    rm -f "${listing}"
+    die "cannot inspect existing project docs and rules"
+  fi
+  while IFS= read -r -d '' path; do
+    EXISTING_PROJECT_DOCS_AND_RULES+=("${path}")
+  done < "${listing}"
+  rm -f "${listing}"
+}
+
+validate_existing_project_paths() {
+  local destination="$1" path resolved_destination='' target
+  for path in "${EXISTING_PROJECT_DOCS_AND_RULES[@]}"; do
+    if [[ ! "${destination}" -ef "${path}" ]]; then
+      [[ -L "${path}" ]] || continue
+      if [[ -z "${resolved_destination}" ]]; then
+        resolved_destination="$(realpath -m -- "${destination}")"
+      fi
+      target="$(realpath -m -- "${path}")"
+      if [[ "${resolved_destination}" != "${target}" ]] \
+        && ! { [[ -d "${path}" ]] && [[ "${resolved_destination}" == "${target%/}/"* ]]; }; then
+        continue
+      fi
+    fi
+    die "${destination} would change existing project path: ${path#"${PROJECT_REPO}"/}"
+  done
+}
+
 #######################################
 # Rebuild the instance from scratch, but only after validation and
 # confirmation — a declined or invalid run must never delete data.
@@ -266,11 +322,11 @@ PY
 
 validate_instance_seed_instruction_links() {
   (( UPDATE == 0 )) || return 0
-  local name
-  for name in AGENTS.md AGENTS.local.md CLAUDE.md CLAUDE.local.md; do
-    [[ -L "${PROJECT_REPO}/${name}" ]] || continue
-    if path_uses_instance "${PROJECT_REPO}/${name}"; then
-      die "${name} points inside the instance; refusing to seed or rebuild ${INSTANCE}"
+  local path
+  for path in "${PROJECT_REPO}"/{AGENTS.md,AGENTS.local.md,CLAUDE.md,CLAUDE.local.md} "${EXISTING_PROJECT_DOCS_AND_RULES[@]}"; do
+    [[ -L "${path}" ]] || continue
+    if path_uses_instance "${path}"; then
+      die "${path#"${PROJECT_REPO}"/} points inside the instance; refusing to seed or rebuild ${INSTANCE}"
     fi
   done
 }
@@ -281,6 +337,7 @@ validate_instance_seed_instruction_links() {
 #######################################
 validate_refresh_destination() {
   local destination="$1" name instruction resolved_destination resolved_instruction
+  validate_existing_project_paths "${destination}"
   for name in AGENTS.md AGENTS.local.md CLAUDE.md CLAUDE.local.md; do
     instruction="${PROJECT_REPO}/${name}"
     if [[ "${destination}" -ef "${instruction}" ]]; then
@@ -297,11 +354,19 @@ validate_refresh_destination() {
   done
 }
 
+validate_instance_refresh_destination() {
+  local destination="$1"
+  if [[ -L "${destination}" ]] || { [[ -e "${destination}" ]] && [[ ! -f "${destination}" ]]; }; then
+    die "unsafe instance file: ${destination}"
+  fi
+  validate_refresh_destination "${destination}"
+}
+
 validate_update_instruction_aliases() {
   (( UPDATE == 1 )) || return 0
-  validate_refresh_destination "${INSTANCE}/docs/README.md"
-  validate_refresh_destination "${INSTANCE}/project-repo"
-  visit_instance_template_refreshes validate_refresh_destination
+  validate_instance_refresh_destination "${INSTANCE}/docs/README.md"
+  validate_instance_refresh_destination "${INSTANCE}/project-repo"
+  visit_instance_template_refreshes validate_instance_refresh_destination
 }
 
 #######################################
@@ -376,6 +441,7 @@ PY
 #######################################
 validate_agents_destination() {
   local name="$1" destination="${PROJECT_REPO}/$1" claude
+  validate_existing_project_paths "${destination}"
   for claude in CLAUDE.md CLAUDE.local.md; do
     [[ "${destination}" -ef "${PROJECT_REPO}/${claude}" ]] || continue
     if [[ ! -L "${destination}" && -L "${PROJECT_REPO}/${claude}" ]]; then
@@ -870,6 +936,8 @@ main() {
   validate_template
   resolve_repo
   validate_project_rules_directory
+  validate_instance_write_directories
+  collect_existing_project_docs_and_rules
   validate_instance_seed_instruction_links
   prepare_instruction_files
   validate_update_instruction_aliases

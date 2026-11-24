@@ -149,9 +149,10 @@ conventions — to the project. See "Standalone: Ribbon for me" below.
 
 The script adds missing `docs/` (homes, schemas, templates, field guide) and `rules/`
 (coding conventions) files. Existing paths are kept, including symlinks with missing
-targets. It refuses to write through a linked directory or a file where it needs a
-directory. An existing `docs/README.md` is **not edited or appended to**. When the
-installer creates `docs/README.md`, it includes the seed version in that new file.
+targets. The installer refuses linked or non-directory parents and planned writes
+that would also change an existing project doc or rule through a link. An existing
+`docs/README.md` is **not edited or appended to**. When the installer creates
+`docs/README.md`, it includes the seed version in that new file.
 The separate `docs/.ribbon-full-install` record identifies the full install whether
 or not the project already had a README. That record must not be ignored by Git.
 
@@ -237,10 +238,11 @@ instance's template and schema files and seed version. Both modes append a missi
 standalone block or pointer but leave existing instructions byte-for-byte intact,
 including the filled-in belt. If you relocate an instance or template checkout,
 update the paths in `AGENTS.local.md` by hand. Before writing, an update refuses
-to refresh a file that also serves as an agent or Claude instruction file. Before
+linked instance directories or refresh targets, and planned writes that would
+also change project docs, rules, or instruction files through links. Before
 `--force` deletes the old instance, it rejects broken overlay destinations and
-instruction or overlay symlinks that depend on the instance. `--update` never
-touches live plans, cards or reports. These operations affect the separate
+symlinks in project docs, rules, instructions, or the overlay that depend on the
+instance. `--update` never touches live plans, cards or reports. These operations affect the separate
 managed instance; they never replace or delete existing project `docs/` or
 `rules/` entries. Instances are personal and unversioned.
 

@@ -408,6 +408,21 @@ test_seed_preserves_existing_docs_readme_byte_for_byte() {
     && git -C "${repo}" diff --cached --name-only | grep -Fxq 'docs/README.md'
 }
 
+test_seed_refuses_to_change_a_readme_linked_to_agents() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  mkdir "${repo}/docs"
+  ln "${repo}/AGENTS.md" "${repo}/docs/README.md"
+  cp "${repo}/docs/README.md" "${SANDBOX}/before"
+
+  seed "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${repo}/docs/tasks" && ! -e "${repo}/rules" ]] \
+    && grep -Fq 'would change existing project path: docs/README.md' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${repo}/docs/README.md" \
+    && [[ "${repo}/docs/README.md" -ef "${repo}/AGENTS.md" ]]
+}
+
 test_seed_detection_does_not_require_a_ribbon_readme() {
   new_repo
   local repo="${SANDBOX}/example-project" head rc=0
@@ -651,6 +666,7 @@ readonly TESTS=(
   test_seeder_merges_into_existing_rules
   test_seeder_merges_into_existing_docs
   test_seed_preserves_existing_docs_readme_byte_for_byte
+  test_seed_refuses_to_change_a_readme_linked_to_agents
   test_seed_detection_does_not_require_a_ribbon_readme
   test_similar_readme_text_does_not_select_legacy_amendment
   test_seed_refuses_an_unrelated_existing_seed_record

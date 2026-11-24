@@ -303,6 +303,76 @@ test_force_rejects_linked_project_rules_before_rebuild() {
     && [[ "$(readlink "${repo}/rules")" == "${SANDBOX}/outside-rules" ]]
 }
 
+test_update_rejects_linked_instance_directory_before_writing() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" docs="${PROJECTS}/example-project/docs" rc=0
+  local outside="${SANDBOX}/outside-tasks"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mv "${docs}/tasks" "${outside}"
+  ln -s "${outside}" "${docs}/tasks"
+  printf 'outside template bytes\r\nKeep me' > "${SANDBOX}/before-template"
+  cp "${SANDBOX}/before-template" "${outside}/_template.plan.yaml"
+  printf 'instance version unchanged\n' > "${docs}/README.md"
+
+  install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsafe instance directory' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before-template" "${outside}/_template.plan.yaml" \
+    && grep -Fxq 'instance version unchanged' "${docs}/README.md" \
+    && [[ "$(readlink "${docs}/tasks")" == "${outside}" ]]
+}
+
+test_update_rejects_a_linked_instance_template_before_writing() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" docs="${PROJECTS}/example-project/docs" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  printf 'outside bytes\r\nNo trailing newline' > "${SANDBOX}/before"
+  cp "${SANDBOX}/before" "${SANDBOX}/outside-template"
+  ln -sf "${SANDBOX}/outside-template" "${docs}/tasks/_template.plan.yaml"
+  printf 'instance version unchanged\n' > "${docs}/README.md"
+
+  install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsafe instance file' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${SANDBOX}/outside-template" \
+    && grep -Fxq 'instance version unchanged' "${docs}/README.md"
+}
+
+test_update_does_not_rewrite_a_project_readme_linked_to_instance() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" docs="${PROJECTS}/example-project/docs" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mkdir "${repo}/docs"
+  printf 'shared README bytes\r\nKeep me' > "${docs}/README.md"
+  ln "${docs}/README.md" "${repo}/docs/README.md"
+  cp "${repo}/docs/README.md" "${SANDBOX}/before"
+
+  install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'would change existing project path: docs/README.md' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/before" "${repo}/docs/README.md" \
+    && [[ "${repo}/docs/README.md" -ef "${docs}/README.md" ]]
+}
+
+test_force_preserves_a_project_readme_linked_to_live_instance_work() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mkdir "${repo}/docs"
+  printf '# Live work\n' > "${instance}/docs/tasks/live-card.yaml"
+  ln -s "${instance}/docs/tasks/live-card.yaml" "${repo}/docs/README.md"
+
+  install example-project "${repo}" --force --yes >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'docs/README.md points inside the instance' "${SANDBOX}/error" \
+    && grep -Fxq '# Live work' "${repo}/docs/README.md" \
+    && [[ "$(readlink "${repo}/docs/README.md")" == "${instance}/docs/tasks/live-card.yaml" ]]
+}
+
 test_rerun_keeps_one_block() {
   new_sandbox
   install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
@@ -988,6 +1058,10 @@ readonly TESTS=(
   test_update_does_not_write_to_a_rule_linked_to_project_instructions
   test_install_skips_dangling_project_rule_entries
   test_force_rejects_linked_project_rules_before_rebuild
+  test_update_rejects_linked_instance_directory_before_writing
+  test_update_rejects_a_linked_instance_template_before_writing
+  test_update_does_not_rewrite_a_project_readme_linked_to_instance
+  test_force_preserves_a_project_readme_linked_to_live_instance_work
   test_rerun_keeps_one_block
   test_requires_projects_flag
   test_rejects_missing_projects_dir
