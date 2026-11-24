@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests for scripts/ribbon-new-project: one function per test, run in order
-# by main. Each test builds its own throwaway projects dir; the real template
-# repo provides the seeds. Project and instance names are generic.
+# by main, once on the host's tools and once as a Mac with Homebrew coreutils.
+# Each test builds its own throwaway projects dir; the real template repo
+# provides the seeds. Project and instance names are generic.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,6 +14,9 @@ PASS=0
 FAIL=0
 SANDBOX=''
 PROJECTS=''
+MACOS_BIN=''
+COREUTILS_BIN=''
+HOST_GNU_REALPATH=''
 
 #######################################
 # Record a test result (TAP, one line per test).
@@ -37,7 +41,93 @@ record() {
 cleanup() {
   [[ -n "${SANDBOX}" ]] && rm -rf "${SANDBOX}"
 }
-trap cleanup EXIT
+
+#######################################
+# Remove the last sandbox and the macOS stand-ins when the run ends.
+# Globals:
+#   MACOS_BIN, COREUTILS_BIN
+#######################################
+finish() {
+  cleanup
+  [[ -z "${MACOS_BIN}" ]] || rm -rf "${MACOS_BIN}"
+  [[ -z "${COREUTILS_BIN}" ]] || rm -rf "${COREUTILS_BIN}"
+}
+trap finish EXIT
+
+#######################################
+# Find the host's GNU realpath, which both stand-ins resolve with: realpath
+# on Linux, grealpath on a Mac with Homebrew coreutils.
+# Globals:
+#   HOST_GNU_REALPATH (set)
+#######################################
+find_host_gnu_realpath() {
+  local candidate
+  for candidate in realpath grealpath; do
+    if "${candidate}" -m -- / >/dev/null 2>&1; then
+      HOST_GNU_REALPATH="$(command -v "${candidate}")"
+      return 0
+    fi
+  done
+  printf 'needs GNU realpath on the host; on macOS: brew install coreutils\n' >&2
+  return 1
+}
+
+#######################################
+# Put stand-ins for a stock Mac's tools in a fresh directory. Its realpath is
+# BSD's: it takes only -q, rejects every other option with BSD's message and
+# fails on a path that does not exist (the host's GNU realpath -e resolves).
+# Its grealpath is missing, since Homebrew's coreutils is not installed.
+# Globals:
+#   HOST_GNU_REALPATH
+#   MACOS_BIN (set)
+#######################################
+make_stock_macos() {
+  MACOS_BIN="$(mktemp -d)"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'gnu_realpath=%q\n' "${HOST_GNU_REALPATH}"
+    cat <<'EOF'
+quiet=0
+while getopts ':q' flag; do
+  case "${flag}" in
+    q) quiet=1 ;;
+    *) printf 'realpath: illegal option -- %s\nusage: realpath [-q] [path ...]\n' "${OPTARG}" >&2
+       exit 1 ;;
+  esac
+done
+shift $((OPTIND - 1))
+(( $# > 0 )) || set -- .
+status=0
+for path in "$@"; do
+  if (( quiet )); then
+    "${gnu_realpath}" -e -- "${path}" 2>/dev/null || status=1
+  else
+    "${gnu_realpath}" -e -- "${path}" || status=1
+  fi
+done
+exit "${status}"
+EOF
+  } > "${MACOS_BIN}/realpath"
+  cat > "${MACOS_BIN}/grealpath" <<'EOF'
+#!/usr/bin/env bash
+printf 'grealpath: command not found\n' >&2
+exit 127
+EOF
+  chmod +x "${MACOS_BIN}/realpath" "${MACOS_BIN}/grealpath"
+}
+
+#######################################
+# Put Homebrew coreutils' grealpath, which is GNU realpath, in a fresh
+# directory.
+# Globals:
+#   HOST_GNU_REALPATH
+#   COREUTILS_BIN (set)
+#######################################
+make_homebrew_coreutils() {
+  COREUTILS_BIN="$(mktemp -d)"
+  printf '#!/usr/bin/env bash\nexec %q "$@"\n' "${HOST_GNU_REALPATH}" > "${COREUTILS_BIN}/grealpath"
+  chmod +x "${COREUTILS_BIN}/grealpath"
+}
 
 #######################################
 # Replace the sandbox with a fresh one: projects dir plus one fake project
@@ -725,22 +815,30 @@ test_usage_without_args() {
 test_refuses_home_directory() {
   new_sandbox
   printf '# home AGENTS\n' > "${HOME}/AGENTS.md"
-  ! install example-project "${HOME}" >/dev/null 2>&1
-  [[ ! -e "${HOME}/AGENTS.local.md" ]]
+  local rc=0
+  install example-project "${HOME}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+  [[ "${rc}" == 1 && ! -e "${HOME}/AGENTS.local.md" ]] \
+    && grep -Fq 'refusing to install into your home directory' "${SANDBOX}/error"
 }
 
 test_refuses_template_as_project_repo() {
   new_sandbox
-  ! install example-project "${RIBBON_HOME}" >/dev/null 2>&1
+  local rc=0
+  install example-project "${RIBBON_HOME}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'refusing to install into the template repository itself' "${SANDBOX}/error"
 }
 
+# The instance path does not exist yet and only reaches into the repo
+# through the link, so only a canonical path of a missing path catches it.
 test_refuses_symlinked_overlap() {
   new_sandbox
-  ln -s "${SANDBOX}/repos" "${SANDBOX}/repos-link"
-  local rc=0
-  "${INSTALLER}" --projects "${SANDBOX}/repos-link" example-project \
-    "${SANDBOX}/repos/example-project" >/dev/null 2>&1 || rc=1
-  [[ "${rc}" == "1" ]] && [[ ! -e "${SANDBOX}/repos/example-project/docs" ]]
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  ln -s "${repo}" "${SANDBOX}/repo-link"
+  "${INSTALLER}" --projects "${SANDBOX}/repo-link" example-project "${repo}" \
+    >/dev/null 2> "${SANDBOX}/error" || rc=$?
+  [[ "${rc}" == 1 && ! -e "${repo}/example-project" && ! -e "${repo}/AGENTS.local.md" ]] \
+    && grep -Fq 'project repo and instance path overlap' "${SANDBOX}/error"
 }
 
 test_refuses_template_as_instance() {
@@ -753,8 +851,9 @@ test_refuses_template_as_instance() {
   cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${tmpl}/scripts/"
   local rc=0
   install --ribbon-home "${tmpl}" example-project \
-      "${SANDBOX}/repos/example-project" --force >/dev/null 2>&1 || rc=1
-  [[ "${rc}" == "1" ]] && [[ -f "${tmpl}/AGENTS.standalone.md" ]]
+      "${SANDBOX}/repos/example-project" --force >/dev/null 2> "${SANDBOX}/error" || rc=$?
+  [[ "${rc}" == 1 && -f "${tmpl}/AGENTS.standalone.md" ]] \
+    && grep -Fq 'overlaps the template repository' "${SANDBOX}/error"
 }
 
 test_refuses_template_inside_instance() {
@@ -767,8 +866,9 @@ test_refuses_template_inside_instance() {
   cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${tmpl}/scripts/"
   local rc=0
   install --ribbon-home "${tmpl}" example-project \
-      "${SANDBOX}/repos/example-project" --force >/dev/null 2>&1 || rc=1
-  [[ "${rc}" == "1" ]] && [[ -f "${tmpl}/AGENTS.standalone.md" ]]
+      "${SANDBOX}/repos/example-project" --force >/dev/null 2> "${SANDBOX}/error" || rc=$?
+  [[ "${rc}" == 1 && -f "${tmpl}/AGENTS.standalone.md" ]] \
+    && grep -Fq 'overlaps the template repository' "${SANDBOX}/error"
 }
 
 test_force_preflights_local_block() {
@@ -1072,12 +1172,25 @@ test_import_rejects_directory_operand() {
 
 test_refuses_overlapping_repo_and_instance() {
   new_sandbox
-  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
+  install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1 || return 1
   mkdir -p "${PROJECTS}/example-project/repo-inside"
   printf '# inside AGENTS\n' > "${PROJECTS}/example-project/repo-inside/AGENTS.md"
-  ! install example-project "${PROJECTS}/example-project/repo-inside" --force \
-      >/dev/null 2>&1
-  [[ -d "${PROJECTS}/example-project/docs" ]]
+  local rc=0
+  install example-project "${PROJECTS}/example-project/repo-inside" --force \
+      >/dev/null 2> "${SANDBOX}/error" || rc=$?
+  [[ "${rc}" == 1 && -d "${PROJECTS}/example-project/docs" ]] \
+    && grep -Fq 'project repo and instance path overlap' "${SANDBOX}/error"
+}
+
+# A stock Mac's BSD realpath has no -m, so nothing resolves a path that does
+# not exist yet: the installer stops before any write and names the fix.
+test_refuses_without_gnu_realpath() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  PATH="${MACOS_BIN}:${PATH}" "${INSTALLER}" --projects "${PROJECTS}" example-project "${repo}" \
+    >/dev/null 2> "${SANDBOX}/error" || rc=$?
+  [[ "${rc}" == 1 && ! -e "${PROJECTS}/example-project" && ! -e "${repo}/AGENTS.local.md" ]] \
+    && grep -Fq 'brew install coreutils' "${SANDBOX}/error"
 }
 
 test_import_rules_usage_order_works() {
@@ -1193,21 +1306,40 @@ readonly TESTS=(
   test_rejects_surplus_positionals
   test_import_rejects_directory_operand
   test_refuses_overlapping_repo_and_instance
+  test_refuses_without_gnu_realpath
   test_import_rules_usage_order_works
   test_import_rules_requires_one_value
   test_import_rules_rejects_paths
   test_install_keeps_existing_project_theme
 )
 
-main() {
-  local test
+#######################################
+# Run every test once, labelling each result with the tools it ran on.
+# Arguments:
+#   1: the label after each test name, empty for the host's own tools.
+#######################################
+run_suite() {
+  local label="$1" test
   for test in "${TESTS[@]}"; do
     if "${test}" >/dev/null 2>&1; then
-      record "${test}" 0
+      record "${test}${label}" 0
     else
-      record "${test}" 1
+      record "${test}${label}" 1
     fi
   done
+}
+
+#######################################
+# Run the suite on the host's tools, then again as a Mac with Homebrew
+# coreutils, so no guard depends on GNU realpath being named realpath.
+#######################################
+main() {
+  find_host_gnu_realpath || return 1
+  make_stock_macos
+  make_homebrew_coreutils
+  run_suite ''
+  PATH="${COREUTILS_BIN}:${MACOS_BIN}:${PATH}"
+  run_suite ' [macOS + coreutils]'
   printf '1..%d\n' "$((PASS + FAIL))"
   (( FAIL == 0 ))
 }
