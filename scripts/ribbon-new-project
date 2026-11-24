@@ -252,6 +252,32 @@ collect_existing_project_docs_and_rules() {
   done
 }
 
+# Walk the link without dropping missing components canceled by `..`.
+missing_link_component_matches_write() {
+  local pending="$1" destination="$2" parent='' component entry target hops=0
+  while [[ -n "${pending}" ]]; do
+    component="${pending%%/*}"
+    if [[ "${pending}" == */* ]]; then pending="${pending#*/}"; else pending=''; fi
+    case "${component}" in
+      ''|.) continue ;;
+      ..) parent="${parent%/*}"; continue ;;
+    esac
+    entry="${parent}/${component}"
+    if [[ -L "${entry}" ]]; then
+      if (( ++hops > 40 )); then return 1; fi
+      target="$(readlink -n -- "${entry}" && printf /)" || die "cannot read project link: ${entry}"
+      if [[ "${target}" == /* ]]; then parent=''; fi
+      pending="${target}${pending}"
+    else
+      if [[ ! -e "${entry}" && ( "${destination}" == "${entry}" || "${destination}" == "${entry}/"* ) ]]; then
+        return 0
+      fi
+      parent="${entry}"
+    fi
+  done
+  return 1
+}
+
 validate_existing_project_paths() {
   local destination="$1" path resolved_destination='' target
   for path in "${EXISTING_PROJECT_DOCS_AND_RULES[@]}"; do
@@ -261,7 +287,8 @@ validate_existing_project_paths() {
         resolved_destination="$(realpath -m -- "${destination}")"
       fi
       target="$(realpath -m -- "${path}")"
-      if [[ "${resolved_destination}" != "${target}" && "${resolved_destination}" != "${target%/}/"* ]]; then
+      if [[ "${resolved_destination}" != "${target}" && "${resolved_destination}" != "${target%/}/"* ]] \
+        && { [[ -e "${path}" ]] || ! missing_link_component_matches_write "${path}" "${resolved_destination}"; }; then
         continue
       fi
     fi

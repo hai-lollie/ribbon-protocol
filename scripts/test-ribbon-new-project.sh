@@ -433,6 +433,24 @@ test_update_keeps_links_to_missing_instance_directories_dangling() {
   return "${failed}"
 }
 
+test_update_does_not_complete_a_missing_symlink_traversal() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" docs="${PROJECTS}/example-project/docs" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mkdir "${repo}/docs"
+  mv "${docs}/tasks" "${SANDBOX}/kept-tasks"
+  printf 'Existing instance content\n' > "${docs}/original.md"
+  ln -s "${docs}/tasks/../original.md" "${repo}/docs/README.md"
+  [[ ! -e "${repo}/docs/README.md" ]] || return 1
+  printf 'instance stamp unchanged\n' > "${docs}/README.md"
+
+  install example-project --update >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${docs}/tasks" && ! -e "${repo}/docs/README.md" ]] \
+    && grep -Fq 'would change existing project path: docs/README.md' "${SANDBOX}/error" \
+    && grep -Fxq 'instance stamp unchanged' "${docs}/README.md"
+}
+
 test_rerun_keeps_one_block() {
   new_sandbox
   install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
@@ -1125,6 +1143,7 @@ readonly TESTS=(
   test_force_rejects_a_project_directory_link_to_the_instance_parent
   test_update_rejects_a_linked_project_docs_root
   test_update_keeps_links_to_missing_instance_directories_dangling
+  test_update_does_not_complete_a_missing_symlink_traversal
   test_rerun_keeps_one_block
   test_requires_projects_flag
   test_rejects_missing_projects_dir

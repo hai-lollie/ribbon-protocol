@@ -453,6 +453,34 @@ test_seed_keeps_a_link_to_a_missing_docs_directory_dangling() {
     && cmp -s "${SANDBOX}/before" "${repo}/AGENTS.md"
 }
 
+test_seed_does_not_complete_a_missing_symlink_traversal() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  mkdir "${repo}/docs"
+  printf 'Existing project content\n' > "${repo}/docs/original.md"
+  ln -s tasks/../original.md "${repo}/docs/README.md"
+  [[ ! -e "${repo}/docs/README.md" ]] || return 1
+
+  seed "${repo}" >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 && ! -e "${repo}/docs/tasks" && ! -e "${repo}/docs/README.md" ]] \
+    && grep -Fq 'would change existing project path: docs/README.md' "${SANDBOX}/error" \
+    && [[ "$(readlink "${repo}/docs/README.md")" == tasks/../original.md ]]
+}
+
+test_seed_allows_an_unrelated_missing_symlink_traversal() {
+  new_repo
+  local repo="${SANDBOX}/example-project"
+  mkdir "${repo}/docs"
+  printf 'Existing project content\n' > "${repo}/docs/original.md"
+  ln -s archive/../original.md "${repo}/docs/README.md"
+
+  seed "${repo}" >/dev/null 2>&1 || return 1
+
+  [[ -f "${repo}/docs/tasks/_template.plan.yaml" && ! -e "${repo}/docs/README.md" ]] \
+    && [[ "$(readlink "${repo}/docs/README.md")" == archive/../original.md ]]
+}
+
 test_seed_detection_does_not_require_a_ribbon_readme() {
   new_repo
   local repo="${SANDBOX}/example-project" head rc=0
@@ -699,6 +727,8 @@ readonly TESTS=(
   test_seed_refuses_to_change_a_readme_linked_to_agents
   test_seed_rejects_nested_project_directory_links_before_appending
   test_seed_keeps_a_link_to_a_missing_docs_directory_dangling
+  test_seed_does_not_complete_a_missing_symlink_traversal
+  test_seed_allows_an_unrelated_missing_symlink_traversal
   test_seed_detection_does_not_require_a_ribbon_readme
   test_similar_readme_text_does_not_select_legacy_amendment
   test_seed_refuses_an_unrelated_existing_seed_record
