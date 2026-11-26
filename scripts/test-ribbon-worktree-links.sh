@@ -51,6 +51,17 @@ cleanup() {
 trap cleanup EXIT
 
 #######################################
+# Create the directory of a throwaway sandbox at its physical path: git
+# prints physical paths, and on macOS the temporary directory lies under
+# a symbolic link, /var, which is /private/var.
+# Globals:
+#   SANDBOX (set)
+#######################################
+new_sandbox_dir() {
+  SANDBOX="$(cd "$(mktemp -d)" && pwd -P)"
+}
+
+#######################################
 # Replace the sandbox with a fresh one: projects dir plus one project repo
 # with a minimal committed AGENTS.md.
 # Globals:
@@ -58,7 +69,7 @@ trap cleanup EXIT
 #######################################
 new_sandbox() {
   cleanup
-  SANDBOX="$(mktemp -d)"
+  new_sandbox_dir
   mkdir -p "${SANDBOX}/ribbon-projects" "${SANDBOX}/repos/example-project"
   printf '# example-project AGENTS\n' > "${SANDBOX}/repos/example-project/AGENTS.md"
   PROJECTS="${SANDBOX}/ribbon-projects"
@@ -191,6 +202,20 @@ assert_stand_in_hooks_unchanged() {
     cmp -s "${SANDBOX}/managed-hooks/${hook}" "${SANDBOX}/keep-${hook}" || return 1
     [[ "$(mode_of "${SANDBOX}/managed-hooks/${hook}")" = 755 ]] || return 1
   done
+}
+
+#######################################
+# Assert the summary shows the branch that leaves a redirected hooks
+# path alone, so that a run which did nothing cannot pass for a run that
+# wrote nothing.
+# Arguments:
+#   1: the scope of the stand-in, system or global.
+# Globals:
+#   SANDBOX
+#######################################
+assert_redirect_note() {
+  grep -qxF "  worktrees:       core.hooksPath points elsewhere — left as is, post-checkout hook not installed (core.hooksPath=${SANDBOX}/managed-hooks, $1, file:${SANDBOX}/managed-gitconfig)" \
+    "${SANDBOX}/summary.txt"
 }
 
 #######################################
@@ -498,7 +523,9 @@ test_command_is_idempotent() {
   local first second rc
   first=$(link "${WT}") || return 1
   second=$(link "${WT}") && rc=0 || rc=$?
-  [[ ${rc} -eq 0 && "${second}" = "${first}" ]] || return 1
+  [[ ${rc} -eq 0 ]] || return 1
+  [[ "${first}" = "${WT}: worktree links ensured" ]] || return 1
+  [[ "${second}" = "${WT}: worktree links ensured" ]] || return 1
   assert_linked AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md
 }
 
@@ -589,7 +616,7 @@ test_command_with_space_in_path_gets_links() {
 
 test_command_without_argument_prints_usage() {
   cleanup
-  SANDBOX="$(mktemp -d)"
+  new_sandbox_dir
   local out rc
   out=$(link 2>"${SANDBOX}/err") && rc=0 || rc=$?
   [[ ${rc} -eq 1 && -z "${out}" ]] || return 1
@@ -635,7 +662,7 @@ test_command_h_prints_usage() {
 
 test_command_rejects_path_that_is_not_a_directory() {
   cleanup
-  SANDBOX="$(mktemp -d)"
+  new_sandbox_dir
   printf 'plain\n' > "${SANDBOX}/plain-file"
   local out rc
   out=$(link "${SANDBOX}/plain-file" 2>"${SANDBOX}/err") && rc=0 || rc=$?
@@ -646,7 +673,7 @@ test_command_rejects_path_that_is_not_a_directory() {
 
 test_command_rejects_path_outside_git_repository() {
   cleanup
-  SANDBOX="$(mktemp -d)"
+  new_sandbox_dir
   mkdir -p "${SANDBOX}/nogit"
   local out rc
   out=$(link "${SANDBOX}/nogit" 2>"${SANDBOX}/err") && rc=0 || rc=$?
@@ -696,11 +723,53 @@ test_command_exits_with_the_hook_file_status() {
   [[ ${rc} -eq 3 && -z "${out}" ]]
 }
 
+test_command_ignores_cdpath() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  gitc worktree add -q -b cdpath "${WT}" || return 1
+  mkdir -p "${SANDBOX}/elsewhere"
+  git -C "${SANDBOX}/elsewhere" init -q
+  printf '# elsewhere AGENTS\n' > "${SANDBOX}/elsewhere/AGENTS.md"
+  printf '# decoy\n' > "${SANDBOX}/elsewhere/AGENTS.local.md"
+  git -C "${SANDBOX}/elsewhere" add AGENTS.md
+  git -C "${SANDBOX}/elsewhere" -c user.name='Ribbon Test' \
+    -c user.email='ribbon@test.invalid' commit -q -m elsewhere
+  git -C "${SANDBOX}/elsewhere" -c user.name='Ribbon Test' \
+    -c user.email='ribbon@test.invalid' worktree add -q -b decoy \
+    "${SANDBOX}/elsewhere/wt"
+  local out rc
+  out=$(cd "${SANDBOX}" && CDPATH="${SANDBOX}/elsewhere" \
+    "${SCRIPT_DIR}/ribbon-link-worktree" wt) && rc=0 || rc=$?
+  [[ ${rc} -eq 0 ]] || return 1
+  [[ "${out}" = "${WT}: worktree links ensured" ]] || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+  [[ ! -e "${SANDBOX}/elsewhere/wt/AGENTS.local.md" \
+    && ! -L "${SANDBOX}/elsewhere/wt/AGENTS.local.md" ]]
+}
+
+test_command_started_by_a_relative_path_ignores_cdpath() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  gitc worktree add -q -b relative "${WT}" || return 1
+  local out rc
+  out=$(cd "${SCRIPT_DIR}/.." && CDPATH=. sh scripts/ribbon-link-worktree "${WT}") \
+    && rc=0 || rc=$?
+  [[ ${rc} -eq 0 ]] || return 1
+  [[ "${out}" = "${WT}: worktree links ensured" ]] || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+}
+
 test_install_with_system_managed_hooks_leaves_every_hook_unchanged() {
   new_sandbox
   managed_hooks
   snapshot_stand_in_hooks || return 1
-  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  install_with_managed_hooks example-project "${PROJ}" > "${SANDBOX}/summary.txt" \
+    2>&1 || return 1
+  assert_redirect_note system || return 1
   assert_stand_in_hooks_unchanged || return 1
   [[ ! -e "${PROJ}/.git/hooks/post-checkout" ]]
 }
@@ -710,7 +779,9 @@ test_update_with_system_managed_hooks_leaves_every_hook_unchanged() {
   managed_hooks
   install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
   snapshot_stand_in_hooks || return 1
-  install_with_managed_hooks --update example-project >/dev/null 2>&1 || return 1
+  install_with_managed_hooks --update example-project > "${SANDBOX}/summary.txt" \
+    2>&1 || return 1
+  assert_redirect_note system || return 1
   assert_stand_in_hooks_unchanged || return 1
   [[ ! -e "${PROJ}/.git/hooks/post-checkout" ]]
 }
@@ -719,8 +790,9 @@ test_install_with_global_managed_hooks_leaves_every_hook_unchanged() {
   new_sandbox
   managed_hooks
   snapshot_stand_in_hooks || return 1
-  install_with_global_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 \
+  install_with_global_managed_hooks example-project "${PROJ}" > "${SANDBOX}/summary.txt" 2>&1 \
     || return 1
+  assert_redirect_note global || return 1
   assert_stand_in_hooks_unchanged
 }
 
@@ -730,7 +802,9 @@ test_update_leaves_a_stale_ribbon_hook_unchanged() {
   local hook="${PROJ}/.git/hooks/post-checkout"
   cp -a "${hook}" "${SANDBOX}/stale-hook-copy" || return 1
   managed_hooks
-  install_with_managed_hooks --update example-project >/dev/null 2>&1 || return 1
+  install_with_managed_hooks --update example-project > "${SANDBOX}/summary.txt" \
+    2>&1 || return 1
+  assert_redirect_note system || return 1
   cmp -s "${hook}" "${SANDBOX}/stale-hook-copy"
 }
 
@@ -829,13 +903,14 @@ test_summary_with_ribbon_hook_has_no_link_command_line() {
 
 test_summary_without_a_repository_has_no_link_command_line() {
   cleanup
-  SANDBOX="$(mktemp -d)"
+  new_sandbox_dir
   mkdir -p "${SANDBOX}/ribbon-projects" "${SANDBOX}/repos/example-project"
   printf '# example-project AGENTS\n' > "${SANDBOX}/repos/example-project/AGENTS.md"
   PROJECTS="${SANDBOX}/ribbon-projects"
   PROJ="${SANDBOX}/repos/example-project"
   WT=''
   install example-project "${PROJ}" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  grep -qF 'no git repository' "${SANDBOX}/summary.txt" || return 1
   ! grep -q 'worktree links:' "${SANDBOX}/summary.txt"
 }
 
@@ -845,6 +920,8 @@ test_summary_outside_the_main_worktree_has_no_link_command_line() {
   gitc worktree add -q -b wt-elsewhere "${WT}" || return 1
   WT=''
   install example-project "${SANDBOX}/example-wt" > "${SANDBOX}/summary.txt" 2>&1 \
+    || return 1
+  grep -qF "not the repository's main worktree" "${SANDBOX}/summary.txt" \
     || return 1
   ! grep -q 'worktree links:' "${SANDBOX}/summary.txt"
 }
@@ -897,7 +974,10 @@ test_update_keeps_one_worktree_block() {
   new_sandbox
   managed_hooks
   install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
-  install_with_managed_hooks --update example-project >/dev/null 2>&1 || return 1
+  install_with_managed_hooks --update example-project > "${SANDBOX}/summary.txt" \
+    2>&1 || return 1
+  grep -qF 'Updated Ribbon Protocol instance for example-project:' \
+    "${SANDBOX}/summary.txt" || return 1
   [[ "$(worktree_block_count "${PROJ}/AGENTS.local.md")" == "1" ]]
 }
 
@@ -975,6 +1055,26 @@ test_update_with_a_present_block_leaves_an_agents_alias_alone() {
   [[ "$(readlink "${PROJ}/AGENTS.local.md")" = 'CLAUDE.local.md' ]]
 }
 
+test_install_under_managed_hooks_keeps_stderr_to_its_own_notes() {
+  new_sandbox
+  managed_hooks
+  local rc
+  install_with_managed_hooks example-project "${PROJ}" > "${SANDBOX}/summary.txt" \
+    2> "${SANDBOX}/err.txt" && rc=0 || rc=$?
+  [[ ${rc} -eq 0 ]] || return 1
+  ! grep -qvE '^(note|warning): ' "${SANDBOX}/err.txt"
+}
+
+test_block_names_a_template_path_with_an_ampersand() {
+  new_sandbox
+  managed_hooks
+  ln -s "$(cd "${SCRIPT_DIR}/.." && pwd)" "${SANDBOX}/R&D" || return 1
+  install_with_managed_hooks example-project "${PROJ}" \
+    --ribbon-home "${SANDBOX}/R&D" >/dev/null 2>&1 || return 1
+  grep -qxF "    ${SANDBOX}/R&D/scripts/ribbon-link-worktree <path>" \
+    "${PROJ}/AGENTS.local.md"
+}
+
 TESTS=(
   test_install_writes_managed_hook
   test_worktree_gets_links_to_local_files
@@ -1009,6 +1109,8 @@ TESTS=(
   test_command_reports_missing_hook_file_beside_it
   test_command_rejects_an_unknown_option
   test_command_exits_with_the_hook_file_status
+  test_command_ignores_cdpath
+  test_command_started_by_a_relative_path_ignores_cdpath
   test_install_with_system_managed_hooks_leaves_every_hook_unchanged
   test_update_with_system_managed_hooks_leaves_every_hook_unchanged
   test_install_with_global_managed_hooks_leaves_every_hook_unchanged
@@ -1037,6 +1139,8 @@ TESTS=(
   test_install_with_unwritable_hooks_directory_appends_the_worktree_block
   test_update_with_read_only_ribbon_hook_appends_the_worktree_block
   test_update_with_a_present_block_leaves_an_agents_alias_alone
+  test_install_under_managed_hooks_keeps_stderr_to_its_own_notes
+  test_block_names_a_template_path_with_an_ampersand
 )
 
 main() {

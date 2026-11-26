@@ -1020,12 +1020,12 @@ prepare_worktree_hook() {
     fi
   fi
   if (( WORKTREE_HOOK_SKIPPED == 1 )) \
-    && ! grep -qF '<!-- ribbon:worktrees:start -->' "${PROJECT_REPO}/AGENTS.local.md"; then
+    && ! grep -qsF '<!-- ribbon:worktrees:start -->' "${PROJECT_REPO}/AGENTS.local.md"; then
     # The block will be appended, so a wrong-direction alias of AGENTS.local.md
     # ends the run here before any write, as it does for the standalone block.
     # A file that already holds the block is not written, so it is not checked.
     validate_agents_destination AGENTS.local.md
-    WORKTREE_BLOCK="${WORKTREE_BLOCK_BODY//\{\{RIBBON_HOME\}\}/${RIBBON_HOME}}"
+    WORKTREE_BLOCK="${WORKTREE_BLOCK_BODY//\{\{RIBBON_HOME\}\}/"${RIBBON_HOME}"}"
   fi
 }
 

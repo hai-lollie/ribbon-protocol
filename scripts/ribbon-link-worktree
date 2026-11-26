@@ -11,6 +11,10 @@
 # Usage:
 #   ribbon-link-worktree <worktree-path>
 
+# An exported CDPATH would send a relative path to another directory and
+# print that directory. The command enters the directory it was named.
+unset CDPATH
+
 if [ $# -ne 1 ]; then
   printf '%s\n' 'ribbon-link-worktree: usage: ribbon-link-worktree <worktree-path>' >&2
   exit 1
