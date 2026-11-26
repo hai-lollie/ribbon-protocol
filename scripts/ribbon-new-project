@@ -51,6 +51,8 @@ ASSUME_YES=0
 NEEDS_REBUILD=0
 WORKTREE_NOTE=''
 WORKTREE_HOOK=''
+WORKTREE_HOOK_SKIPPED=0
+WORKTREE_LINK_COMMAND_NEEDED=0
 LOCAL_BLOCK=''
 AGENTS_POINTER_NEEDED=0
 SELECTED_RULES=()
@@ -935,6 +937,23 @@ prepare_worktree_hook() {
   fi
   if [[ "${hooks_dir}" != "${common_dir}/hooks" ]]; then
     WORKTREE_NOTE='core.hooksPath points elsewhere — left as is, post-checkout hook not installed'
+    # Ask git who set core.hooksPath; the one line holds the scope, the
+    # origin and the value, separated by tabs. No configuration file is
+    # opened by path, and a git that prints nothing leaves the note as is.
+    local evidence rest scope origin value
+    if evidence="$(git -C "${PROJECT_REPO}" config --show-scope --show-origin \
+        --get core.hooksPath 2>/dev/null)"; then
+      scope="${evidence%%$'\t'*}"
+      rest="${evidence#*$'\t'}"
+      origin="${rest%%$'\t'*}"
+      value="${rest#*$'\t'}"
+      if [[ "${origin}" == 'command line:' ]]; then
+        WORKTREE_NOTE="${WORKTREE_NOTE} (core.hooksPath=${value}, command)"
+      else
+        WORKTREE_NOTE="${WORKTREE_NOTE} (core.hooksPath=${value}, ${scope}, ${origin})"
+      fi
+    fi
+    WORKTREE_HOOK_SKIPPED=1
     return 0
   fi
   local hook="${hooks_dir}/post-checkout"
@@ -943,11 +962,24 @@ prepare_worktree_hook() {
     mark="$(sed -n '2p' "${hook}" 2>/dev/null || true)"
     if [[ -L "${hook}" || "${mark}" != '# ribbon:standalone:post-checkout' ]]; then
       WORKTREE_NOTE='existing post-checkout hook left unchanged — no ribbon mark'
+      WORKTREE_HOOK_SKIPPED=1
       return 0
     fi
     WORKTREE_NOTE='post-checkout hook refreshed from the template'
   fi
   validate_refresh_destination "${hook}"
+  # Two more cases end the decision before any write: the hooks directory
+  # exists and is not writable, or the marked hook itself is not writable.
+  if [[ -d "${hooks_dir}" && ! -w "${hooks_dir}" ]]; then
+    WORKTREE_NOTE='hooks directory not writable — post-checkout hook not installed'
+    WORKTREE_HOOK_SKIPPED=1
+    return 0
+  fi
+  if [[ -e "${hook}" && ! -w "${hook}" ]]; then
+    WORKTREE_NOTE='post-checkout hook could not be written — left as is'
+    WORKTREE_HOOK_SKIPPED=1
+    return 0
+  fi
   WORKTREE_HOOK="${hook}"
 }
 
@@ -956,15 +988,18 @@ wire_worktree_links() {
   local hooks_dir="${WORKTREE_HOOK%/*}"
   if [[ ! -d "${hooks_dir}" ]] && ! mkdir -p "${hooks_dir}"; then
     WORKTREE_NOTE='hooks directory missing and cannot be created — post-checkout hook not installed'
+    WORKTREE_LINK_COMMAND_NEEDED=1
     return 0
   fi
   if [[ ! -w "${hooks_dir}" ]]; then
     WORKTREE_NOTE='hooks directory not writable — post-checkout hook not installed'
+    WORKTREE_LINK_COMMAND_NEEDED=1
     return 0
   fi
   if ! cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${WORKTREE_HOOK}" 2>/dev/null \
       || ! chmod 0755 "${WORKTREE_HOOK}" 2>/dev/null; then
     WORKTREE_NOTE='post-checkout hook could not be written — left as is'
+    WORKTREE_LINK_COMMAND_NEEDED=1
   fi
 }
 
@@ -972,7 +1007,8 @@ wire_worktree_links() {
 # Print a summary of what happened.
 # Globals:
 #   UPDATE, INSTANCE, PROJECT_NAME, PROJECT_REPO, LOCAL_BLOCK,
-#   AGENTS_POINTER_NEEDED, HERDR_NOTE, WORKTREE_NOTE
+#   AGENTS_POINTER_NEEDED, HERDR_NOTE, WORKTREE_NOTE,
+#   WORKTREE_HOOK_SKIPPED, WORKTREE_LINK_COMMAND_NEEDED, RIBBON_HOME
 #######################################
 print_summary() {
   local mode='Unpacked'
@@ -984,6 +1020,12 @@ print_summary() {
   local import_line=''
   if [[ -n "${IMPORT_NOTE}" ]]; then
     import_line="  user rules:      ${IMPORT_NOTE}
+"
+  fi
+  local worktree_links_line=''
+  if (( WORKTREE_HOOK_SKIPPED == 1 || WORKTREE_LINK_COMMAND_NEEDED == 1 )); then
+    worktree_links_line="  worktree links:  Ribbon's post-checkout hook is not in place. After each 'git worktree add <path>', run
+                   ${RIBBON_HOME}/scripts/ribbon-link-worktree <path>
 "
   fi
   cat <<EOF
@@ -999,7 +1041,7 @@ ${mode} Ribbon Protocol instance for ${PROJECT_NAME}:
 ${import_line}  gitignore:       add AGENTS.local.md — it is personal to this machine
   herdr:           ${HERDR_NOTE}
   worktrees:       ${WORKTREE_NOTE}
-
+${worktree_links_line}
 Next: read the protocol at ${RIBBON_HOME}/AGENTS.md — it governs unchanged.
 EOF
 }

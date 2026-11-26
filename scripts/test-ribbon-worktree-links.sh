@@ -159,6 +159,84 @@ assert_linked() {
   done
 }
 
+#######################################
+# Print the mode of a file as octal digits (GNU or BSD stat).
+# Arguments:
+#   Path.
+#######################################
+mode_of() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+}
+
+#######################################
+# Snapshot the three stand-in hooks, bytes and mode, for a later comparison.
+# Globals:
+#   SANDBOX
+#######################################
+snapshot_stand_in_hooks() {
+  local hook
+  for hook in pre-commit pre-push post-checkout; do
+    cp -a "${SANDBOX}/managed-hooks/${hook}" "${SANDBOX}/keep-${hook}" || return 1
+  done
+}
+
+#######################################
+# Assert every stand-in hook kept its snapshot's bytes and its 0755 mode.
+# Globals:
+#   SANDBOX
+#######################################
+assert_stand_in_hooks_unchanged() {
+  local hook
+  for hook in pre-commit pre-push post-checkout; do
+    cmp -s "${SANDBOX}/managed-hooks/${hook}" "${SANDBOX}/keep-${hook}" || return 1
+    [[ "$(mode_of "${SANDBOX}/managed-hooks/${hook}")" = 755 ]] || return 1
+  done
+}
+
+#######################################
+# Run the installer with the managed-hooks gitconfig as the global
+# configuration, so core.hooksPath points at the managed directory.
+# Arguments:
+#   Remaining installer arguments.
+# Globals:
+#   SANDBOX, PROJECTS
+#######################################
+install_with_global_managed_hooks() {
+  env GIT_CONFIG_GLOBAL="${SANDBOX}/managed-gitconfig" \
+    "${INSTALLER}" --projects "${PROJECTS}" "$@"
+}
+
+#######################################
+# Run the installer with core.hooksPath set through the environment
+# (GIT_CONFIG_COUNT), which git reports as the command scope.
+# Arguments:
+#   Remaining installer arguments.
+# Globals:
+#   SANDBOX, PROJECTS
+#######################################
+install_with_environment_hooks() {
+  env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath \
+    GIT_CONFIG_VALUE_0="${SANDBOX}/env-hooks" \
+    "${INSTALLER}" --projects "${PROJECTS}" "$@"
+}
+
+#######################################
+# Assert the summary holds the worktrees line followed immediately by the
+# two worktree links lines of the card.
+# Arguments:
+#   Summary file, the expected worktrees line.
+# Globals:
+#   SCRIPT_DIR
+#######################################
+assert_link_command_after() {
+  local block
+  block=$(awk '/^  worktrees:/{print; getline; print; getline; print}' "$1")
+  local expected="$2
+  worktree links:  Ribbon's post-checkout hook is not in place. After each 'git worktree add <path>', run
+                   ${SCRIPT_DIR}/ribbon-link-worktree <path>"
+  [[ "${block}" = "${expected}" ]]
+}
+
 test_install_writes_managed_hook() {
   new_sandbox
   install example-project "${PROJ}" >/dev/null 2>&1 || return 1
@@ -577,6 +655,180 @@ test_command_exits_with_the_hook_file_status() {
   [[ ${rc} -eq 3 && -z "${out}" ]]
 }
 
+test_install_with_system_managed_hooks_leaves_every_hook_unchanged() {
+  new_sandbox
+  managed_hooks
+  snapshot_stand_in_hooks || return 1
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  assert_stand_in_hooks_unchanged || return 1
+  [[ ! -e "${PROJ}/.git/hooks/post-checkout" ]]
+}
+
+test_update_with_system_managed_hooks_leaves_every_hook_unchanged() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  snapshot_stand_in_hooks || return 1
+  install_with_managed_hooks --update example-project >/dev/null 2>&1 || return 1
+  assert_stand_in_hooks_unchanged || return 1
+  [[ ! -e "${PROJ}/.git/hooks/post-checkout" ]]
+}
+
+test_install_with_global_managed_hooks_leaves_every_hook_unchanged() {
+  new_sandbox
+  managed_hooks
+  snapshot_stand_in_hooks || return 1
+  install_with_global_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 \
+    || return 1
+  assert_stand_in_hooks_unchanged
+}
+
+test_update_leaves_a_stale_ribbon_hook_unchanged() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  local hook="${PROJ}/.git/hooks/post-checkout"
+  cp -a "${hook}" "${SANDBOX}/stale-hook-copy" || return 1
+  managed_hooks
+  install_with_managed_hooks --update example-project >/dev/null 2>&1 || return 1
+  cmp -s "${hook}" "${SANDBOX}/stale-hook-copy"
+}
+
+test_system_hooks_path_is_reported_with_scope_and_file() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" > "${SANDBOX}/summary.txt" 2>&1 \
+    || return 1
+  grep -qxF "  worktrees:       core.hooksPath points elsewhere — left as is, post-checkout hook not installed (core.hooksPath=${SANDBOX}/managed-hooks, system, file:${SANDBOX}/managed-gitconfig)" \
+    "${SANDBOX}/summary.txt"
+}
+
+test_global_hooks_path_is_reported_with_scope_and_file() {
+  new_sandbox
+  managed_hooks
+  install_with_global_managed_hooks example-project "${PROJ}" \
+    > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  grep -qxF "  worktrees:       core.hooksPath points elsewhere — left as is, post-checkout hook not installed (core.hooksPath=${SANDBOX}/managed-hooks, global, file:${SANDBOX}/managed-gitconfig)" \
+    "${SANDBOX}/summary.txt"
+}
+
+test_local_hooks_path_is_reported_with_scope_and_file() {
+  new_sandbox
+  gitc config core.hooksPath "${SANDBOX}/local-hooks" || return 1
+  install example-project "${PROJ}" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  grep -qxF "  worktrees:       core.hooksPath points elsewhere — left as is, post-checkout hook not installed (core.hooksPath=${SANDBOX}/local-hooks, local, file:.git/config)" \
+    "${SANDBOX}/summary.txt"
+}
+
+test_environment_hooks_path_is_reported_as_command_scope() {
+  new_sandbox
+  install_with_environment_hooks example-project "${PROJ}" > "${SANDBOX}/summary.txt" \
+    2>&1 || return 1
+  grep -qxF "  worktrees:       core.hooksPath points elsewhere — left as is, post-checkout hook not installed (core.hooksPath=${SANDBOX}/env-hooks, command)" \
+    "${SANDBOX}/summary.txt"
+}
+
+test_hooks_path_with_space_is_reported_whole() {
+  new_sandbox
+  printf '[core]\n\thooksPath = %s\n' "${SANDBOX}/hooks with space" \
+    > "${SANDBOX}/spaced-gitconfig"
+  env -u GIT_CONFIG_NOSYSTEM GIT_CONFIG_SYSTEM="${SANDBOX}/spaced-gitconfig" \
+    "${INSTALLER}" --projects "${PROJECTS}" example-project "${PROJ}" \
+    > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  grep -qxF "  worktrees:       core.hooksPath points elsewhere — left as is, post-checkout hook not installed (core.hooksPath=${SANDBOX}/hooks with space, system, file:${SANDBOX}/spaced-gitconfig)" \
+    "${SANDBOX}/summary.txt"
+}
+
+test_managed_hooks_summary_prints_the_link_command() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" > "${SANDBOX}/summary.txt" 2>&1 \
+    || return 1
+  assert_link_command_after "${SANDBOX}/summary.txt" \
+    "  worktrees:       core.hooksPath points elsewhere — left as is, post-checkout hook not installed (core.hooksPath=${SANDBOX}/managed-hooks, system, file:${SANDBOX}/managed-gitconfig)"
+}
+
+test_unwritable_hooks_directory_prints_the_link_command() {
+  new_sandbox
+  chmod 0555 "${PROJ}/.git/hooks" || return 1
+  install example-project "${PROJ}" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  [[ ! -e "${PROJ}/.git/hooks/post-checkout" ]] || return 1
+  assert_link_command_after "${SANDBOX}/summary.txt" \
+    '  worktrees:       hooks directory not writable — post-checkout hook not installed'
+}
+
+test_read_only_ribbon_hook_prints_the_link_command() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  local hook="${PROJ}/.git/hooks/post-checkout"
+  cp -a "${hook}" "${SANDBOX}/readonly-copy" || return 1
+  chmod 0555 "${hook}" || return 1
+  install --update example-project > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  cmp -s "${hook}" "${SANDBOX}/readonly-copy" || return 1
+  assert_link_command_after "${SANDBOX}/summary.txt" \
+    '  worktrees:       post-checkout hook could not be written — left as is'
+}
+
+test_foreign_hook_note_is_followed_by_the_link_command() {
+  new_sandbox
+  printf '#!/bin/sh\n# some other tool owns this hook\nexit 0\n' \
+    > "${PROJ}/.git/hooks/post-checkout"
+  cp -a "${PROJ}/.git/hooks/post-checkout" "${SANDBOX}/foreign-copy" || return 1
+  install example-project "${PROJ}" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  cmp -s "${PROJ}/.git/hooks/post-checkout" "${SANDBOX}/foreign-copy" || return 1
+  assert_link_command_after "${SANDBOX}/summary.txt" \
+    '  worktrees:       existing post-checkout hook left unchanged — no ribbon mark'
+}
+
+test_summary_with_ribbon_hook_has_no_link_command_line() {
+  new_sandbox
+  install example-project "${PROJ}" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  [[ -f "${PROJ}/.git/hooks/post-checkout" ]] || return 1
+  ! grep -q 'worktree links:' "${SANDBOX}/summary.txt"
+}
+
+test_summary_without_a_repository_has_no_link_command_line() {
+  cleanup
+  SANDBOX="$(mktemp -d)"
+  mkdir -p "${SANDBOX}/ribbon-projects" "${SANDBOX}/repos/example-project"
+  printf '# example-project AGENTS\n' > "${SANDBOX}/repos/example-project/AGENTS.md"
+  PROJECTS="${SANDBOX}/ribbon-projects"
+  PROJ="${SANDBOX}/repos/example-project"
+  WT=''
+  install example-project "${PROJ}" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  ! grep -q 'worktree links:' "${SANDBOX}/summary.txt"
+}
+
+test_summary_outside_the_main_worktree_has_no_link_command_line() {
+  new_sandbox
+  WT="${SANDBOX}/example-wt"
+  gitc worktree add -q -b wt-elsewhere "${WT}" || return 1
+  WT=''
+  install example-project "${SANDBOX}/example-wt" > "${SANDBOX}/summary.txt" 2>&1 \
+    || return 1
+  ! grep -q 'worktree links:' "${SANDBOX}/summary.txt"
+}
+
+test_hooks_directory_that_cannot_be_created_prints_the_link_command() {
+  new_sandbox
+  rm -rf "${PROJ}/.git/hooks"
+  chmod 0555 "${PROJ}/.git" || return 1
+  install example-project "${PROJ}" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  [[ ! -e "${PROJ}/.git/hooks/post-checkout" ]] || return 1
+  assert_link_command_after "${SANDBOX}/summary.txt" \
+    '  worktrees:       hooks directory missing and cannot be created — post-checkout hook not installed'
+}
+
+test_summary_with_ribbon_hook_keeps_its_shape() {
+  new_sandbox
+  install example-project "${PROJ}" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  [[ -f "${PROJ}/.git/hooks/post-checkout" ]] || return 1
+  local blank next
+  blank=$(awk '/^  worktrees:/{getline; print; exit}' "${SANDBOX}/summary.txt")
+  next=$(awk '/^  worktrees:/{getline; getline; print; exit}' "${SANDBOX}/summary.txt")
+  [[ -z "${blank}" ]] || return 1
+  [[ "${next}" = 'Next: read the protocol at '* ]]
+}
+
 TESTS=(
   test_install_writes_managed_hook
   test_worktree_gets_links_to_local_files
@@ -611,6 +863,24 @@ TESTS=(
   test_command_reports_missing_hook_file_beside_it
   test_command_rejects_an_unknown_option
   test_command_exits_with_the_hook_file_status
+  test_install_with_system_managed_hooks_leaves_every_hook_unchanged
+  test_update_with_system_managed_hooks_leaves_every_hook_unchanged
+  test_install_with_global_managed_hooks_leaves_every_hook_unchanged
+  test_update_leaves_a_stale_ribbon_hook_unchanged
+  test_system_hooks_path_is_reported_with_scope_and_file
+  test_global_hooks_path_is_reported_with_scope_and_file
+  test_local_hooks_path_is_reported_with_scope_and_file
+  test_environment_hooks_path_is_reported_as_command_scope
+  test_hooks_path_with_space_is_reported_whole
+  test_managed_hooks_summary_prints_the_link_command
+  test_unwritable_hooks_directory_prints_the_link_command
+  test_read_only_ribbon_hook_prints_the_link_command
+  test_foreign_hook_note_is_followed_by_the_link_command
+  test_summary_with_ribbon_hook_has_no_link_command_line
+  test_summary_without_a_repository_has_no_link_command_line
+  test_summary_outside_the_main_worktree_has_no_link_command_line
+  test_hooks_directory_that_cannot_be_created_prints_the_link_command
+  test_summary_with_ribbon_hook_keeps_its_shape
 )
 
 main() {
