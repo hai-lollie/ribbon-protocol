@@ -261,8 +261,20 @@ your machine: add it to the project's `.gitignore`.
 Every `git worktree` you add gets symlinks to this machine's untracked Ribbon files
 (`AGENTS.local.md`, `herdr-config.md`, `CLAUDE.md`, `CLAUDE.local.md`) through a managed
 `post-checkout` hook the installer places in the project's `.git/hooks`; `--update` refreshes
-a hook it owns, while a hook without its mark or a custom `core.hooksPath` is left alone.
-The linked files belong in the project's `.gitignore`.
+a hook it owns. The linked files belong in the project's `.gitignore`.
+
+The hook needs the hooks to be the repository's own. When they are not, the installer writes
+nothing there and says why, with the configuration git reports: a tool that manages the hooks
+of every repository on the machine, such as a data-loss-prevention tool that sets
+`core.hooksPath`; a `core.hooksPath` of the project's own; a hooks directory you cannot
+write; or a `post-checkout` hook that belongs to another tool. In each case the summary
+prints the command to run after each `git worktree add <path>`, before an agent starts in
+the new worktree:
+
+    ~/ribbon-protocol/scripts/ribbon-link-worktree <path>
+
+It makes the same links as the hook and changes nothing that exists. Linux and macOS run the
+same commands.
 
 This project uses `AGENTS.md`. If you use Claude Code, connect its instruction
 files yourself once per project — either as symlinks in this direction:

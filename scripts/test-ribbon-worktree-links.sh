@@ -237,6 +237,47 @@ assert_link_command_after() {
   [[ "${block}" = "${expected}" ]]
 }
 
+#######################################
+# Print the worktree block the installer must append, with the absolute
+# path of the command under test in place of {{RIBBON_HOME}}.
+# Globals:
+#   SCRIPT_DIR
+#######################################
+expected_worktree_block() {
+  cat <<EOF
+<!-- ribbon:worktrees:start -->
+## Worktrees on this machine
+
+Ribbon's \`post-checkout\` hook was not installed in this repository, so a new \`git worktree\`
+gets no links by itself. After each \`git worktree add <path>\`, and before an agent starts in
+\`<path>\`, run:
+
+    ${SCRIPT_DIR}/ribbon-link-worktree <path>
+
+It links this checkout's untracked Ribbon files into the new worktree. It changes nothing
+that exists.
+<!-- ribbon:worktrees:end -->
+EOF
+}
+
+#######################################
+# Count the worktree blocks in a file.
+# Arguments:
+#   File to inspect.
+#######################################
+worktree_block_count() {
+  grep -c '^<!-- ribbon:worktrees:start -->$' "$1"
+}
+
+#######################################
+# Print a file from the worktree block's start mark to the end of the file.
+# Arguments:
+#   File to inspect.
+#######################################
+worktree_block_tail() {
+  awk '/^<!-- ribbon:worktrees:start -->$/{found=1} found{print}' "$1"
+}
+
 test_install_writes_managed_hook() {
   new_sandbox
   install example-project "${PROJ}" >/dev/null 2>&1 || return 1
@@ -829,6 +870,111 @@ test_summary_with_ribbon_hook_keeps_its_shape() {
   [[ "${next}" = 'Next: read the protocol at '* ]]
 }
 
+test_install_without_hook_appends_the_worktree_block() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  [[ "$(worktree_block_count "${PROJ}/AGENTS.local.md")" == "1" ]] || return 1
+  [[ "$(worktree_block_tail "${PROJ}/AGENTS.local.md")" = "$(expected_worktree_block)" ]]
+}
+
+test_update_appends_a_missing_worktree_block_without_rewriting_bytes() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '%s' "$(cat "${PROJ}/AGENTS.local.md")" > "${SANDBOX}/aged-agents-local"
+  cp "${SANDBOX}/aged-agents-local" "${PROJ}/AGENTS.local.md" || return 1
+  managed_hooks
+  install_with_managed_hooks --update example-project >/dev/null 2>&1 || return 1
+  local bytes
+  bytes=$(wc -c < "${SANDBOX}/aged-agents-local")
+  head -c "${bytes}" "${PROJ}/AGENTS.local.md" | cmp -s "${SANDBOX}/aged-agents-local" - \
+    || return 1
+  [[ "$(worktree_block_count "${PROJ}/AGENTS.local.md")" == "1" ]] || return 1
+  [[ "$(worktree_block_tail "${PROJ}/AGENTS.local.md")" = "$(expected_worktree_block)" ]]
+}
+
+test_update_keeps_one_worktree_block() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  install_with_managed_hooks --update example-project >/dev/null 2>&1 || return 1
+  [[ "$(worktree_block_count "${PROJ}/AGENTS.local.md")" == "1" ]]
+}
+
+test_install_with_ribbon_hook_writes_no_worktree_block() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  [[ -f "${PROJ}/.git/hooks/post-checkout" ]] || return 1
+  ! grep -q '<!-- ribbon:worktrees:start -->' "${PROJ}/AGENTS.local.md"
+}
+
+test_update_refuses_the_worktree_block_through_an_agents_alias() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  mv "${PROJ}/AGENTS.local.md" "${PROJ}/CLAUDE.local.md"
+  ln -s CLAUDE.local.md "${PROJ}/AGENTS.local.md" || return 1
+  cp -a "${PROJ}/CLAUDE.local.md" "${SANDBOX}/claude-local-copy" || return 1
+  managed_hooks
+  local rc
+  install_with_managed_hooks --update example-project \
+    > "${SANDBOX}/out.txt" 2> "${SANDBOX}/err.txt" && rc=0 || rc=$?
+  [[ ${rc} -eq 1 ]] || return 1
+  grep -qF 'AGENTS.local.md aliases CLAUDE.local.md; refusing to write it' \
+    "${SANDBOX}/err.txt" || return 1
+  cmp -s "${PROJ}/CLAUDE.local.md" "${SANDBOX}/claude-local-copy"
+}
+
+test_pointer_without_hook_tells_where_to_read_the_local_files() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  grep -qxF "Ribbon Protocol (standalone): this machine's working files live outside this repository; read AGENTS.local.md for where each file lives. In a linked worktree where that file is missing, read it in the repository's main worktree (the first path in \`git worktree list --porcelain\`) and report the missing worktree links before you work." \
+    "${PROJ}/AGENTS.md" || return 1
+  [[ "$(grep -c 'AGENTS\.local\.md' "${PROJ}/AGENTS.md")" == "1" ]]
+}
+
+test_pointer_with_ribbon_hook_is_unchanged() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  grep -qxF "Ribbon Protocol (standalone): this machine's working files live outside this repository; read AGENTS.local.md for where each file lives." \
+    "${PROJ}/AGENTS.md"
+}
+
+test_install_with_unwritable_hooks_directory_appends_the_worktree_block() {
+  new_sandbox
+  chmod 0555 "${PROJ}/.git/hooks" || return 1
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  [[ "$(worktree_block_count "${PROJ}/AGENTS.local.md")" == "1" ]] || return 1
+  [[ "$(worktree_block_tail "${PROJ}/AGENTS.local.md")" = "$(expected_worktree_block)" ]]
+}
+
+test_update_with_read_only_ribbon_hook_appends_the_worktree_block() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  chmod 0555 "${PROJ}/.git/hooks/post-checkout" || return 1
+  install --update example-project >/dev/null 2>&1 || return 1
+  [[ "$(worktree_block_count "${PROJ}/AGENTS.local.md")" == "1" ]] || return 1
+  [[ "$(worktree_block_tail "${PROJ}/AGENTS.local.md")" = "$(expected_worktree_block)" ]]
+}
+
+test_update_with_a_present_block_leaves_an_agents_alias_alone() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  managed_hooks
+  install_with_managed_hooks --update example-project >/dev/null 2>&1 || return 1
+  [[ "$(worktree_block_count "${PROJ}/AGENTS.local.md")" == "1" ]] || return 1
+  mv "${PROJ}/AGENTS.local.md" "${PROJ}/CLAUDE.local.md"
+  ln -s CLAUDE.local.md "${PROJ}/AGENTS.local.md" || return 1
+  cp -a "${PROJ}/CLAUDE.local.md" "${SANDBOX}/claude-local-copy" || return 1
+  local rc
+  install_with_managed_hooks --update example-project \
+    > "${SANDBOX}/out.txt" 2> "${SANDBOX}/err.txt" && rc=0 || rc=$?
+  [[ ${rc} -eq 0 ]] || return 1
+  cmp -s "${PROJ}/CLAUDE.local.md" "${SANDBOX}/claude-local-copy" || return 1
+  [[ -L "${PROJ}/AGENTS.local.md" ]] || return 1
+  [[ "$(readlink "${PROJ}/AGENTS.local.md")" = 'CLAUDE.local.md' ]]
+}
+
 TESTS=(
   test_install_writes_managed_hook
   test_worktree_gets_links_to_local_files
@@ -881,6 +1027,16 @@ TESTS=(
   test_summary_outside_the_main_worktree_has_no_link_command_line
   test_hooks_directory_that_cannot_be_created_prints_the_link_command
   test_summary_with_ribbon_hook_keeps_its_shape
+  test_install_without_hook_appends_the_worktree_block
+  test_update_appends_a_missing_worktree_block_without_rewriting_bytes
+  test_update_keeps_one_worktree_block
+  test_install_with_ribbon_hook_writes_no_worktree_block
+  test_update_refuses_the_worktree_block_through_an_agents_alias
+  test_pointer_without_hook_tells_where_to_read_the_local_files
+  test_pointer_with_ribbon_hook_is_unchanged
+  test_install_with_unwritable_hooks_directory_appends_the_worktree_block
+  test_update_with_read_only_ribbon_hook_appends_the_worktree_block
+  test_update_with_a_present_block_leaves_an_agents_alias_alone
 )
 
 main() {
