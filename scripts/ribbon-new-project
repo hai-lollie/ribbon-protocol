@@ -16,9 +16,10 @@
 # AGENTS.md so agents find it. When the project is a git repository whose
 # hooks are its own, it also installs a managed post-checkout hook that links
 # the untracked local files into each new worktree. When Ribbon's hook is not
-# in place, it writes nothing into a hook that is not its own: the summary
-# prints scripts/ribbon-link-worktree, AGENTS.local.md gains a worktree block
-# and AGENTS.md a pointer for linked worktrees. Only the final artifacts
+# in place, it writes nothing into a hook that is not its own, and the summary
+# prints scripts/ribbon-link-worktree. When it knows so before any write,
+# AGENTS.local.md also gains a worktree block, and an AGENTS.md without a
+# pointer gains one for linked worktrees. Only the final artifacts
 # (docs/adrs, docs/diagrams) are ever written into the project repository.
 #
 # --update refreshes template and schema files and the seed version in an
@@ -1078,7 +1079,7 @@ prepare_worktree_hook() {
     if agents_file_alias AGENTS.local.md; then
       # Nothing is written through the link. The run goes on, and the
       # summary says why the block is missing.
-      WORKTREE_BLOCK_NOTE="not appended: AGENTS.local.md is a link to ${AGENTS_ALIAS_OF}"
+      WORKTREE_BLOCK_NOTE="not appended: AGENTS.local.md is the same file as ${AGENTS_ALIAS_OF}"
     else
       validate_agents_destination AGENTS.local.md
       WORKTREE_BLOCK="${WORKTREE_BLOCK_BODY//\{\{RIBBON_HOME\}\}/"$(shell_word "${RIBBON_HOME}")"}"

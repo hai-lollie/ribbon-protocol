@@ -279,11 +279,12 @@ be written and Ribbon's hook is not in it; when a `post-checkout` hook belongs t
 tool; or when Ribbon's hook is there but cannot run. A Ribbon hook that is in place and can run
 stays in place when the installer cannot refresh it.
 
-In those cases the installer also appends a marked worktree block to `AGENTS.local.md` once, and
-a new pointer in `AGENTS.md` tells an agent where to read the local files in a linked worktree.
-If `AGENTS.local.md` is a link to a Claude file, the block is skipped and the summary says so.
-Once the hook is in place again, `--update` says that the block can go; the installer never
-rewrites the file.
+When the installer knows this before any write, it also appends a marked worktree block to
+`AGENTS.local.md` once. Where `AGENTS.md` has no pointer yet, the pointer it writes there also
+tells an agent where to read the local files in a linked worktree; an existing pointer stays as
+it is. If `AGENTS.local.md` is the same file as a Claude file, for example a link to it, the
+block is skipped and the summary says so. Once the hook is in place again, `--update` says that
+the block can go; the installer never rewrites the file.
 
 This project uses `AGENTS.md`. If you use Claude Code, connect its instruction
 files yourself once per project — either as symlinks in this direction:

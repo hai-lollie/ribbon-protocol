@@ -1024,7 +1024,7 @@ test_update_skips_the_worktree_block_through_an_agents_alias() {
   [[ ${rc} -eq 0 ]] || return 1
   cmp -s "${PROJ}/CLAUDE.local.md" "${SANDBOX}/claude-local-copy" || return 1
   ! grep -q '<!-- ribbon:worktrees:start -->' "${PROJ}/CLAUDE.local.md" || return 1
-  grep -qxF '  worktree block:  not appended: AGENTS.local.md is a link to CLAUDE.local.md' \
+  grep -qxF '  worktree block:  not appended: AGENTS.local.md is the same file as CLAUDE.local.md' \
     "${SANDBOX}/summary.txt"
 }
 
@@ -1041,7 +1041,7 @@ test_update_with_a_foreign_hook_skips_the_worktree_block_through_an_agents_alias
     && rc=0 || rc=$?
   [[ ${rc} -eq 0 ]] || return 1
   cmp -s "${PROJ}/CLAUDE.local.md" "${SANDBOX}/claude-local-copy" || return 1
-  grep -qxF '  worktree block:  not appended: AGENTS.local.md is a link to CLAUDE.local.md' \
+  grep -qxF '  worktree block:  not appended: AGENTS.local.md is the same file as CLAUDE.local.md' \
     "${SANDBOX}/summary.txt"
 }
 
@@ -1074,7 +1074,9 @@ test_update_with_a_read_only_working_hook_writes_no_worktree_block() {
   new_sandbox
   install example-project "${PROJ}" >/dev/null 2>&1 || return 1
   chmod 0555 "${PROJ}/.git/hooks/post-checkout" || return 1
-  install --update example-project >/dev/null 2>&1 || return 1
+  install --update example-project > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  grep -qxF '  worktrees:       post-checkout hook could not be written — left as is' \
+    "${SANDBOX}/summary.txt" || return 1
   ! grep -q '<!-- ribbon:worktrees:start -->' "${PROJ}/AGENTS.local.md"
 }
 
@@ -1091,7 +1093,9 @@ test_update_with_a_read_only_hooks_directory_and_a_working_hook_writes_no_worktr
   new_sandbox
   install example-project "${PROJ}" >/dev/null 2>&1 || return 1
   chmod 0555 "${PROJ}/.git/hooks" || return 1
-  install --update example-project >/dev/null 2>&1 || return 1
+  install --update example-project > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  grep -qxF '  worktrees:       hooks directory not writable — post-checkout hook not installed' \
+    "${SANDBOX}/summary.txt" || return 1
   ! grep -q '<!-- ribbon:worktrees:start -->' "${PROJ}/AGENTS.local.md"
 }
 
@@ -1162,6 +1166,37 @@ test_printed_command_can_be_pasted_from_a_template_path_with_a_space() {
   assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
 }
 
+test_update_skips_the_worktree_block_when_agents_local_shares_a_file_with_claude() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  mkdir -p "${SANDBOX}/dotfiles"
+  mv "${PROJ}/AGENTS.local.md" "${SANDBOX}/dotfiles/agents-local.md"
+  ln -s "${SANDBOX}/dotfiles/agents-local.md" "${PROJ}/AGENTS.local.md"
+  ln -s AGENTS.local.md "${PROJ}/CLAUDE.local.md"
+  printf '#!/bin/sh\n# some other tool owns this hook\nexit 0\n' \
+    > "${PROJ}/.git/hooks/post-checkout"
+  install --update example-project > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  ! grep -q '<!-- ribbon:worktrees:start -->' "${SANDBOX}/dotfiles/agents-local.md" || return 1
+  grep -qxF '  worktree block:  not appended: AGENTS.local.md is the same file as CLAUDE.local.md' \
+    "${SANDBOX}/summary.txt"
+}
+
+test_summary_command_can_be_pasted_from_a_template_path_with_a_space() {
+  new_sandbox
+  managed_hooks
+  ln -s "$(cd "${SCRIPT_DIR}/.." && pwd)" "${SANDBOX}/my ribbon" || return 1
+  install_with_managed_hooks example-project "${PROJ}" \
+    --ribbon-home "${SANDBOX}/my ribbon" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed pasted-summary "${WT}" || return 1
+  local command
+  command="$(sed -n 's#^ \{19\}\(.*\) <path>$#\1#p' "${SANDBOX}/summary.txt")"
+  [[ -n "${command}" ]] || return 1
+  sh -c "${command} ${WT}" >/dev/null 2>&1 || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+}
+
 TESTS=(
   test_install_writes_managed_hook
   test_worktree_gets_links_to_local_files
@@ -1224,6 +1259,7 @@ TESTS=(
   test_install_with_ribbon_hook_writes_no_worktree_block
   test_update_skips_the_worktree_block_through_an_agents_alias
   test_update_with_a_foreign_hook_skips_the_worktree_block_through_an_agents_alias
+  test_update_skips_the_worktree_block_when_agents_local_shares_a_file_with_claude
   test_pointer_without_hook_tells_where_to_read_the_local_files
   test_pointer_with_ribbon_hook_is_unchanged
   test_install_with_unwritable_hooks_directory_appends_the_worktree_block
@@ -1235,6 +1271,7 @@ TESTS=(
   test_block_names_a_template_path_with_an_ampersand
   test_update_notes_a_worktree_block_that_is_no_longer_needed
   test_printed_command_can_be_pasted_from_a_template_path_with_a_space
+  test_summary_command_can_be_pasted_from_a_template_path_with_a_space
 )
 
 main() {
