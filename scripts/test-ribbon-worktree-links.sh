@@ -1197,6 +1197,23 @@ test_summary_command_can_be_pasted_from_a_template_path_with_a_space() {
   assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
 }
 
+test_update_skips_the_worktree_block_behind_a_link_from_docs() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  mkdir -p "${PROJ}/docs"
+  ln -s ../AGENTS.local.md "${PROJ}/docs/local-notes.md" || return 1
+  printf '#!/bin/sh\n# some other tool owns this hook\nexit 0\n' \
+    > "${PROJ}/.git/hooks/post-checkout"
+  local rc
+  install --update example-project > "${SANDBOX}/summary.txt" 2> "${SANDBOX}/err.txt" \
+    && rc=0 || rc=$?
+  [[ ${rc} -eq 0 ]] || return 1
+  ! grep -q '<!-- ribbon:worktrees:start -->' "${PROJ}/AGENTS.local.md" || return 1
+  grep -qF '  worktree block:  not appended: ' "${SANDBOX}/summary.txt" || return 1
+  grep -qF 'AGENTS.local.md would change existing project path: docs/local-notes.md' \
+    "${SANDBOX}/summary.txt"
+}
+
 TESTS=(
   test_install_writes_managed_hook
   test_worktree_gets_links_to_local_files
@@ -1260,6 +1277,7 @@ TESTS=(
   test_update_skips_the_worktree_block_through_an_agents_alias
   test_update_with_a_foreign_hook_skips_the_worktree_block_through_an_agents_alias
   test_update_skips_the_worktree_block_when_agents_local_shares_a_file_with_claude
+  test_update_skips_the_worktree_block_behind_a_link_from_docs
   test_pointer_without_hook_tells_where_to_read_the_local_files
   test_pointer_with_ribbon_hook_is_unchanged
   test_install_with_unwritable_hooks_directory_appends_the_worktree_block

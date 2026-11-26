@@ -1081,8 +1081,14 @@ prepare_worktree_hook() {
       # summary says why the block is missing.
       WORKTREE_BLOCK_NOTE="not appended: AGENTS.local.md is the same file as ${AGENTS_ALIAS_OF}"
     else
-      validate_agents_destination AGENTS.local.md
       WORKTREE_BLOCK="${WORKTREE_BLOCK_BODY//\{\{RIBBON_HOME\}\}/"$(shell_word "${RIBBON_HOME}")"}"
+      # Any other reason not to append is a skip too, and the summary says
+      # why: an optional block never fails the run, and nothing is written.
+      local reason
+      if ! reason="$(validate_agents_destination AGENTS.local.md 2>&1)"; then
+        WORKTREE_BLOCK=''
+        WORKTREE_BLOCK_NOTE="not appended: ${reason#ribbon-new-project: }"
+      fi
     fi
   fi
 }

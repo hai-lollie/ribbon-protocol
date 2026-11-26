@@ -283,8 +283,9 @@ When the installer knows this before any write, it also appends a marked worktre
 `AGENTS.local.md` once. Where `AGENTS.md` has no pointer yet, the pointer it writes there also
 tells an agent where to read the local files in a linked worktree; an existing pointer stays as
 it is. If `AGENTS.local.md` is the same file as a Claude file, for example a link to it, the
-block is skipped and the summary says so. Once the hook is in place again, `--update` says that
-the block can go; the installer never rewrites the file.
+block is skipped and the summary says so. The same happens when writing the block would change
+a file under `docs/` or `rules/`. Once the hook is in place again, `--update` says that the
+block can go; the installer never rewrites the file.
 
 This project uses `AGENTS.md`. If you use Claude Code, connect its instruction
 files yourself once per project — either as symlinks in this direction:
