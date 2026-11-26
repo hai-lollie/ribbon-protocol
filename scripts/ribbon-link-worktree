@@ -1,0 +1,70 @@
+#!/bin/sh
+# ribbon:standalone:link-worktree
+# Makes the worktree links when no hook does: a tool that manages the hooks
+# of every repository can keep ribbon-new-project from installing its
+# post-checkout hook, so a worktree added afterwards gets no local files.
+# This command runs the standalone-post-checkout file that sits beside it,
+# with the worktree root as the working directory. The link rule lives in
+# that file only; this command holds no copy of it. It never replaces a
+# file or a link that exists.
+#
+# Usage:
+#   ribbon-link-worktree <worktree-path>
+
+if [ $# -ne 1 ]; then
+  printf '%s\n' 'ribbon-link-worktree: usage: ribbon-link-worktree <worktree-path>' >&2
+  exit 1
+fi
+case $1 in
+  -h|--help)
+    printf 'Usage:\n  ribbon-link-worktree <worktree-path>\n'
+    exit 0
+    ;;
+  -*)
+    printf '%s\n' 'ribbon-link-worktree: usage: ribbon-link-worktree <worktree-path>' >&2
+    exit 1
+    ;;
+esac
+path=$1
+
+# The hook file sits beside this command: the directory part of $0, or the
+# current directory when $0 has no slash. Made absolute before any cd.
+case $0 in
+  */*) beside=${0%/*} ;;
+  *) beside=. ;;
+esac
+hook=$(cd "${beside}" && pwd)/standalone-post-checkout
+
+if [ ! -d "${path}" ]; then
+  printf 'ribbon-link-worktree: not a directory: %s\n' "${path}" >&2
+  exit 1
+fi
+if ! cd "${path}" 2>/dev/null; then
+  printf 'ribbon-link-worktree: not a directory: %s\n' "${path}" >&2
+  exit 1
+fi
+if ! root=$(git rev-parse --show-toplevel 2>/dev/null); then
+  printf 'ribbon-link-worktree: not a git worktree: %s\n' "${path}" >&2
+  exit 1
+fi
+
+# Main checkout or linked worktree, told apart the way the hook file does:
+# the first 'worktree' path of 'git worktree list --porcelain' is the main
+# checkout. In the main checkout the hook file does not run.
+main=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
+if [ "${root}" = "${main}" ]; then
+  printf '%s: main checkout, nothing to link\n' "${root}"
+  exit 0
+fi
+
+if [ ! -r "${hook}" ]; then
+  printf '%s\n' 'ribbon-link-worktree: cannot find standalone-post-checkout beside this command' >&2
+  exit 1
+fi
+( cd "${root}" && sh "${hook}" )
+status=$?
+if [ "${status}" -ne 0 ]; then
+  exit "${status}"
+fi
+printf '%s: worktree links ensured\n' "${root}"
+exit 0

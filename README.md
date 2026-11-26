@@ -113,10 +113,11 @@ ribbon-protocol/
 │   ├── ribbon-new-project                     unpacks or updates a per-project standalone instance
 │   ├── ribbon-seed-project                    the full install into a project repository
 │   ├── standalone-post-checkout               the post-checkout hook template the installer copies into git projects
+│   ├── ribbon-link-worktree                   makes the worktree links when no hook does
 │   ├── test-ribbon-bash-versions.sh           both installers under real bash 3.2 and 4.4 (opt-in, needs podman)
 │   ├── test-ribbon-new-project.sh             the standalone installer's test suite
 │   ├── test-ribbon-seed-project.sh            the full installer's test suite
-│   └── test-ribbon-worktree-links.sh          the worktree-link hook's test suite
+│   └── test-ribbon-worktree-links.sh          the worktree-link hook and command's test suite
 ├── VERSION                                    "ribbon N"
 ├── Ribbon-Protocol-Multi-LLM-FieldGuide.pdf   the reference guide, October 2026, working edition 1.0
 └── docs/                                      copied into every project

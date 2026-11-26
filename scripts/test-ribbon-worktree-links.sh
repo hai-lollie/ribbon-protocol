@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Tests for the worktree links of scripts/ribbon-new-project: one function
-# per test, run in order by main. Each test builds its own throwaway sandbox
-# with a real git repository (the non-git test excepted) and its own projects
-# dir; the real template repo provides the seeds. The git environment is
-# pinned so no user or system config leaks into the sandboxes.
+# Tests for the worktree links of scripts/ribbon-new-project and for
+# scripts/ribbon-link-worktree: one function per test, run in order by main.
+# Each test builds its own throwaway sandbox with a real git repository (the
+# tests that need none excepted) and its own projects dir; the real template
+# repo provides the seeds. The git environment is pinned so no user or
+# system config leaks into the sandboxes.
 set -u
 
 export GIT_CONFIG_GLOBAL=/dev/null
@@ -37,12 +38,15 @@ record() {
 }
 
 #######################################
-# Remove the current sandbox, if any.
+# Remove the current sandbox, if any, after making it writable again: a
+# test may have made a directory read-only (the managed-hooks stand-in).
 # Globals:
 #   SANDBOX
 #######################################
 cleanup() {
-  [[ -n "${SANDBOX}" ]] && rm -rf "${SANDBOX}"
+  [[ -n "${SANDBOX}" ]] || return 0
+  chmod -R u+rwX "${SANDBOX}"
+  rm -rf "${SANDBOX}"
 }
 trap cleanup EXIT
 
@@ -81,6 +85,62 @@ gitc() {
 #######################################
 install() {
   "${INSTALLER}" --projects "${PROJECTS}" "$@"
+}
+
+#######################################
+# Create the stand-in for hooks that a tool manages: a read-only directory
+# of three stand-in hooks and a gitconfig that points core.hooksPath at it.
+# Globals:
+#   SANDBOX
+#######################################
+managed_hooks() {
+  mkdir -p "${SANDBOX}/managed-hooks"
+  local hook
+  for hook in pre-commit pre-push post-checkout; do
+    printf '#!/bin/sh\n# a tool manages this hook\nexit 0\n' \
+      > "${SANDBOX}/managed-hooks/${hook}"
+    chmod 0755 "${SANDBOX}/managed-hooks/${hook}"
+  done
+  chmod 0555 "${SANDBOX}/managed-hooks"
+  printf '[core]\n\thooksPath = %s\n' "${SANDBOX}/managed-hooks" \
+    > "${SANDBOX}/managed-gitconfig"
+}
+
+#######################################
+# Run the installer with the managed-hooks gitconfig as the system
+# configuration, so core.hooksPath points at the managed directory and the
+# installer leaves the hooks alone.
+# Arguments:
+#   Remaining installer arguments.
+# Globals:
+#   SANDBOX, PROJECTS
+#######################################
+install_with_managed_hooks() {
+  env -u GIT_CONFIG_NOSYSTEM GIT_CONFIG_SYSTEM="${SANDBOX}/managed-gitconfig" \
+    "${INSTALLER}" --projects "${PROJECTS}" "$@"
+}
+
+#######################################
+# Add a worktree to the sandbox project under the managed-hooks system
+# configuration, so the stand-in post-checkout runs and links nothing.
+# Arguments:
+#   Branch name, worktree path.
+# Globals:
+#   SANDBOX, PROJ
+#######################################
+worktree_add_managed() {
+  env -u GIT_CONFIG_NOSYSTEM GIT_CONFIG_SYSTEM="${SANDBOX}/managed-gitconfig" \
+    git -C "${PROJ}" -c user.name='Ribbon Test' -c user.email='ribbon@test.invalid' \
+    worktree add -q -b "$1" "$2"
+}
+
+#######################################
+# Run the command under test with its arguments.
+# Arguments:
+#   Remaining command arguments.
+#######################################
+link() {
+  "${SCRIPT_DIR}/ribbon-link-worktree" "$@"
 }
 
 #######################################
@@ -278,6 +338,245 @@ test_linked_worktree_project_gets_no_hook() {
   grep -q "not the repository's main worktree" "${SANDBOX}/summary.txt"
 }
 
+test_command_links_worktree_added_without_the_hook() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  [[ ! -e "${PROJ}/.git/hooks/post-checkout" ]] || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  printf '# claude local\n' > "${PROJ}/CLAUDE.local.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed managed "${WT}" || return 1
+  [[ ! -e "${WT}/AGENTS.local.md" && ! -e "${WT}/herdr-config.md" \
+    && ! -e "${WT}/CLAUDE.md" && ! -e "${WT}/CLAUDE.local.md" ]] || return 1
+  link "${WT}" >/dev/null 2>&1 || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md
+}
+
+test_command_links_local_files_into_linked_worktree() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  printf '# claude local\n' > "${PROJ}/CLAUDE.local.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed plain "${WT}" || return 1
+  local out rc
+  out=$(link "${WT}") && rc=0 || rc=$?
+  [[ ${rc} -eq 0 ]] || return 1
+  [[ "${out}" = "${WT}: worktree links ensured" ]] || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md
+}
+
+test_command_is_idempotent() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  printf '# claude local\n' > "${PROJ}/CLAUDE.local.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed twice "${WT}" || return 1
+  local first second rc
+  first=$(link "${WT}") || return 1
+  second=$(link "${WT}") && rc=0 || rc=$?
+  [[ ${rc} -eq 0 && "${second}" = "${first}" ]] || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md
+}
+
+test_command_keeps_tracked_file() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  gitc add CLAUDE.md
+  gitc commit -q -m 'track CLAUDE.md' || return 1
+  printf '# claude local\n' > "${PROJ}/CLAUDE.local.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed tracked "${WT}" || return 1
+  link "${WT}" >/dev/null 2>&1 || return 1
+  [[ -f "${WT}/CLAUDE.md" && ! -L "${WT}/CLAUDE.md" ]] || return 1
+  [[ "$(cat "${WT}/CLAUDE.md")" = '# claude' ]] || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.local.md
+}
+
+test_command_leaves_existing_link_alone() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  printf '# claude local\n' > "${PROJ}/CLAUDE.local.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed dangling "${WT}" || return 1
+  ln -s "${PROJ}/no-such-file" "${WT}/CLAUDE.local.md" || return 1
+  link "${WT}" >/dev/null 2>&1 || return 1
+  [[ "$(readlink "${WT}/CLAUDE.local.md")" = "${PROJ}/no-such-file" ]] || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+}
+
+test_command_skips_absent_local_file() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '# claude local\n' > "${PROJ}/CLAUDE.local.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed absent "${WT}" || return 1
+  link "${WT}" >/dev/null 2>&1 || return 1
+  [[ ! -e "${WT}/CLAUDE.md" && ! -L "${WT}/CLAUDE.md" ]] || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.local.md
+}
+
+test_command_on_main_checkout_links_nothing() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  local out rc
+  out=$(link "${PROJ}") && rc=0 || rc=$?
+  [[ ${rc} -eq 0 ]] || return 1
+  [[ "${out}" = "${PROJ}: main checkout, nothing to link" ]] || return 1
+  [[ -f "${PROJ}/AGENTS.local.md" && ! -L "${PROJ}/AGENTS.local.md" ]] || return 1
+  [[ -f "${PROJ}/herdr-config.md" && ! -L "${PROJ}/herdr-config.md" ]] || return 1
+  [[ ! -e "${PROJ}/CLAUDE.md" && ! -L "${PROJ}/CLAUDE.md" ]] || return 1
+  [[ ! -e "${PROJ}/CLAUDE.local.md" && ! -L "${PROJ}/CLAUDE.local.md" ]]
+}
+
+test_command_from_subdirectory_links_worktree_root() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  printf '# claude local\n' > "${PROJ}/CLAUDE.local.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed subdir "${WT}" || return 1
+  mkdir -p "${WT}/sub" || return 1
+  local out rc
+  out=$(link "${WT}/sub") && rc=0 || rc=$?
+  [[ ${rc} -eq 0 && "${out}" = "${WT}: worktree links ensured" ]] || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md || return 1
+  [[ ! -e "${WT}/sub/CLAUDE.md" && ! -L "${WT}/sub/CLAUDE.md" ]]
+}
+
+test_command_with_space_in_path_gets_links() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  printf '# claude local\n' > "${PROJ}/CLAUDE.local.md"
+  WT="${SANDBOX}/my worktree"
+  worktree_add_managed spaced "${WT}" || return 1
+  local out rc
+  out=$(link "${WT}") && rc=0 || rc=$?
+  [[ ${rc} -eq 0 && "${out}" = "${WT}: worktree links ensured" ]] || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md
+}
+
+test_command_without_argument_prints_usage() {
+  cleanup
+  SANDBOX="$(mktemp -d)"
+  local out rc
+  out=$(link 2>"${SANDBOX}/err") && rc=0 || rc=$?
+  [[ ${rc} -eq 1 && -z "${out}" ]] || return 1
+  [[ "$(cat "${SANDBOX}/err")" \
+    = 'ribbon-link-worktree: usage: ribbon-link-worktree <worktree-path>' ]]
+}
+
+test_command_with_two_arguments_prints_usage() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  WT="${SANDBOX}/wt"
+  worktree_add_managed two "${WT}" || return 1
+  local out rc f
+  out=$(link "${WT}" "${PROJ}" 2>"${SANDBOX}/err") && rc=0 || rc=$?
+  [[ ${rc} -eq 1 && -z "${out}" ]] || return 1
+  [[ "$(cat "${SANDBOX}/err")" \
+    = 'ribbon-link-worktree: usage: ribbon-link-worktree <worktree-path>' ]] || return 1
+  for f in AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md; do
+    [[ ! -e "${WT}/${f}" && ! -L "${WT}/${f}" ]] || return 1
+  done
+}
+
+test_command_h_prints_usage() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  WT="${SANDBOX}/wt"
+  worktree_add_managed help "${WT}" || return 1
+  local expected='Usage:
+  ribbon-link-worktree <worktree-path>'
+  local out rc f
+  out=$(cd "${WT}" && link -h 2>"${SANDBOX}/err-h") && rc=0 || rc=$?
+  [[ ${rc} -eq 0 && ! -s "${SANDBOX}/err-h" ]] || return 1
+  [[ "${out}" = "${expected}" ]] || return 1
+  for f in AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md; do
+    [[ ! -e "${WT}/${f}" && ! -L "${WT}/${f}" ]] || return 1
+  done
+  out=$(link --help 2>"${SANDBOX}/err-help") && rc=0 || rc=$?
+  [[ ${rc} -eq 0 && ! -s "${SANDBOX}/err-help" ]] || return 1
+  [[ "${out}" = "${expected}" ]]
+}
+
+test_command_rejects_path_that_is_not_a_directory() {
+  cleanup
+  SANDBOX="$(mktemp -d)"
+  printf 'plain\n' > "${SANDBOX}/plain-file"
+  local out rc
+  out=$(link "${SANDBOX}/plain-file" 2>"${SANDBOX}/err") && rc=0 || rc=$?
+  [[ ${rc} -eq 1 && -z "${out}" ]] || return 1
+  [[ "$(cat "${SANDBOX}/err")" \
+    = "ribbon-link-worktree: not a directory: ${SANDBOX}/plain-file" ]]
+}
+
+test_command_rejects_path_outside_git_repository() {
+  cleanup
+  SANDBOX="$(mktemp -d)"
+  mkdir -p "${SANDBOX}/nogit"
+  local out rc
+  out=$(link "${SANDBOX}/nogit" 2>"${SANDBOX}/err") && rc=0 || rc=$?
+  [[ ${rc} -eq 1 && -z "${out}" ]] || return 1
+  [[ "$(cat "${SANDBOX}/err")" \
+    = "ribbon-link-worktree: not a git worktree: ${SANDBOX}/nogit" ]]
+}
+
+test_command_reports_missing_hook_file_beside_it() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  WT="${SANDBOX}/wt"
+  worktree_add_managed lonely "${WT}" || return 1
+  mkdir -p "${SANDBOX}/lonely"
+  cp "${SCRIPT_DIR}/ribbon-link-worktree" "${SANDBOX}/lonely/ribbon-link-worktree" \
+    || return 1
+  local out rc
+  out=$("${SANDBOX}/lonely/ribbon-link-worktree" "${WT}" 2>"${SANDBOX}/err") \
+    && rc=0 || rc=$?
+  [[ ${rc} -eq 1 && -z "${out}" ]] || return 1
+  [[ "$(cat "${SANDBOX}/err")" \
+    = 'ribbon-link-worktree: cannot find standalone-post-checkout beside this command' ]]
+}
+
+test_command_rejects_an_unknown_option() {
+  cleanup
+  SANDBOX="$(mktemp -d)"
+  local out rc
+  out=$(link -x 2>"${SANDBOX}/err") && rc=0 || rc=$?
+  [[ ${rc} -eq 1 && -z "${out}" ]] || return 1
+  [[ "$(cat "${SANDBOX}/err")" \
+    = 'ribbon-link-worktree: usage: ribbon-link-worktree <worktree-path>' ]]
+}
+
+test_command_exits_with_the_hook_file_status() {
+  new_sandbox
+  WT="${SANDBOX}/wt"
+  gitc worktree add -q -b failing "${WT}" || return 1
+  mkdir -p "${SANDBOX}/failing"
+  cp "${SCRIPT_DIR}/ribbon-link-worktree" "${SANDBOX}/failing/ribbon-link-worktree" \
+    || return 1
+  printf '#!/bin/sh\nexit 3\n' > "${SANDBOX}/failing/standalone-post-checkout"
+  local out rc
+  out=$("${SANDBOX}/failing/ribbon-link-worktree" "${WT}" 2>"${SANDBOX}/err") \
+    && rc=0 || rc=$?
+  [[ ${rc} -eq 3 && -z "${out}" ]]
+}
+
 TESTS=(
   test_install_writes_managed_hook
   test_worktree_gets_links_to_local_files
@@ -295,6 +594,23 @@ TESTS=(
   test_custom_hooks_path_left_alone
   test_subdirectory_project_gets_no_hook
   test_linked_worktree_project_gets_no_hook
+  test_command_links_worktree_added_without_the_hook
+  test_command_links_local_files_into_linked_worktree
+  test_command_is_idempotent
+  test_command_keeps_tracked_file
+  test_command_leaves_existing_link_alone
+  test_command_skips_absent_local_file
+  test_command_on_main_checkout_links_nothing
+  test_command_from_subdirectory_links_worktree_root
+  test_command_with_space_in_path_gets_links
+  test_command_without_argument_prints_usage
+  test_command_with_two_arguments_prints_usage
+  test_command_h_prints_usage
+  test_command_rejects_path_that_is_not_a_directory
+  test_command_rejects_path_outside_git_repository
+  test_command_reports_missing_hook_file_beside_it
+  test_command_rejects_an_unknown_option
+  test_command_exits_with_the_hook_file_status
 )
 
 main() {
