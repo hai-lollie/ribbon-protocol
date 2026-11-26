@@ -17,10 +17,11 @@
 # hooks are its own, it also installs a managed post-checkout hook that links
 # the untracked local files into each new worktree. When Ribbon's hook is not
 # in place, it writes nothing into a hook that is not its own, and the summary
-# prints scripts/ribbon-link-worktree. When it knows so before any write,
-# AGENTS.local.md also gains a worktree block, and an AGENTS.md without a
-# pointer gains one for linked worktrees. Only the final artifacts
-# (docs/adrs, docs/diagrams) are ever written into the project repository.
+# prints scripts/ribbon-link-worktree, unless git cannot say where its hooks
+# live. When it knows so before any write, AGENTS.local.md also gains a
+# worktree block, and an AGENTS.md without a pointer gains one for linked
+# worktrees. Only the final artifacts (docs/adrs, docs/diagrams) are ever
+# written into the project repository.
 #
 # --update refreshes template and schema files and the seed version in an
 # existing instance. Project agent instructions are only appended when

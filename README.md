@@ -272,6 +272,10 @@ command to run after each `git worktree add <path>`, before an agent starts in t
 It makes the same links as the hook and changes nothing that exists. Linux and macOS run the
 same commands.
 
+The command is not printed when git itself cannot say where its hooks live, as after
+`git config core.hooksPath ""`: the summary then says that it could not resolve the hooks
+location. The command still works there, by hand.
+
 Ribbon's hook is not in place when a tool manages the hooks of every repository on the machine,
 such as a data-loss-prevention tool that sets `core.hooksPath` (the summary also names the file
 that sets it); when the repository sets its own `core.hooksPath`; when the hooks directory cannot
