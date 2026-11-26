@@ -15,11 +15,11 @@
 # this machine — add it to .gitignore), and adds a one-line pointer to
 # AGENTS.md so agents find it. When the project is a git repository whose
 # hooks are its own, it also installs a managed post-checkout hook that links
-# the untracked local files into each new worktree. When the hooks are not the
-# repository's own, it writes nothing there and prints the command
-# scripts/ribbon-link-worktree, which makes the same links. Only the final
-# artifacts (docs/adrs, docs/diagrams) are ever written into the project
-# repository.
+# the untracked local files into each new worktree. When Ribbon's hook is not
+# in place, it writes nothing into a hook that is not its own: the summary
+# prints scripts/ribbon-link-worktree, AGENTS.local.md gains a worktree block
+# and AGENTS.md a pointer for linked worktrees. Only the final artifacts
+# (docs/adrs, docs/diagrams) are ever written into the project repository.
 #
 # --update refreshes template and schema files and the seed version in an
 # existing instance. Project agent instructions are only appended when
@@ -56,14 +56,15 @@ WORKTREE_NOTE=''
 WORKTREE_HOOK=''
 WORKTREE_HOOK_SKIPPED=0
 WORKTREE_LINK_COMMAND_NEEDED=0
+WORKTREE_HOOK_IN_PLACE=0
 WORKTREE_BLOCK=''
+WORKTREE_BLOCK_NOTE=''
 WORKTREE_BLOCK_BODY=$(cat <<'EOF'
 <!-- ribbon:worktrees:start -->
 ## Worktrees on this machine
 
-Ribbon's `post-checkout` hook was not installed in this repository, so a new `git worktree`
-gets no links by itself. After each `git worktree add <path>`, and before an agent starts in
-`<path>`, run:
+When `git worktree add <path>` leaves `<path>` without `AGENTS.local.md`, run this before an
+agent starts in `<path>`:
 
     {{RIBBON_HOME}}/scripts/ribbon-link-worktree <path>
 
@@ -537,19 +538,44 @@ PY
 }
 
 #######################################
-# Refuse an append through an AGENTS alias of an existing Claude file.
-# A Claude symlink to a regular AGENTS file is the supported direction.
+# Name the Claude file that an append to an AGENTS file would write into:
+# a hard link, or a link in the wrong direction. A Claude symlink to a
+# regular AGENTS file is the supported direction.
+# Globals:
+#   PROJECT_REPO, AGENTS_ALIAS_OF (set to that file, or to nothing)
+# Arguments:
+#   1: an AGENTS file name.
+# Outputs:
+#   0 when the file aliases a Claude file, 1 when it does not.
 #######################################
-validate_agents_destination() {
-  local name="$1" destination="${PROJECT_REPO}/$1" claude
-  validate_existing_project_paths "${destination}"
+agents_file_alias() {
+  local destination="${PROJECT_REPO}/$1" claude
+  AGENTS_ALIAS_OF=''
   for claude in CLAUDE.md CLAUDE.local.md; do
     [[ "${destination}" -ef "${PROJECT_REPO}/${claude}" ]] || continue
     if [[ ! -L "${destination}" && -L "${PROJECT_REPO}/${claude}" ]]; then
       continue
     fi
-    die "${name} aliases ${claude}; refusing to write it"
+    AGENTS_ALIAS_OF="${claude}"
+    return 0
   done
+  return 1
+}
+
+#######################################
+# Refuse an append through an AGENTS alias of an existing Claude file.
+# A Claude symlink to a regular AGENTS file is the supported direction.
+# Globals:
+#   AGENTS_ALIAS_OF (set)
+# Arguments:
+#   1: an AGENTS file name.
+#######################################
+validate_agents_destination() {
+  local name="$1"
+  validate_existing_project_paths "${PROJECT_REPO}/$1"
+  if agents_file_alias "${name}"; then
+    die "${name} aliases ${AGENTS_ALIAS_OF}; refusing to write it"
+  fi
 }
 
 prepare_instruction_files() {
@@ -750,6 +776,27 @@ write_pointer() {
 write_local_block() {
   if [[ -n "${LOCAL_BLOCK}" ]]; then
     printf '%s\n' "${LOCAL_BLOCK}" >> "${PROJECT_REPO}/AGENTS.local.md"
+  fi
+}
+
+#######################################
+# Print a path as one word that a shell reads back unchanged. A path of
+# ASCII letters, digits, slash, dot, underscore and dash is printed as it
+# is. Any other path is put in single quotes, so that a command printed for
+# a person to paste also works when the template path holds a space.
+# Arguments:
+#   1: a path.
+# Outputs:
+#   The path on STDOUT.
+#######################################
+shell_word() {
+  local rest
+  rest="$(printf '%s' "$1" | LC_ALL=C tr -d 'A-Za-z0-9_./-')"
+  if [[ -z "${rest}" ]]; then
+    printf '%s\n' "$1"
+  else
+    local escaped="${1//\'/\'\\\'\'}"
+    printf "'%s'\n" "${escaped}"
   fi
 }
 
@@ -1003,16 +1050,23 @@ prepare_worktree_hook() {
       WORKTREE_HOOK_SKIPPED=1
     else
       WORKTREE_NOTE='post-checkout hook refreshed from the template'
+      # A marked hook that git can run is in place, even when this run
+      # cannot refresh it.
+      if [[ -x "${hook}" ]]; then
+        WORKTREE_HOOK_IN_PLACE=1
+      fi
     fi
   fi
   if (( WORKTREE_HOOK_SKIPPED == 0 )); then
     validate_refresh_destination "${hook}"
     # Two more cases end the decision before any write: the hooks directory
-    # exists and is not writable, or the marked hook itself is not writable.
-    if [[ -d "${hooks_dir}" && ! -w "${hooks_dir}" ]]; then
+    # exists and is not writable, or the hook itself is not writable. They
+    # count only when no marked hook that can run is there. Such a hook stays
+    # in place, and wire_worktree_links keeps today's notes for it.
+    if [[ -d "${hooks_dir}" && ! -w "${hooks_dir}" && ${WORKTREE_HOOK_IN_PLACE} == 0 ]]; then
       WORKTREE_NOTE='hooks directory not writable — post-checkout hook not installed'
       WORKTREE_HOOK_SKIPPED=1
-    elif [[ -e "${hook}" && ! -w "${hook}" ]]; then
+    elif [[ -e "${hook}" && ! -w "${hook}" && ${WORKTREE_HOOK_IN_PLACE} == 0 ]]; then
       WORKTREE_NOTE='post-checkout hook could not be written — left as is'
       WORKTREE_HOOK_SKIPPED=1
     else
@@ -1021,11 +1075,27 @@ prepare_worktree_hook() {
   fi
   if (( WORKTREE_HOOK_SKIPPED == 1 )) \
     && ! grep -qsF '<!-- ribbon:worktrees:start -->' "${PROJECT_REPO}/AGENTS.local.md"; then
-    # The block will be appended, so a wrong-direction alias of AGENTS.local.md
-    # ends the run here before any write, as it does for the standalone block.
-    # A file that already holds the block is not written, so it is not checked.
-    validate_agents_destination AGENTS.local.md
-    WORKTREE_BLOCK="${WORKTREE_BLOCK_BODY//\{\{RIBBON_HOME\}\}/"${RIBBON_HOME}"}"
+    if agents_file_alias AGENTS.local.md; then
+      # Nothing is written through the link. The run goes on, and the
+      # summary says why the block is missing.
+      WORKTREE_BLOCK_NOTE="not appended: AGENTS.local.md is a link to ${AGENTS_ALIAS_OF}"
+    else
+      validate_agents_destination AGENTS.local.md
+      WORKTREE_BLOCK="${WORKTREE_BLOCK_BODY//\{\{RIBBON_HOME\}\}/"$(shell_word "${RIBBON_HOME}")"}"
+    fi
+  fi
+}
+
+#######################################
+# Note that the summary must print the link command. That is so when a
+# write failed and no hook that can run is in place: a marked, executable
+# hook that could not be refreshed is in place, because git runs it.
+# Globals:
+#   WORKTREE_HOOK_IN_PLACE, WORKTREE_LINK_COMMAND_NEEDED (set)
+#######################################
+note_link_command_needed() {
+  if (( WORKTREE_HOOK_IN_PLACE == 0 )); then
+    WORKTREE_LINK_COMMAND_NEEDED=1
   fi
 }
 
@@ -1034,19 +1104,38 @@ wire_worktree_links() {
   local hooks_dir="${WORKTREE_HOOK%/*}"
   if [[ ! -d "${hooks_dir}" ]] && ! mkdir -p "${hooks_dir}"; then
     WORKTREE_NOTE='hooks directory missing and cannot be created — post-checkout hook not installed'
-    WORKTREE_LINK_COMMAND_NEEDED=1
+    note_link_command_needed
     return 0
   fi
   if [[ ! -w "${hooks_dir}" ]]; then
     WORKTREE_NOTE='hooks directory not writable — post-checkout hook not installed'
-    WORKTREE_LINK_COMMAND_NEEDED=1
+    note_link_command_needed
     return 0
   fi
   if ! cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${WORKTREE_HOOK}" 2>/dev/null \
       || ! chmod 0755 "${WORKTREE_HOOK}" 2>/dev/null; then
     WORKTREE_NOTE='post-checkout hook could not be written — left as is'
-    WORKTREE_LINK_COMMAND_NEEDED=1
+    note_link_command_needed
   fi
+}
+
+#######################################
+# Say in the summary when AGENTS.local.md holds a worktree block that no
+# longer does anything, because Ribbon's hook is in place again. The block
+# is never rewritten: the note tells the person that it can go.
+# Globals:
+#   WORKTREE_BLOCK, WORKTREE_BLOCK_NOTE, WORKTREE_HOOK,
+#   WORKTREE_LINK_COMMAND_NEEDED, PROJECT_REPO
+#######################################
+note_stale_worktree_block() {
+  if [[ -n "${WORKTREE_BLOCK}" || -z "${WORKTREE_HOOK}" ]] \
+    || (( WORKTREE_LINK_COMMAND_NEEDED == 1 )); then
+    return 0
+  fi
+  if grep -qsF '<!-- ribbon:worktrees:start -->' "${PROJECT_REPO}/AGENTS.local.md"; then
+    WORKTREE_BLOCK_NOTE="no longer needed: Ribbon's hook is in place, so you may delete it"
+  fi
+  return 0
 }
 
 #######################################
@@ -1071,7 +1160,12 @@ print_summary() {
   local worktree_links_line=''
   if (( WORKTREE_HOOK_SKIPPED == 1 || WORKTREE_LINK_COMMAND_NEEDED == 1 )); then
     worktree_links_line="  worktree links:  Ribbon's post-checkout hook is not in place. After each 'git worktree add <path>', run
-                   ${RIBBON_HOME}/scripts/ribbon-link-worktree <path>
+                   $(shell_word "${RIBBON_HOME}/scripts/ribbon-link-worktree") <path>
+"
+  fi
+  local worktree_block_line=''
+  if [[ -n "${WORKTREE_BLOCK_NOTE}" ]]; then
+    worktree_block_line="  worktree block:  ${WORKTREE_BLOCK_NOTE}
 "
   fi
   cat <<EOF
@@ -1087,7 +1181,7 @@ ${mode} Ribbon Protocol instance for ${PROJECT_NAME}:
 ${import_line}  gitignore:       add AGENTS.local.md — it is personal to this machine
   herdr:           ${HERDR_NOTE}
   worktrees:       ${WORKTREE_NOTE}
-${worktree_links_line}
+${worktree_links_line}${worktree_block_line}
 Next: read the protocol at ${RIBBON_HOME}/AGENTS.md — it governs unchanged.
 EOF
 }
@@ -1130,6 +1224,7 @@ main() {
   import_user_rules
   wire_herdr
   wire_worktree_links
+  note_stale_worktree_block
   print_summary
   warn_unlinked_claude_files
 }

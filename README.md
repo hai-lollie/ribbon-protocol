@@ -263,18 +263,27 @@ Every `git worktree` you add gets symlinks to this machine's untracked Ribbon fi
 `post-checkout` hook the installer places in the project's `.git/hooks`; `--update` refreshes
 a hook it owns. The linked files belong in the project's `.gitignore`.
 
-The hook needs the hooks to be the repository's own. When they are not, the installer writes
-nothing there and says why, with the configuration git reports: a tool that manages the hooks
-of every repository on the machine, such as a data-loss-prevention tool that sets
-`core.hooksPath`; a `core.hooksPath` of the project's own; a hooks directory you cannot
-write; or a `post-checkout` hook that belongs to another tool. In each case the summary
-prints the command to run after each `git worktree add <path>`, before an agent starts in
-the new worktree:
+The hook needs the hooks to be the repository's own. When Ribbon's hook is not in place after a
+run, the installer writes nothing into a hook that is not its own, says why, and prints the
+command to run after each `git worktree add <path>`, before an agent starts in the new worktree:
 
     ~/ribbon-protocol/scripts/ribbon-link-worktree <path>
 
 It makes the same links as the hook and changes nothing that exists. Linux and macOS run the
 same commands.
+
+Ribbon's hook is not in place when a tool manages the hooks of every repository on the machine,
+such as a data-loss-prevention tool that sets `core.hooksPath` (the summary also names the file
+that sets it); when the repository sets its own `core.hooksPath`; when the hooks directory cannot
+be written and Ribbon's hook is not in it; when a `post-checkout` hook belongs to another
+tool; or when Ribbon's hook is there but cannot run. A Ribbon hook that is in place and can run
+stays in place when the installer cannot refresh it.
+
+In those cases the installer also appends a marked worktree block to `AGENTS.local.md` once, and
+a new pointer in `AGENTS.md` tells an agent where to read the local files in a linked worktree.
+If `AGENTS.local.md` is a link to a Claude file, the block is skipped and the summary says so.
+Once the hook is in place again, `--update` says that the block can go; the installer never
+rewrites the file.
 
 This project uses `AGENTS.md`. If you use Claude Code, connect its instruction
 files yourself once per project — either as symlinks in this direction:

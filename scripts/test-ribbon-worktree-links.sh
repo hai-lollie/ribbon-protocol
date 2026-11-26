@@ -273,9 +273,8 @@ expected_worktree_block() {
 <!-- ribbon:worktrees:start -->
 ## Worktrees on this machine
 
-Ribbon's \`post-checkout\` hook was not installed in this repository, so a new \`git worktree\`
-gets no links by itself. After each \`git worktree add <path>\`, and before an agent starts in
-\`<path>\`, run:
+When \`git worktree add <path>\` leaves \`<path>\` without \`AGENTS.local.md\`, run this before an
+agent starts in \`<path>\`:
 
     ${SCRIPT_DIR}/ribbon-link-worktree <path>
 
@@ -871,7 +870,7 @@ test_unwritable_hooks_directory_prints_the_link_command() {
     '  worktrees:       hooks directory not writable — post-checkout hook not installed'
 }
 
-test_read_only_ribbon_hook_prints_the_link_command() {
+test_read_only_working_hook_prints_no_link_command() {
   new_sandbox
   install example-project "${PROJ}" >/dev/null 2>&1 || return 1
   local hook="${PROJ}/.git/hooks/post-checkout"
@@ -879,9 +878,33 @@ test_read_only_ribbon_hook_prints_the_link_command() {
   chmod 0555 "${hook}" || return 1
   install --update example-project > "${SANDBOX}/summary.txt" 2>&1 || return 1
   cmp -s "${hook}" "${SANDBOX}/readonly-copy" || return 1
+  grep -qxF '  worktrees:       post-checkout hook could not be written — left as is' \
+    "${SANDBOX}/summary.txt" || return 1
+  ! grep -q 'worktree links:' "${SANDBOX}/summary.txt"
+}
+
+test_read_only_hooks_directory_with_a_working_hook_prints_no_link_command() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  chmod 0555 "${PROJ}/.git/hooks" || return 1
+  install --update example-project > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  grep -qxF '  worktrees:       hooks directory not writable — post-checkout hook not installed' \
+    "${SANDBOX}/summary.txt" || return 1
+  ! grep -q 'worktree links:' "${SANDBOX}/summary.txt"
+}
+
+test_ribbon_hook_that_cannot_run_prints_the_link_command() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  local hook="${PROJ}/.git/hooks/post-checkout"
+  cp -a "${hook}" "${SANDBOX}/cannot-run-copy" || return 1
+  chmod 0444 "${hook}" || return 1
+  install --update example-project > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  cmp -s "${hook}" "${SANDBOX}/cannot-run-copy" || return 1
   assert_link_command_after "${SANDBOX}/summary.txt" \
     '  worktrees:       post-checkout hook could not be written — left as is'
 }
+
 
 test_foreign_hook_note_is_followed_by_the_link_command() {
   new_sandbox
@@ -988,7 +1011,7 @@ test_install_with_ribbon_hook_writes_no_worktree_block() {
   ! grep -q '<!-- ribbon:worktrees:start -->' "${PROJ}/AGENTS.local.md"
 }
 
-test_update_refuses_the_worktree_block_through_an_agents_alias() {
+test_update_skips_the_worktree_block_through_an_agents_alias() {
   new_sandbox
   install example-project "${PROJ}" >/dev/null 2>&1 || return 1
   mv "${PROJ}/AGENTS.local.md" "${PROJ}/CLAUDE.local.md"
@@ -997,12 +1020,31 @@ test_update_refuses_the_worktree_block_through_an_agents_alias() {
   managed_hooks
   local rc
   install_with_managed_hooks --update example-project \
-    > "${SANDBOX}/out.txt" 2> "${SANDBOX}/err.txt" && rc=0 || rc=$?
-  [[ ${rc} -eq 1 ]] || return 1
-  grep -qF 'AGENTS.local.md aliases CLAUDE.local.md; refusing to write it' \
-    "${SANDBOX}/err.txt" || return 1
-  cmp -s "${PROJ}/CLAUDE.local.md" "${SANDBOX}/claude-local-copy"
+    > "${SANDBOX}/summary.txt" 2> "${SANDBOX}/err.txt" && rc=0 || rc=$?
+  [[ ${rc} -eq 0 ]] || return 1
+  cmp -s "${PROJ}/CLAUDE.local.md" "${SANDBOX}/claude-local-copy" || return 1
+  ! grep -q '<!-- ribbon:worktrees:start -->' "${PROJ}/CLAUDE.local.md" || return 1
+  grep -qxF '  worktree block:  not appended: AGENTS.local.md is a link to CLAUDE.local.md' \
+    "${SANDBOX}/summary.txt"
 }
+
+test_update_with_a_foreign_hook_skips_the_worktree_block_through_an_agents_alias() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '#!/bin/sh\n# some other tool owns this hook\nexit 0\n' \
+    > "${PROJ}/.git/hooks/post-checkout"
+  mv "${PROJ}/AGENTS.local.md" "${PROJ}/CLAUDE.local.md"
+  ln -s CLAUDE.local.md "${PROJ}/AGENTS.local.md" || return 1
+  cp -a "${PROJ}/CLAUDE.local.md" "${SANDBOX}/claude-local-copy" || return 1
+  local rc
+  install --update example-project > "${SANDBOX}/summary.txt" 2> "${SANDBOX}/err.txt" \
+    && rc=0 || rc=$?
+  [[ ${rc} -eq 0 ]] || return 1
+  cmp -s "${PROJ}/CLAUDE.local.md" "${SANDBOX}/claude-local-copy" || return 1
+  grep -qxF '  worktree block:  not appended: AGENTS.local.md is a link to CLAUDE.local.md' \
+    "${SANDBOX}/summary.txt"
+}
+
 
 test_pointer_without_hook_tells_where_to_read_the_local_files() {
   new_sandbox
@@ -1028,14 +1070,31 @@ test_install_with_unwritable_hooks_directory_appends_the_worktree_block() {
   [[ "$(worktree_block_tail "${PROJ}/AGENTS.local.md")" = "$(expected_worktree_block)" ]]
 }
 
-test_update_with_read_only_ribbon_hook_appends_the_worktree_block() {
+test_update_with_a_read_only_working_hook_writes_no_worktree_block() {
   new_sandbox
   install example-project "${PROJ}" >/dev/null 2>&1 || return 1
   chmod 0555 "${PROJ}/.git/hooks/post-checkout" || return 1
   install --update example-project >/dev/null 2>&1 || return 1
+  ! grep -q '<!-- ribbon:worktrees:start -->' "${PROJ}/AGENTS.local.md"
+}
+
+test_update_with_a_ribbon_hook_that_cannot_run_appends_the_worktree_block() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  chmod 0444 "${PROJ}/.git/hooks/post-checkout" || return 1
+  install --update example-project >/dev/null 2>&1 || return 1
   [[ "$(worktree_block_count "${PROJ}/AGENTS.local.md")" == "1" ]] || return 1
   [[ "$(worktree_block_tail "${PROJ}/AGENTS.local.md")" = "$(expected_worktree_block)" ]]
 }
+
+test_update_with_a_read_only_hooks_directory_and_a_working_hook_writes_no_worktree_block() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  chmod 0555 "${PROJ}/.git/hooks" || return 1
+  install --update example-project >/dev/null 2>&1 || return 1
+  ! grep -q '<!-- ribbon:worktrees:start -->' "${PROJ}/AGENTS.local.md"
+}
+
 
 test_update_with_a_present_block_leaves_an_agents_alias_alone() {
   new_sandbox
@@ -1071,8 +1130,36 @@ test_block_names_a_template_path_with_an_ampersand() {
   ln -s "$(cd "${SCRIPT_DIR}/.." && pwd)" "${SANDBOX}/R&D" || return 1
   install_with_managed_hooks example-project "${PROJ}" \
     --ribbon-home "${SANDBOX}/R&D" >/dev/null 2>&1 || return 1
-  grep -qxF "    ${SANDBOX}/R&D/scripts/ribbon-link-worktree <path>" \
+  grep -qxF "    '${SANDBOX}/R&D'/scripts/ribbon-link-worktree <path>" \
     "${PROJ}/AGENTS.local.md"
+}
+
+test_update_notes_a_worktree_block_that_is_no_longer_needed() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  cp "${PROJ}/AGENTS.local.md" "${SANDBOX}/with-block" || return 1
+  install --update example-project > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  cmp -s "${PROJ}/AGENTS.local.md" "${SANDBOX}/with-block" || return 1
+  [[ -f "${PROJ}/.git/hooks/post-checkout" ]] || return 1
+  grep -qxF "  worktree block:  no longer needed: Ribbon's hook is in place, so you may delete it" \
+    "${SANDBOX}/summary.txt"
+}
+
+test_printed_command_can_be_pasted_from_a_template_path_with_a_space() {
+  new_sandbox
+  managed_hooks
+  ln -s "$(cd "${SCRIPT_DIR}/.." && pwd)" "${SANDBOX}/my ribbon" || return 1
+  install_with_managed_hooks example-project "${PROJ}" \
+    --ribbon-home "${SANDBOX}/my ribbon" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed pasted "${WT}" || return 1
+  local command
+  command="$(sed -n 's#^ *\(.*ribbon-link-worktree\) <path>$#\1#p' "${PROJ}/AGENTS.local.md")"
+  [[ -n "${command}" ]] || return 1
+  sh -c "${command} ${WT}" >/dev/null 2>&1 || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
 }
 
 TESTS=(
@@ -1122,7 +1209,9 @@ TESTS=(
   test_hooks_path_with_space_is_reported_whole
   test_managed_hooks_summary_prints_the_link_command
   test_unwritable_hooks_directory_prints_the_link_command
-  test_read_only_ribbon_hook_prints_the_link_command
+  test_read_only_working_hook_prints_no_link_command
+  test_read_only_hooks_directory_with_a_working_hook_prints_no_link_command
+  test_ribbon_hook_that_cannot_run_prints_the_link_command
   test_foreign_hook_note_is_followed_by_the_link_command
   test_summary_with_ribbon_hook_has_no_link_command_line
   test_summary_without_a_repository_has_no_link_command_line
@@ -1133,14 +1222,19 @@ TESTS=(
   test_update_appends_a_missing_worktree_block_without_rewriting_bytes
   test_update_keeps_one_worktree_block
   test_install_with_ribbon_hook_writes_no_worktree_block
-  test_update_refuses_the_worktree_block_through_an_agents_alias
+  test_update_skips_the_worktree_block_through_an_agents_alias
+  test_update_with_a_foreign_hook_skips_the_worktree_block_through_an_agents_alias
   test_pointer_without_hook_tells_where_to_read_the_local_files
   test_pointer_with_ribbon_hook_is_unchanged
   test_install_with_unwritable_hooks_directory_appends_the_worktree_block
-  test_update_with_read_only_ribbon_hook_appends_the_worktree_block
+  test_update_with_a_read_only_working_hook_writes_no_worktree_block
+  test_update_with_a_ribbon_hook_that_cannot_run_appends_the_worktree_block
+  test_update_with_a_read_only_hooks_directory_and_a_working_hook_writes_no_worktree_block
   test_update_with_a_present_block_leaves_an_agents_alias_alone
   test_install_under_managed_hooks_keeps_stderr_to_its_own_notes
   test_block_names_a_template_path_with_an_ampersand
+  test_update_notes_a_worktree_block_that_is_no_longer_needed
+  test_printed_command_can_be_pasted_from_a_template_path_with_a_space
 )
 
 main() {
