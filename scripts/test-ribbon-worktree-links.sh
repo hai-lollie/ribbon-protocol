@@ -1214,6 +1214,72 @@ test_update_skips_the_worktree_block_behind_a_link_from_docs() {
     "${SANDBOX}/summary.txt"
 }
 
+# The command a person would paste from a file: the lines that follow the
+# start line, after a blank line if one comes first, up to the next blank
+# line, joined as they stand. The first line loses its indentation. A
+# template path with a new line makes the command two lines long.
+command_to_paste() { # 1: the file, 2: the start of the start line, 3: the indentation of the first line
+  local line state=before out='' indent
+  indent="$3"
+  while IFS= read -r line; do
+    case "${state}" in
+      before) [[ "${line}" == "$2"* ]] && state=blank ;;
+      blank) [[ -n "${line}" ]] && state=taking ;;
+    esac
+    [[ "${state}" == taking ]] || continue
+    [[ -n "${line}" ]] || break
+    out+="${line#"${indent}"}"$'\n'
+    indent=''
+  done < "$1"
+  printf '%s' "${out%$'\n'}"
+}
+
+# Read the command a person would paste as a shell reads it, and fail unless
+# it is one word that names an executable file: a path with a new line that is
+# not quoted would make two commands of it.
+one_executable_word() { # 1: the command
+  local words=()
+  eval "words=(${1})"
+  (( ${#words[@]} == 1 )) || return 1
+  [[ -x "${words[0]}" ]] || return 1
+}
+
+test_printed_command_can_be_pasted_from_a_template_path_with_a_new_line() {
+  new_sandbox
+  managed_hooks
+  local template="${SANDBOX}/my"$'\n'"ribbon"
+  ln -s "$(cd "${SCRIPT_DIR}/.." && pwd)" "${template}" || return 1
+  install_with_managed_hooks example-project "${PROJ}" \
+    --ribbon-home "${template}" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed pasted-new-line "${WT}" || return 1
+  local command
+  command="$(command_to_paste "${PROJ}/AGENTS.local.md" 'agent starts in' '    ')"
+  command="${command% <path>}"
+  one_executable_word "${command}" || return 1
+  sh -c "${command} ${WT}" >/dev/null 2>&1 || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+}
+
+test_summary_command_can_be_pasted_from_a_template_path_with_a_new_line() {
+  new_sandbox
+  managed_hooks
+  local template="${SANDBOX}/my"$'\n'"ribbon"
+  ln -s "$(cd "${SCRIPT_DIR}/.." && pwd)" "${template}" || return 1
+  install_with_managed_hooks example-project "${PROJ}" \
+    --ribbon-home "${template}" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed pasted-summary-new-line "${WT}" || return 1
+  local command
+  command="$(command_to_paste "${SANDBOX}/summary.txt" '  worktree links:' "$(printf '%19s' '')")"
+  command="${command% <path>}"
+  one_executable_word "${command}" || return 1
+  sh -c "${command} ${WT}" >/dev/null 2>&1 || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+}
+
 TESTS=(
   test_install_writes_managed_hook
   test_worktree_gets_links_to_local_files
@@ -1290,6 +1356,8 @@ TESTS=(
   test_update_notes_a_worktree_block_that_is_no_longer_needed
   test_printed_command_can_be_pasted_from_a_template_path_with_a_space
   test_summary_command_can_be_pasted_from_a_template_path_with_a_space
+  test_printed_command_can_be_pasted_from_a_template_path_with_a_new_line
+  test_summary_command_can_be_pasted_from_a_template_path_with_a_new_line
 )
 
 main() {

@@ -785,7 +785,8 @@ write_local_block() {
 # Print a path as one word that a shell reads back unchanged. A path of
 # ASCII letters, digits, slash, dot, underscore and dash is printed as it
 # is. Any other path is put in single quotes, so that a command printed for
-# a person to paste also works when the template path holds a space.
+# a person to paste also works when the template path holds a space or a new
+# line.
 # Arguments:
 #   1: a path.
 # Outputs:
@@ -793,7 +794,10 @@ write_local_block() {
 #######################################
 shell_word() {
   local rest
-  rest="$(printf '%s' "$1" | LC_ALL=C tr -d 'A-Za-z0-9_./-')"
+  # The x keeps a new line at the end of the path: the command substitution
+  # would strip it before it is seen.
+  rest="$(printf '%s' "$1" | LC_ALL=C tr -d 'A-Za-z0-9_./-'; printf x)"
+  rest="${rest%x}"
   if [[ -z "${rest}" ]]; then
     printf '%s\n' "$1"
   else
