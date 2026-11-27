@@ -286,10 +286,12 @@ stays in place when the installer cannot refresh it.
 When the installer knows this before any write, it also appends a marked worktree block to
 `AGENTS.local.md` once. Where `AGENTS.md` has no pointer yet, the pointer it writes there also
 tells an agent where to read the local files in a linked worktree; an existing pointer stays as
-it is. If `AGENTS.local.md` is the same file as a Claude file, for example a link to it, the
-block is skipped and the summary says so. The same happens when writing the block would change
-a file under `docs/` or `rules/`. Once the hook is in place again, `--update` says that the
-block can go; the installer never rewrites the file.
+it is. If `AGENTS.local.md` is a link to a Claude file, if both are links to one file, or if a
+hard link makes them one file, the block is skipped and the summary says so. A Claude file that
+is a link to a regular `AGENTS.local.md`, the direction shown below, does not skip the
+block. The same happens when writing the block would change a file under `docs/` or `rules/`.
+Once the hook is in place again, `--update` says that the block can go; the installer never
+rewrites the file.
 
 This project uses `AGENTS.md`. If you use Claude Code, connect its instruction
 files yourself once per project — either as symlinks in this direction:
