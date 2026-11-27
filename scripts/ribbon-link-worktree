@@ -4,9 +4,10 @@
 # of every repository can keep ribbon-new-project from installing its
 # post-checkout hook, so a worktree added afterwards gets no local files.
 # This command runs the standalone-post-checkout file that sits beside it,
-# with the worktree root as the working directory. The link rule lives in
-# that file only; this command holds no copy of it. It never replaces a
-# file or a link that exists.
+# with -e and with the worktree root as the working directory. The link
+# rule lives in that file only; this command holds no copy of it. It never
+# replaces a file or a link that exists. A link that cannot be made ends
+# the file with a failure, and this command exits with that status.
 #
 # Usage:
 #   ribbon-link-worktree <worktree-path>
@@ -65,7 +66,9 @@ if [ ! -r "${hook}" ]; then
   printf '%s\n' 'ribbon-link-worktree: cannot find standalone-post-checkout beside this command' >&2
   exit 1
 fi
-( cd "${root}" && sh "${hook}" )
+# The file runs with -e, so that a link it cannot make ends it with a
+# failure: the status check below then reports no success.
+( cd "${root}" && sh -e "${hook}" )
 status=$?
 if [ "${status}" -ne 0 ]; then
   exit "${status}"

@@ -1280,6 +1280,23 @@ test_summary_command_can_be_pasted_from_a_template_path_with_a_new_line() {
   assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
 }
 
+test_command_exits_1_and_prints_nothing_when_a_link_cannot_be_made() {
+  new_sandbox
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed no-link "${WT}" || return 1
+  # A worktree this user cannot write into: the hook file's ln fails there.
+  chmod 0555 "${WT}"
+  local out rc
+  out=$(link "${WT}" 2>"${SANDBOX}/err") && rc=0 || rc=$?
+  chmod 0755 "${WT}"
+  [[ ${rc} -eq 1 && -z "${out}" ]] || return 1
+  [[ ! -e "${WT}/AGENTS.local.md" && ! -L "${WT}/AGENTS.local.md" ]] || return 1
+  [[ -s "${SANDBOX}/err" ]]
+}
+
 TESTS=(
   test_install_writes_managed_hook
   test_worktree_gets_links_to_local_files
@@ -1316,6 +1333,7 @@ TESTS=(
   test_command_exits_with_the_hook_file_status
   test_command_ignores_cdpath
   test_command_started_by_a_relative_path_ignores_cdpath
+  test_command_exits_1_and_prints_nothing_when_a_link_cannot_be_made
   test_install_with_system_managed_hooks_leaves_every_hook_unchanged
   test_update_with_system_managed_hooks_leaves_every_hook_unchanged
   test_install_with_global_managed_hooks_leaves_every_hook_unchanged
