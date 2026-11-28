@@ -398,6 +398,14 @@ half is a story. The rules are `docs/tasks/README.md`, "The phases of a story".
 
 ## The coder's seven steps, per card
 
+A coder reads its plan, its cards, and what they name: the root `AGENTS.md` once per
+session, the five-line handoff, the decision-log entries under the plan's `decisions`,
+each card's `read_first` — which may name `rules/<theme>.md` coding-rule themes —
+and nothing else before the first edit; and never a report, a
+note, a review or a journal. What the architect left undecided is a note for the
+architect, not a guess; what the card's rules and the file answer together is the
+coder's decision, written in the report.
+
 1. **Preflight, read only.** Read `context.read_first` in order and nothing else before
    the first edit (a line names a file, with a section or a line range when it is long);
    check every precondition and every line of `context.verified` against the files; run
@@ -440,7 +448,7 @@ half is a story. The rules are `docs/tasks/README.md`, "The phases of a story".
 
 ## The trusted verifier and its gate
 
-The gate is the exact list of commands that decides PASS or FAIL outside the coder's control.
+The gate is the exact list of commands that decides PASS or FAIL, run as step 5 of the loop says.
 The commands differ by project, language and framework, so the belt names them, in order. A gate
 holds the kinds of check that the project has:
 
@@ -450,12 +458,13 @@ holds the kinds of check that the project has:
 - the unit tests;
 - the acceptance tests, under the canonical names of the plan's acceptance file;
 - the integration tests;
+- the boot's smoke check;
 - the coverage measure, against the plan's line.
 
 The person who installs the protocol fills in the commands. While the belt still holds
 `TODO(belt)` for the gate, the architect proposes commands from the project's build files, and the
-senior architect confirms them before the first plan. The boot of "Done, and when the loop stops"
-is not a gate command: it runs by the entry point that a person runs.
+senior architect confirms them. A smoke check in the gate does not replace the boot of "Done, and
+when the loop stops", which runs by the entry point that a person runs.
 
 ## The branches
 
@@ -520,8 +529,8 @@ engineer in "The loop, steps 1 and 2: the design" and "Security design review". 
 plan, its acceptance file and its cards, answers notes and cuts repair cards in "The loop, steps
 3 to 5: the build", "The decision budget" and "A plan and its cards", and it closes a plan by
 "Done, and when the loop stops". It proposes the gate in "The trusted verifier and its gate", and
-it alone changes the local branches ("The branches"). Inside Herdr, the overlay adds its
-orchestration rules.
+it changes the branches as "The branches" says. Inside Herdr, the overlay adds its orchestration
+rules.
 
 ## The security engineer's seat
 
@@ -531,9 +540,7 @@ and "Incorporation and senior approval" says what the architect does with its re
 
 ## The independent reviewer's seat
 
-The independent reviewer's part is its brief, below. It reads the commit range against the plan,
-the cards and "The coder's seven steps, per card", and it writes the five of "Done, and when the
-loop stops" in its review.
+The independent reviewer's part is its brief, below, with "Done, and when the loop stops".
 
 ## The reviewer's brief
 
@@ -561,21 +568,12 @@ cycle 3 is terminal.
 The general coder's part is "The coder's seven steps, per card", for the plan and the cards of "A
 plan and its cards", until it can claim the five of "Done, and when the loop stops".
 
-A coder reads its plan, its cards, and what they name: the root `AGENTS.md` once per
-session, the five-line handoff, the decision-log entries under the plan's `decisions`,
-each card's `read_first` — which may name `rules/<theme>.md` coding-rule themes —
-and nothing else before the first edit; and never a report, a
-note, a review or a journal. What the architect left undecided is a note for the
-architect, not a guess; what the card's rules and the file answer together is the
-coder's decision, written in the report.
-
 ## The entry-level coder's seat
 
-The entry-level coder works as the general coder does, by "The coder's seven steps, per card",
-on small patches inside the allowlist of its card. The belt's routing rule says which cards it
-gets.
+The entry-level coder's part is the general coder's: "The coder's seven steps, per card". Its row
+of the belt says its limits, and the belt's routing rule says which cards it gets.
 
 ## The trusted verifier's seat
 
 The trusted verifier's part is "The trusted verifier and its gate" and the first proof of "Done,
-and when the loop stops": the gate green locally and on the trusted verifier.
+and when the loop stops".

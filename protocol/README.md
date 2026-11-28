@@ -8,10 +8,12 @@ structure file and the pieces that it includes into one text:
   `--set PROTOCOL_DIR=.ribbon/protocol`; `--seat-files` names the seat files that it installs;
 - `handlers/herdr_template.md` renders `herdr-config.md`, the optional Herdr overlay.
 
-Edit a piece, never a rendering. Then render again, from the repository root:
+Edit a piece, never a rendering. Then render again, from the repository root, through a
+temporary file, so that a failed rendering leaves the old one in place:
 
-    scripts/ribbon-render-protocol whole-structure.md > AGENTS.md
-    scripts/ribbon-render-protocol handlers/herdr_template.md > herdr-config.md
+    scripts/ribbon-render-protocol whole-structure.md > /tmp/AGENTS.md && cp /tmp/AGENTS.md AGENTS.md
+    scripts/ribbon-render-protocol handlers/herdr_template.md > /tmp/herdr-config.md \
+      && cp /tmp/herdr-config.md herdr-config.md
 
 `scripts/test-ribbon-protocol.sh` fails when a rendering differs from its pieces.
 

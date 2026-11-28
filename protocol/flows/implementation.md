@@ -95,6 +95,14 @@ half is a story. The rules are `docs/tasks/README.md`, "The phases of a story".
 
 ## The coder's seven steps, per card
 
+A coder reads its plan, its cards, and what they name: the root `AGENTS.md` once per
+session, the five-line handoff, the decision-log entries under the plan's `decisions`,
+each card's `read_first` — which may name `rules/<theme>.md` coding-rule themes —
+and nothing else before the first edit; and never a report, a
+note, a review or a journal. What the architect left undecided is a note for the
+architect, not a guess; what the card's rules and the file answer together is the
+coder's decision, written in the report.
+
 1. **Preflight, read only.** Read `context.read_first` in order and nothing else before
    the first edit (a line names a file, with a section or a line range when it is long);
    check every precondition and every line of `context.verified` against the files; run
