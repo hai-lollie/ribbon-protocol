@@ -293,15 +293,12 @@ The architect records the briefing's delivery identifier and the assigned accept
 the orchestration report. A reviewer briefing instead names the plan, cards, commit range, review
 cycle and review destination, and explicitly forbids production edits.
 
-A security briefing instead contains the ADR paths, diagrams, constraints, the project's language,
-framework and `rules/`, snapshot hashes, run number, report revision and destination, evidence
-allowlist, core security checklist, selected provider/model/effort and selection record and, from
-the second run, every earlier report with its response. It states facts and no opinion, as the core
-protocol's "Review and report" says. It includes permission and model-verification requirements,
-the monitoring and question procedure, and an explicit ban on design/code edits, commits, live
-attacks and remote mutations. Completion means an on-disk report, a return message to the architect
-and no further work; it does not mean approval of the ADR. The architect verifies the first message
-before substantive work.
+A security briefing instead contains what the core protocol's "Review and report" names for the
+briefing, the core security checklist and the selection record. It includes permission and
+model-verification requirements, the monitoring and question procedure, and an explicit ban on
+design/code edits, commits, live attacks and remote mutations. Completion means an on-disk report,
+a return message to the architect and no further work; it does not mean approval of the ADR. The
+architect verifies the first message before substantive work.
 
 The coder performs the core protocol's read-only preflight and commits `READY` before its first
 edit. `BLOCKED` stops that card without an invented answer.

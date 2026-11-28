@@ -162,7 +162,8 @@ The architect finishes the draft and diagrams first. The security engineer revie
 draft in a fresh session, not the architect's own session. It advises; it never approves the ADR,
 accepts residual risk, edits the design or replaces the later independent implementation reviewer.
 One design, the ADRs that go to the senior architect together, gets at most three runs: a run is
-one engineer's review of one snapshot, with its report revision.
+one engineer's review of one snapshot, with its report revision. An ADR that splits, replaces or
+supersedes one of them for the same problem stays inside the same runs.
 
 ### Selection and launch
 
@@ -284,7 +285,9 @@ run is the last: its findings get the architect's response under the same rules,
 security-relevant change after it goes to the senior architect with the architect's analysis,
 never to a fourth run. The architect checks that the reports cover the final security-relevant
 design, including its own mitigation changes; after the third run, it names what no run covered.
-A blocked run stops the checkpoint; it is not a pass, and it does not count as a run.
+A blocked run stops the checkpoint; it is not a pass, and it does not count as a run. The
+architect moves its report into the run's evidence folder, and the next attempt writes the same
+revision.
 
 This design checkpoint is separate from the plan's three implementation-review cycles. Accepted
 mitigations and verification conditions become ADR rules, acceptance criteria and card contracts;
