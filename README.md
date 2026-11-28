@@ -300,7 +300,8 @@ rebuilds an existing instance; when a new `ribbon N` appears, `--update` refresh
 instance's template and schema files and seed version. Both modes render the standalone
 block and the seat files again: only the roster and the gate between their marks keep
 what you wrote, and any other edit inside the block is replaced. Text outside the block
-never changes, and an older (ribbon 1) block is refused: uninstall it, then install. If
+never changes, and an older (ribbon 1) block is refused: uninstall it, then run `--update`
+(see below). If
 you relocate an instance or the template checkout, run `--update` from the new place. Before writing, an update refuses
 linked instance directories or refresh targets, and planned writes that would
 also change project docs, rules, or instruction files through links. Before
@@ -319,7 +320,10 @@ To take a standalone install out of a project, preview first:
 The second command removes the standalone block, the pointer line and Ribbon's own
 hook after a `[y/N]` (or with `--yes`). It leaves the instance, with its plans and
 reports, and any `herdr-config.md`, and names them. It removes an older (ribbon 1)
-install too, which is the way to ribbon 2: uninstall, then install.
+install too, which is the way to ribbon 2: uninstall, then run
+`ribbon-new-project --update my-project --projects ~/ribbon-projects` on the instance
+that stays, which writes the new block and seat files and keeps its plans and reports.
+A plain install refuses the existing instance, and `--force` would discard its working files.
 
 ## Fill the belt 🎗️
 
@@ -391,7 +395,8 @@ standalone instance's `docs/README.md`, not the project's. When a new
 --update <project>`. Both render the block and the seat files again and keep the roster
 and the gate; neither touches live plans, cards or reports, nor text outside the block.
 A full install's `--update` commits its change. Neither switches a project between the
-two modes, and neither changes a ribbon 1 install: uninstall it, then install. A
+two modes, and neither changes a ribbon 1 install: uninstall it, then seed the full install
+again, or run the standalone `--update` on the instance that stays. A
 full-installed project still merges later `docs/` template changes by hand.
 
 ## The reference guide
