@@ -314,7 +314,8 @@ test_absolute_template_path_fails() {
 
 test_absolute_include_path_fails() {
   new_sandbox
-  ABSOLUTE_DIR="$(mktemp -d /tmp/ribbon-absolute.XXXXXX)"
+  ABSOLUTE_DIR="$(mktemp -d /tmp/ribbon-absolute.XXXXXX)" || return 1
+  [[ -d "${ABSOLUTE_DIR}" ]] || return 1
   printf 'middle\n' > "${ABSOLUTE_DIR}/b.md"
   printf '<!-- ribbon:include %s -->\n' "${ABSOLUTE_DIR}/b.md" > "${P}/a.md"
   expect_render_failure \
@@ -349,6 +350,14 @@ test_bare_cr_inside_a_text_line_passes_through() {
   [[ ${RC} -eq 0 ]] || return 1
   [[ ! -s ${ERR} ]] || return 1
   printf 'one\rtwo\n' | cmp -s - "${OUT}"
+}
+
+test_include_line_ending_in_a_bare_cr_at_the_end_of_the_file_is_malformed() {
+  new_sandbox
+  printf '<!-- ribbon:include b.md -->\r' > "${P}/a.md"
+  printf 'middle\n' > "${P}/b.md"
+  expect_render_failure \
+    'ribbon-render-protocol: malformed include in a.md, line 1' a.md
 }
 
 test_list_refuses_a_canonical_path_that_one_line_cannot_carry() {
@@ -516,6 +525,7 @@ TESTS=(
   test_list_names_canonical_relative_paths
   test_bare_cr_inside_an_include_line_is_malformed
   test_bare_cr_inside_a_text_line_passes_through
+  test_include_line_ending_in_a_bare_cr_at_the_end_of_the_file_is_malformed
   test_list_refuses_a_canonical_path_that_one_line_cannot_carry
   test_sibling_directory_with_the_same_prefix_is_outside
   test_piece_without_final_newline_keeps_the_next_line

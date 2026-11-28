@@ -115,7 +115,7 @@ def render_piece(path_as_written, protocol_root, values, read_pieces, pieces):
     rendered = []
     for lineno, line in enumerate(lf_lines(text), start=1):
         body = line[:-1] if line.endswith("\n") else line
-        include_body = body[:-1] if body.endswith("\r") else body
+        include_body = body[:-1] if line.endswith("\r\n") else body
         include = INCLUDE_LINE.fullmatch(include_body)
         if include is not None:
             piece_text = render_piece(
