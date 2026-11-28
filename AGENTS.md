@@ -162,8 +162,9 @@ The architect finishes the draft and diagrams first. The security engineer revie
 draft in a fresh session, not the architect's own session. It advises; it never approves the ADR,
 accepts residual risk, edits the design or replaces the later independent implementation reviewer.
 One design, the ADRs that go to the senior architect together, gets at most three runs: a run is
-one engineer's review of one snapshot, with its report revision. An ADR that splits, replaces or
-supersedes one of them for the same problem stays inside the same runs.
+one engineer's review of one snapshot, with its report revision. Until the senior architect
+accepts the design, an ADR that splits, replaces or supersedes one of them for the same problem
+stays inside the same runs; a later ADR that supersedes an accepted design is a new design.
 
 ### Selection and launch
 
@@ -266,8 +267,9 @@ senior architect together.
 The architect has the final say on what to solve and when, within one rule: in each response it
 solves every `critical` and `security incident` finding that it can and escalates the others, and
 it solves at least 51 percent of the report's findings other than nitpicks and escalated ones. A
-finding is solved when the ADR, or a linked ADR, holds the change that closes its path, or the
-evidence that the path does not exist, and its verification condition. Any other finding that the
+finding is solved when the ADR, or a linked ADR, holds its verification condition and either a
+change that closes the gap that the finding names (its path, a departure from practice, a missing
+extra control or a wording) or the evidence that this gap does not exist. Any other finding that the
 architect does not solve is deferred to a named later ADR or plan, with an owner, or rejected with
 the reason; neither counts as solved.
 
@@ -275,10 +277,13 @@ The engineer's report remains intact. Under its `## Architect response`, the arc
 disposition for every finding: incorporated, adapted, deferred, rejected or escalated, with the
 reason, the ADR section or linked ADR, its experiment cards and an owner for any remaining action,
 then the count. Only a `critical` or `security incident` finding that the architect cannot solve
-is escalated: it becomes an explicit open question of the ADR for the senior architect, with its
-impact and alternatives, and needs her decision; the architect never defers it, rejects it or
-accepts it as a risk. A response with an escalated finding is complete, and the design goes to
-the senior architect with that open question.
+is escalated. The response names the constraint, the missing evidence or the reserved decision
+that prevents a solution, and why each viable option does not close the path now; the finding
+becomes an explicit open question of the ADR for the senior architect, with its impact and
+alternatives, and needs her decision. The architect never defers it, rejects it or accepts it as a
+risk. Escalation completes that finding's disposition, earns no solve credit and waives nothing
+else that the response must meet; an otherwise complete response goes to the senior architect
+with the design and that open question.
 
 The architect commits the reconciled ADRs, diagrams, reports and responses on the contract branch
 before asking for senior-architect review. A missing report or incomplete response stops that
