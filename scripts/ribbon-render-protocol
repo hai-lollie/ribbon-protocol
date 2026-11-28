@@ -31,16 +31,31 @@ class RenderFailure(Exception):
         self.message = message
 
 
+def message_path(path_as_written):
+    """A path for a one-line message: control characters become \\xNN."""
+    return "".join(
+        "\\x%02x" % ord(char) if ord(char) < 0x20 or ord(char) == 0x7F
+        else char
+        for char in path_as_written)
+
+
 def resolve_piece(path_as_written, protocol_root, read_pieces):
-    """Resolve one template path and check containment, existence, uniqueness."""
+    """Resolve one template path and check relativity, containment,
+    existence and uniqueness."""
+    if os.path.isabs(path_as_written):
+        raise RenderFailure(
+            "template path is not relative: %s" % message_path(path_as_written))
     real = os.path.realpath(os.path.join(protocol_root, path_as_written))
     if real != protocol_root and not real.startswith(protocol_root + os.sep):
         raise RenderFailure(
-            "template outside the protocol directory: %s" % path_as_written)
+            "template outside the protocol directory: %s"
+            % message_path(path_as_written))
     if not os.path.isfile(real):
-        raise RenderFailure("no such template: %s" % path_as_written)
+        raise RenderFailure(
+            "no such template: %s" % message_path(path_as_written))
     if real in read_pieces:
-        raise RenderFailure("included twice: %s" % path_as_written)
+        raise RenderFailure(
+            "included twice: %s" % message_path(path_as_written))
     read_pieces.add(real)
     return real
 
@@ -63,7 +78,7 @@ def replace_placeholders(line, values, path_as_written, lineno):
         if name not in values:
             raise RenderFailure(
                 "no value for {{%s}} in %s, line %d"
-                % (name, path_as_written, lineno))
+                % (name, message_path(path_as_written), lineno))
         parts.append(line[pos:match.start()])
         parts.append(values[name])
         pos = match.end()
@@ -74,13 +89,18 @@ def replace_placeholders(line, values, path_as_written, lineno):
 def render_piece(path_as_written, protocol_root, values, read_pieces, pieces):
     """Render one template to text; record every file read, in reading order."""
     real = resolve_piece(path_as_written, protocol_root, read_pieces)
-    pieces.append(path_as_written)
-    with open(real, "r", encoding="utf-8", newline="") as piece_file:
-        text = piece_file.read()
+    pieces.append(os.path.relpath(real, protocol_root))
+    try:
+        with open(real, "r", encoding="utf-8", newline="") as piece_file:
+            text = piece_file.read()
+    except (OSError, UnicodeDecodeError):
+        raise RenderFailure(
+            "cannot read template: %s" % message_path(path_as_written))
     rendered = []
     for lineno, line in enumerate(text.splitlines(keepends=True), start=1):
         body = line[:-1] if line.endswith("\n") else line
-        include = INCLUDE_LINE.fullmatch(body)
+        include_body = body[:-1] if body.endswith("\r") else body
+        include = INCLUDE_LINE.fullmatch(include_body)
         if include is not None:
             piece_text = render_piece(
                 include.group(1), protocol_root, values, read_pieces, pieces)
@@ -89,7 +109,8 @@ def render_piece(path_as_written, protocol_root, values, read_pieces, pieces):
                 rendered.append("\n")
         elif "ribbon:include" in body:
             raise RenderFailure(
-                "malformed include in %s, line %d" % (path_as_written, lineno))
+                "malformed include in %s, line %d"
+                % (message_path(path_as_written), lineno))
         else:
             rendered.append(
                 replace_placeholders(body, values, path_as_written, lineno))

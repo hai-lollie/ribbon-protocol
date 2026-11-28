@@ -1,8 +1,6 @@
 ## The independent reviewer's seat
 
-The independent reviewer's part is its brief, below. It reads the commit range against the plan,
-the cards and "The coder's seven steps, per card", and it writes the five of "Done, and when the
-loop stops" in its review.
+The independent reviewer's part is its brief, below, with "Done, and when the loop stops".
 
 ## The reviewer's brief
 
