@@ -113,12 +113,13 @@ an explicitly authorized move to an unoccupied path is not file removal.
 
 Running a command as the plan or the card names it is not file removal either: the baseline,
 the targeted command, the gate, the whole suite, and the boot with its smoke check and its stop.
-Such a command may replace or delete the files that it or an earlier run of a named command
-generated, for example installed dependencies, build output, caches, temporary files, and the
-lock and pid files of a server that the boot started. Every other deletion is still file
-removal, also of a file the agent created, and also a deletion that the agent adds to a named
-command or runs before or after one. A named command that deletes anything else is a defect to
-report, not a permission.
+Such a command may replace or delete the files that its own run generates, and those that an
+earlier named command generated in the same worktree, for example installed dependencies, build
+output, caches, temporary files, and the lock and pid files of a server that the boot started.
+Every other deletion is still file removal, also of a file the agent created, and also a
+deletion that the agent adds to a named command or runs before or after one. A named command
+that deletes anything else is a defect to report, not a permission. A briefing or a template
+that says to leave files in place means this rule, with this exception.
 
 Leave the file in place. Under `Cleanup requests` in the assigned report, record its absolute path,
 why removal is wanted and whether it blocks the assignment. A helper without a report returns
