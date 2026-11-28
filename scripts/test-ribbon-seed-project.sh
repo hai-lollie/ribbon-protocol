@@ -2025,6 +2025,128 @@ test_update_keeps_the_mode_of_a_rewritten_seat() {
   [[ "$(stat -c %a "${repo}/.ribbon/protocol/flows/adr.md")" == 600 ]]
 }
 
+# A canonical project path keeps every byte: a symlink to a sibling
+# directory whose name ends in an LF must not be trimmed into 'proj'.
+test_seed_refuses_a_project_whose_real_path_ends_in_an_lf() {
+  local rc=0
+  new_repo
+  mkdir "${SANDBOX}/proj" "${SANDBOX}/proj"$'\n'
+  ln -s "proj"$'\n' "${SANDBOX}/link"
+
+  seed "${SANDBOX}/link" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsupported character in the project repo path:' "${SANDBOX}/error" \
+    && [[ -z "$(ls -A "${SANDBOX}/proj")" ]] \
+    && [[ -z "$(ls -A "${SANDBOX}/proj"$'\n')" ]]
+}
+
+test_update_refuses_a_project_whose_real_path_ends_in_an_lf() {
+  local rc=0
+  new_repo
+  mkdir "${SANDBOX}/proj" "${SANDBOX}/proj"$'\n'
+  seed "${SANDBOX}/proj" </dev/null >/dev/null 2>&1 || return 1
+  cp "${SANDBOX}/proj/AGENTS.md" "${SANDBOX}/agents-before"
+  cp "${SANDBOX}/proj/docs/.ribbon-full-install" "${SANDBOX}/record-before"
+  ln -s "proj"$'\n' "${SANDBOX}/link"
+
+  seed --update "${SANDBOX}/link" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsupported character in the project repo path:' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/agents-before" "${SANDBOX}/proj/AGENTS.md" \
+    && cmp -s "${SANDBOX}/record-before" "${SANDBOX}/proj/docs/.ribbon-full-install"
+}
+
+test_uninstall_refuses_a_project_whose_real_path_ends_in_an_lf() {
+  local rc=0
+  new_repo
+  mkdir "${SANDBOX}/proj" "${SANDBOX}/proj"$'\n'
+  seed "${SANDBOX}/proj" </dev/null >/dev/null 2>&1 || return 1
+  cp "${SANDBOX}/proj/AGENTS.md" "${SANDBOX}/agents-before"
+  cp "${SANDBOX}/proj/docs/.ribbon-full-install" "${SANDBOX}/record-before"
+  ln -s "proj"$'\n' "${SANDBOX}/link"
+
+  seed --uninstall "${SANDBOX}/link" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsupported character in the project repo path:' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/agents-before" "${SANDBOX}/proj/AGENTS.md" \
+    && cmp -s "${SANDBOX}/record-before" "${SANDBOX}/proj/docs/.ribbon-full-install"
+}
+
+# --update retires the handler the template drops; a Claude file linking to
+# it makes the retirement a write through an instruction alias.
+test_update_refuses_to_retire_a_seat_a_claude_file_links_to() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template" rc=0 head
+  local retired='.ribbon/protocol/handlers/herdr.md'
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  ln -s "${retired}" "${repo}/CLAUDE.local.md"
+  cp "${repo}/${retired}" "${SANDBOX}/herdr-before"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  head="$(git -C "${repo}" rev-parse HEAD)"
+  copy_template "${template}"
+  rm "${template}/protocol/handlers/herdr_template.md"
+  sed -i '/handlers\/herdr.md/d' "${template}/protocol/seats.md"
+
+  seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq "${retired} aliases CLAUDE.local.md; refusing to write it" "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/herdr-before" "${repo}/${retired}" \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md" \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]]
+}
+
+test_update_refuses_a_record_a_claude_file_links_to() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template" rc=0 head
+  local record='docs/.ribbon-full-install'
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  ln -s "${record}" "${repo}/CLAUDE.local.md"
+  cp "${repo}/${record}" "${SANDBOX}/record-before"
+  head="$(git -C "${repo}" rev-parse HEAD)"
+  copy_template "${template}"
+  printf 'ribbon 2\n' > "${template}/VERSION"
+
+  seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq "${record} aliases CLAUDE.local.md; refusing to write it" "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/record-before" "${repo}/${record}" \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]]
+}
+
+# A seat piece may hold a belt region; its receipt entry is a whole-file
+# digest, so the uninstall compares it byte for byte and removes it.
+test_uninstall_compares_a_seat_with_a_region_byte_for_byte() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template"
+  local seat='.ribbon/protocol/flows/adr.md'
+
+  copy_template "${template}"
+  cat >> "${template}/protocol/flows/adr.md" <<'EOF'
+
+<!-- ribbon:belt:start -->
+| Role | Agent | Model |
+|---|---|---|
+| Trusted verifier | the project's gate | tools |
+<!-- ribbon:belt:end -->
+EOF
+  seed --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  grep -Fq '<!-- ribbon:belt:start -->' "${repo}/${seat}" || return 1
+
+  seed --uninstall --remove-ribbon --yes "${repo}" </dev/null > "${SANDBOX}/output" 2>&1 || return 1
+
+  grep -Fxq "  ${seat}" "${SANDBOX}/output" \
+    && [[ ! -e "${repo}/${seat}" ]] \
+    && ! grep -Fq 'Review changed files manually' "${SANDBOX}/output" \
+    && grep -Fq 'Full-install removal complete' "${SANDBOX}/output"
+}
+
 readonly TESTS=(
   test_seeder_exists
   test_seeds_docs
@@ -2139,6 +2261,12 @@ readonly TESTS=(
   test_update_never_writes_through_a_staging_name
   test_update_refuses_to_retire_a_seat_through_a_linked_parent
   test_update_keeps_the_mode_of_a_rewritten_seat
+  test_seed_refuses_a_project_whose_real_path_ends_in_an_lf
+  test_update_refuses_a_project_whose_real_path_ends_in_an_lf
+  test_uninstall_refuses_a_project_whose_real_path_ends_in_an_lf
+  test_update_refuses_to_retire_a_seat_a_claude_file_links_to
+  test_update_refuses_a_record_a_claude_file_links_to
+  test_uninstall_compares_a_seat_with_a_region_byte_for_byte
 )
 
 #######################################
