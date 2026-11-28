@@ -58,9 +58,10 @@ alias does not establish a model version.
 The engineer checks trust boundaries, authentication and authorization, unnecessary exposure,
 secrets and token/key lifecycle, secure entropy, abuse and DoS/DDoS controls, software-design
 gaps, and the anti-patterns of the project's language, framework and `rules/`. Every finding is
-a question to the architect that says where to look for the answer, with a concrete attack path
-or counterexample, the smallest deployable mitigation, a verification condition and one label:
-`critical`, `security incident`, `best-practice violation`, `desirable` or `nitpick`. It stays
+a question to the architect that says where to look for the answer, with one label, `critical`,
+`security incident`, `best-practice violation`, `desirable` or `nitpick`, and the fields that
+`AGENTS.md` asks for that label, such as an attack path, the smallest deployable mitigation and a
+verification condition. It stays
 practical, cites a best practice once and asks no circular question. It writes
 `docs/llm-context/<adr-id>-security-r<N>.md`, then reports back and stops. It neither edits the
 ADR nor commits it. This is design review, not permission to run attacks or load tests.

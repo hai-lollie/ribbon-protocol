@@ -14,10 +14,10 @@ plan and no card while one of those ADRs has a pending open question.
 
 - **Security before senior approval.** The security report identifies the reviewed draft by path
   and content hash, the actual provider/model/effort, and labelled findings, each a question with
-  where to look, an attack path or design-gap counterexample, a mitigation and a verification
-  condition. Link the last run's report under References; it names the earlier ones. Put solved
-  findings into the solution's rules and invariants, not only its prose. Record an unsolved
-  `critical` or `security incident` finding as an explicit open question for the senior architect.
+  where to look and the fields that AGENTS.md asks for its label. Link the last run's report under
+  References; it names the earlier ones. Put solved findings into the solution's rules and
+  invariants, not only its prose. Record an unsolved `critical` or `security incident` finding as
+  an explicit open question for the senior architect.
 - **A focused security ADR when justified.** The architect may edit the current ADR or write a
   separate ADR when the extent of the security changes justifies another design decision. The
   original ADR links the new ADR under References and where the solution depends on it; the new
