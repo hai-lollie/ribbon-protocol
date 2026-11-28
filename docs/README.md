@@ -2,8 +2,9 @@ Seeded from the Ribbon Protocol, <ribbon-version>.
 
 # docs
 
-The homes of the belt. The protocol itself is the "Ribbon Protocol" section of the root
-`AGENTS.md`; this file says who writes where and who reads what. The senior architect is
+The homes of the belt. The protocol itself is the Ribbon block of the project's `AGENTS.md`
+(or `AGENTS.local.md`) and the seat files that it names; this file says who writes where and
+who reads what. The senior architect is
 a person and never an LLM; "the architect" alone is the LLM seat.
 
 | Path | Who writes | What | Who reads |
@@ -24,5 +25,6 @@ together, `What:`, `Why:` and `Now:`, compressed by the commit that appends the 
 A plan names the entries that bind it under `decisions`, and the coder reads those only.
 
 `field-guide.md` is the long-form guide, the reference PDF as text. An architect new to
-the protocol reads the root `AGENTS.md`, this file, and then the field guide. An architect inside
-Herdr also reads its seat file, the Herdr overlay, before execution. That is the full context.
+the protocol reads the Ribbon block, its seat files, this file, and then the field guide. An
+architect inside Herdr also reads its seat file, the Herdr overlay, before execution. That is
+the full context.

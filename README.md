@@ -133,12 +133,12 @@ ribbon-protocol/
 │   └── test-ribbon-worktree-links.sh          the worktree-link hook's test suite
 ├── VERSION                                    "ribbon N"
 ├── Ribbon-Protocol-Multi-LLM-FieldGuide.pdf   the reference guide, October 2026, working edition 1.0
-└── docs/                                      copied into every project
+└── docs/                                      copied into a full install; a standalone install copies docs/tasks/ and docs/llm-context/ into its instance
     ├── README.md                              the homes: who writes where, who reads what
     ├── field-guide.md                         the PDF as text, for a model without PDF tooling
     ├── adrs/                                  README.md and _template.md: one ADR per design problem
     ├── diagrams/                              README.md: <adr-id>-<name>.mmd, mermaid first
-    ├── tasks/                                 README.md, _template.plan.yaml, _template.task.yaml
+    ├── tasks/                                 README.md, _template.plan.yaml, _template.task.yaml, _template.acceptance.yaml
     └── llm-context/                           README.md, _security.md, _report.md, _note.md, _handoff.md, _done.md, _review.md,
                                                _orchestration.md
 ```
@@ -225,6 +225,8 @@ The uninstall also removes the seat files under `.ribbon/protocol/` and the dire
 it empties. A filled roster and gate do not stop it from removing the block; any other
 edit inside the block keeps the block in place, named in the report. It removes an older
 (ribbon 1) full install as well, which is the way to ribbon 2: uninstall, then seed.
+A block that the project changed, a filled ribbon 1 belt included, and a seat file that
+it edited stay in place and are named in the report: remove them by hand, then seed.
 It never elevates privileges or recursively deletes directories.
 
 New full seeds write an ownership receipt at `docs/.ribbon-full-install-receipt`.
@@ -257,9 +259,9 @@ mkdir -p ~/ribbon-projects
 # unpack an instance for a project
 ~/ribbon-protocol/scripts/ribbon-new-project --projects ~/ribbon-projects my-project ~/dev/my-project
 
-# when a new "ribbon N" appears: refresh template files and the seed version
-# without rewriting any agent instructions, live plans, cards or reports.
-# The repo path is read from the instance.
+# when a new "ribbon N" appears: refresh the instance's templates and seed version,
+# and render the block and the seat files again (only the roster and the gate are
+# kept); live plans, cards and reports stay. The repo path is read from the instance.
 ~/ribbon-protocol/scripts/ribbon-new-project --update my-project --projects ~/ribbon-projects
 
 # rebuild an instance from scratch (discards its working files)
@@ -319,7 +321,8 @@ To take a standalone install out of a project, preview first:
 
 The second command removes the standalone block, the pointer line and Ribbon's own
 hook after a `[y/N]` (or with `--yes`). It leaves the instance, with its plans and
-reports, and any `herdr-config.md`, and names them. It removes an older (ribbon 1)
+reports, and any `herdr-config.md`, and names them; a ribbon 1 `herdr-config.md` is no
+longer read, since the overlay is the architect's seat file now. It removes an older (ribbon 1)
 install too, which is the way to ribbon 2: uninstall, then run
 `ribbon-new-project --update my-project --projects ~/ribbon-projects` on the instance
 that stays, which writes the new block and seat files and keeps its plans and reports.

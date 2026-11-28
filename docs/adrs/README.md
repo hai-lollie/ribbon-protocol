@@ -1,9 +1,9 @@
 # ADRs
 
 One architecture decision record per design problem. The architect writes it from what
-was understood of the assignment, on the story's contract branch (AGENTS.md, "The
-branches"). Before committing the draft for senior-architect review, the architect launches a
-security engineer under AGENTS.md, "Security design review". The engineer questions the draft and
+was understood of the assignment, on the story's contract branch ("The
+branches", the architect's seat file). Before committing the draft for senior-architect review, the architect launches a
+security engineer under "Security design review" (the ADR flow). The engineer questions the draft and
 diagrams, writes `docs/llm-context/<adr-id>-security-r<N>.md` and returns to the architect.
 The architect answers the questions and appends a disposition for every finding. It then
 commits the reconciled ADRs, diagrams and report. The senior architect reads them there, suggests
@@ -14,7 +14,7 @@ plan and no card while one of those ADRs has a pending open question.
 
 - **Security before senior approval.** The security report identifies the reviewed draft by path
   and content hash, the actual provider/model/effort, and labelled findings, each a question with
-  where to look and the fields that AGENTS.md asks for its label. Link the last run's report under
+  where to look and the fields that "Review and report" (the ADR flow) asks for its label. Link the last run's report under
   References; it names the earlier ones. Put solved findings into the solution's rules and
   invariants, not only its prose. Record an unsolved `critical` or `security incident` finding as
   an explicit open question for the senior architect.
