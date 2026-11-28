@@ -324,10 +324,16 @@ The architect may answer a technical question when it can establish the answer f
 verified repository facts, documentation, internet references or a disposable spike. It records
 the answer and its evidence. It does not turn a guess into a fact.
 
-The architect asks the senior architect through the harness's question tool when the answer is
-uncertain or concerns product policy, security, permissions, scope, remote state or another
-decision reserved for her. Permission and approval dialogs are never answered merely to keep an
-agent moving.
+A question about how a rule of the plan or of the protocol applies to a case is a technical
+question when the answer follows from their text, even when the rule concerns permissions or
+scope. The architect answers it, quotes the text that gives the answer, and records both in the
+project's decision log. Such an answer grants nothing the text does not grant: a permission or
+approval dialog, new write access and a removal by hand stay with the senior architect.
+
+Outside those cases, the architect asks the senior architect through the harness's question tool
+when the answer is uncertain or concerns product policy, security, permissions, scope, remote
+state or another decision reserved for her. Permission and approval dialogs are never answered
+merely to keep an agent moving.
 
 ## Senior-architect questions: 45-minute timeout
 

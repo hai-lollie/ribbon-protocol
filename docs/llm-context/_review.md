@@ -28,15 +28,15 @@ fourth cycle.
 ## Done
 
 The five of "Done, and when the loop stops" in the root `AGENTS.md`, each with its
-evidence; the reviewer runs the boot itself.
+evidence and whose run or judgment it is; the reviewer runs the boot itself.
 
-| Holds | Evidence |
-|---|---|
-| the gate, locally and on the trusted verifier | <each command, its exit code, the verifier's run id> |
-| the boot by the entry point a person runs, its smoke check, its stop | <the command, its output's first lines, the exit code> |
-| the acceptance file, name for name | <the count, and the table under Findings or its own section> |
-| coverage at the plan's line | <the numbers> |
-| no open SEMANTIC or SCOPE finding on production code | <the finding ids that remain, each with its class> |
+| Holds | By | Evidence |
+|---|---|---|
+| the gate, locally and on the trusted verifier | <the reviewer, locally; the trusted verifier> | <each command, its exit code, the verifier's run id> |
+| the boot by the entry point a person runs, its smoke check, its stop | the reviewer | <the command, its output's first lines, the exit code> |
+| the acceptance file, name for name | <the reviewer, or the coder's run that it re-read> | <the count, and the table under Findings or its own section> |
+| coverage at the plan's line | <the reviewer, or the coder's run that it re-read> | <the numbers> |
+| no open SEMANTIC or SCOPE finding on production code | the reviewer | <the finding ids that remain, each with its class> |
 
 ## The plan as a deliverable
 
