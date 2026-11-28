@@ -2058,6 +2058,141 @@ test_relative_projects_render_absolute_seat_paths() {
   done < "${SANDBOX}/pointers"
 }
 
+test_claude_links_to_the_agents_files_stay_supported() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  printf '# my notes\n' > "${repo}/AGENTS.local.md"
+  ln -s AGENTS.md "${repo}/CLAUDE.md"
+  ln -s AGENTS.local.md "${repo}/CLAUDE.local.md"
+
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  [[ -L "${repo}/CLAUDE.md" && -L "${repo}/CLAUDE.local.md" ]] || return 1
+  grep -q 'ribbon:standalone:start -->$' "${repo}/AGENTS.local.md" || return 1
+
+  install example-project --update >/dev/null 2>&1 || return 1
+  [[ -L "${repo}/CLAUDE.md" && -L "${repo}/CLAUDE.local.md" ]] \
+    && grep -q 'ribbon:standalone:start -->$' "${repo}/AGENTS.local.md"
+}
+
+test_update_refuses_an_unwritable_seat_directory_before_any_write() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/before-block"
+  cp "${instance}/.ribbon/protocol/flows/adr.md" "${SANDBOX}/before-seat"
+  chmod 0555 "${instance}/.ribbon/protocol/flows"
+  local fake="${SANDBOX}/edited-template"
+  mkdir -p "${fake}/docs/tasks" "${fake}/docs/llm-context" "${fake}/rules" "${fake}/scripts"
+  cp -R "${RIBBON_HOME}/protocol" "${fake}/protocol"
+  printf '\nAn edited sentence of the adr flow.\n' >> "${fake}/protocol/flows/adr.md"
+  cp "${RIBBON_HOME}/scripts/ribbon-render-protocol" "${fake}/scripts/"
+  cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${fake}/scripts/"
+  printf 'ribbon 2\n' > "${fake}/VERSION"
+
+  install example-project --update --ribbon-home "${fake}" \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+  chmod u+w "${instance}/.ribbon/protocol/flows"
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'not writable:' "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/before-block" "${repo}/AGENTS.local.md" || return 1
+  cmp -s "${SANDBOX}/before-seat" "${instance}/.ribbon/protocol/flows/adr.md"
+}
+
+test_install_refuses_an_unwritable_rules_directory_before_any_write() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  mkdir -p "${repo}/rules"
+  chmod 0555 "${repo}/rules"
+
+  install example-project "${repo}" > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+  chmod u+w "${repo}/rules"
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'not writable:' "${SANDBOX}/stderr" || return 1
+  [[ ! -e "${PROJECTS}/example-project" ]] || return 1
+  [[ ! -e "${repo}/AGENTS.local.md" ]]
+}
+
+test_refuses_a_projects_directory_whose_real_name_holds_a_backtick() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  mkdir -p "${SANDBOX}/real\`tick-projects"
+  ln -s "${SANDBOX}/real\`tick-projects" "${SANDBOX}/projects-link"
+
+  "${INSTALLER}" --projects "${SANDBOX}/projects-link" example-project "${repo}" \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'unsupported character in the projects directory' "${SANDBOX}/stderr" || return 1
+  [[ ! -e "${SANDBOX}/real\`tick-projects/example-project" ]] || return 1
+  [[ ! -e "${repo}/AGENTS.local.md" ]]
+}
+
+test_relative_ribbon_home_renders_an_absolute_field_guide_path() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  (
+    cd "${RIBBON_HOME}/.." || exit 1
+    "${INSTALLER}" --projects "${PROJECTS}" --ribbon-home "${RIBBON_HOME##*/}" \
+      example-project "${repo}"
+  ) > "${SANDBOX}/summary" 2>&1 || return 1
+
+  # The single quotes are the point: the backticks are literal Markdown.
+  # shellcheck disable=SC2016
+  grep -o '`[^`]*docs/field-guide\.md`' "${repo}/AGENTS.local.md" \
+    > "${SANDBOX}/guide" || return 1
+  [[ -s "${SANDBOX}/guide" ]] || return 1
+  local guide
+  while IFS= read -r guide; do
+    guide="${guide#\`}"
+    guide="${guide%\`}"
+    [[ "${guide}" == /* ]] || return 1
+    [[ -f "${guide}" ]] || return 1
+  done < "${SANDBOX}/guide"
+}
+
+test_force_refuses_a_version_with_junk_after_its_line() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  printf 'live work\n' > "${instance}/docs/tasks/live-card.yaml"
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/before"
+  local fake="${SANDBOX}/junk-version-template"
+  mkdir -p "${fake}/protocol" "${fake}/docs/tasks" "${fake}/docs/llm-context" \
+    "${fake}/rules" "${fake}/scripts"
+  cp "${RIBBON_HOME}/protocol/standalone-structure.md" "${fake}/protocol/"
+  cp "${RIBBON_HOME}/scripts/ribbon-render-protocol" "${fake}/scripts/"
+  cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${fake}/scripts/"
+  printf 'ribbon 8\njunk' > "${fake}/VERSION"
+
+  install example-project "${repo}" --force --yes --ribbon-home "${fake}" \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'invalid Ribbon seed version' "${SANDBOX}/stderr" || return 1
+  grep -Fxq 'live work' "${instance}/docs/tasks/live-card.yaml" || return 1
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.local.md"
+}
+
+test_update_keeps_the_mode_of_a_rewritten_seat() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  chmod 0600 "${instance}/.ribbon/protocol/flows/adr.md"
+  local fake="${SANDBOX}/edited-template"
+  mkdir -p "${fake}/docs/tasks" "${fake}/docs/llm-context" "${fake}/rules" "${fake}/scripts"
+  cp -R "${RIBBON_HOME}/protocol" "${fake}/protocol"
+  printf '\nAn edited sentence of the adr flow.\n' >> "${fake}/protocol/flows/adr.md"
+  cp "${RIBBON_HOME}/scripts/ribbon-render-protocol" "${fake}/scripts/"
+  cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${fake}/scripts/"
+  printf 'ribbon 2\n' > "${fake}/VERSION"
+
+  install example-project --update --ribbon-home "${fake}" >/dev/null 2>&1 || return 1
+
+  [[ "$(stat -c %a "${instance}/.ribbon/protocol/flows/adr.md")" == 600 ]]
+}
+
 readonly TESTS=(
   test_installer_exists
   test_creates_layout
@@ -2184,6 +2319,13 @@ readonly TESTS=(
   test_update_keeps_a_worktree_link_a_link
   test_refuses_a_hard_linked_agents_local_md
   test_relative_projects_render_absolute_seat_paths
+  test_claude_links_to_the_agents_files_stay_supported
+  test_update_refuses_an_unwritable_seat_directory_before_any_write
+  test_install_refuses_an_unwritable_rules_directory_before_any_write
+  test_refuses_a_projects_directory_whose_real_name_holds_a_backtick
+  test_relative_ribbon_home_renders_an_absolute_field_guide_path
+  test_force_refuses_a_version_with_junk_after_its_line
+  test_update_keeps_the_mode_of_a_rewritten_seat
 )
 
 #######################################
