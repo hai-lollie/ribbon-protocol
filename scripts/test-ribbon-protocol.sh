@@ -322,6 +322,13 @@ test_absolute_include_path_fails() {
     "ribbon-render-protocol: template path is not relative: ${ABSOLUTE_DIR}/b.md" a.md
 }
 
+test_nul_byte_in_an_include_path_fails_with_one_line() {
+  new_sandbox
+  printf '<!-- ribbon:include b\0c.md -->\n' > "${P}/a.md"
+  expect_render_failure \
+    'ribbon-render-protocol: no such template: b\x00c.md' a.md
+}
+
 test_list_names_canonical_relative_paths() {
   new_sandbox
   mkdir -p "${P}/sub"
@@ -522,6 +529,7 @@ TESTS=(
   test_control_characters_in_a_path_stay_on_one_line
   test_absolute_template_path_fails
   test_absolute_include_path_fails
+  test_nul_byte_in_an_include_path_fails_with_one_line
   test_list_names_canonical_relative_paths
   test_bare_cr_inside_an_include_line_is_malformed
   test_bare_cr_inside_a_text_line_passes_through
