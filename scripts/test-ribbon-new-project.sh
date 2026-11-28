@@ -163,6 +163,36 @@ uninstall() {
 }
 
 #######################################
+# Run a command with stdin on a pseudo-terminal, answering its question
+# with the given answer; the exit code is the command's, and its stderr
+# is printed on stdout.
+# Arguments:
+#   The answer ('n' or 'yes'), then the command and its arguments.
+#######################################
+run_on_a_terminal() {
+  local answer="$1"
+  shift
+  python3 - "${answer}" "$@" <<'PY'
+import os
+import pty
+import subprocess
+import sys
+
+answer, command = sys.argv[1], sys.argv[2:]
+master, slave = pty.openpty()
+process = subprocess.Popen(command, stdin=slave,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+os.close(slave)
+os.write(master, answer.encode() + b"\n")
+stderr = process.stderr.read()
+process.wait()
+os.close(master)
+sys.stdout.buffer.write(stderr)
+sys.exit(process.returncode)
+PY
+}
+
+#######################################
 # A ribbon 1 standalone install, made by hand: an AGENTS.local.md with a
 # ribbon 1 block (belt marks, no gate), the pointer line in AGENTS.md,
 # the ribbon 1 hook, and an instance with a live plan.
@@ -369,7 +399,9 @@ test_install_does_not_warn_for_linked_claude_files() {
 test_writes_no_herdr_config() {
   new_sandbox
   install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
-  [[ ! -e "${SANDBOX}/repos/example-project/herdr-config.md" ]]
+  [[ -f "${SANDBOX}/repos/example-project/AGENTS.local.md" ]] \
+    && [[ -d "${PROJECTS}/example-project" ]] \
+    && [[ ! -e "${SANDBOX}/repos/example-project/herdr-config.md" ]]
 }
 
 test_seeds_rules_into_repo() {
@@ -1783,6 +1815,249 @@ test_refuses_a_block_that_names_a_missing_seat_file() {
   [[ ! -e "${repo}/AGENTS.local.md" ]]
 }
 
+test_uninstall_refuses_a_repo_path_that_differs_by_an_lf() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/before"
+
+  uninstall example-project "${repo}"$'\n' --remove-ribbon --yes \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.local.md"
+}
+
+test_uninstall_refuses_a_linked_project_repo_pointer() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mv "${instance}/project-repo" "${SANDBOX}/pointer-target"
+  ln -s "${SANDBOX}/pointer-target" "${instance}/project-repo"
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/before"
+
+  uninstall example-project --remove-ribbon --yes \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'the instance has no usable project-repo pointer; nothing removed' "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.local.md"
+}
+
+test_mark_text_inside_prose_is_no_frame() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  cat > "${repo}/AGENTS.local.md" <<'EOF'
+# My notes
+The start mark <!-- ribbon:standalone:start --> appears in this sentence.
+project rules stay here
+The end mark <!-- ribbon:standalone:end --> appears in this sentence too.
+EOF
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/prose"
+
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  grep -Fq 'project rules stay here' "${repo}/AGENTS.local.md" || return 1
+  grep -q 'ribbon:standalone:start -->$' "${repo}/AGENTS.local.md" || return 1
+
+  uninstall example-project --remove-ribbon --yes >/dev/null 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/prose" "${repo}/AGENTS.local.md"
+}
+
+test_uninstall_refuses_a_real_start_without_a_real_end() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  cat > "${repo}/AGENTS.local.md" <<'EOF'
+<!-- ribbon:standalone:start -->
+# Ribbon Protocol, standalone mode
+The end mark <!-- ribbon:standalone:end --> is only prose here.
+EOF
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/before"
+
+  uninstall example-project "${repo}" --remove-ribbon --yes \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'unclosed, duplicated or out-of-order' "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.local.md"
+}
+
+test_uninstall_asks_on_a_terminal() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/before"
+
+  run_on_a_terminal n "${INSTALLER}" --projects "${PROJECTS}" \
+    --uninstall --remove-ribbon example-project > "${SANDBOX}/prompt-n" 2>&1 || rc=$?
+  [[ "${rc}" == 0 ]] || return 1
+  grep -Fq '[y/N]' "${SANDBOX}/prompt-n" || return 1
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.local.md" || return 1
+
+  rc=0
+  run_on_a_terminal yes "${INSTALLER}" --projects "${PROJECTS}" \
+    --uninstall --remove-ribbon example-project > "${SANDBOX}/prompt-yes" 2>&1 || rc=$?
+  [[ "${rc}" == 0 ]] || return 1
+  grep -Fq '[y/N]' "${SANDBOX}/prompt-yes" || return 1
+  ! grep -q 'ribbon:standalone:start' "${repo}/AGENTS.local.md"
+}
+
+test_uninstall_refuses_an_unwritable_hooks_directory_before_any_removal() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  git -C "${repo}" init -q || return 1
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/local.before"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents.before"
+  chmod a-w "${repo}/.git/hooks"
+
+  uninstall example-project --remove-ribbon --yes \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+  chmod u+w "${repo}/.git/hooks"
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'permission denied:' "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/local.before" "${repo}/AGENTS.local.md" || return 1
+  cmp -s "${SANDBOX}/agents.before" "${repo}/AGENTS.md"
+}
+
+test_uninstall_removes_a_crlf_pointer_line() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  python3 - "${repo}/AGENTS.md" <<'PY'
+import sys
+
+path = sys.argv[1]
+data = open(path, "rb").read()
+open(path, "wb").write(data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+PY
+
+  uninstall example-project --remove-ribbon --yes >/dev/null 2>&1 || return 1
+
+  printf '# example-project AGENTS\r\n' | cmp -s - "${repo}/AGENTS.md" || return 1
+  [[ ! -e "${repo}/AGENTS.local.md" ]]
+}
+
+test_force_refuses_a_version_with_a_second_line() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  printf 'live work\n' > "${instance}/docs/tasks/live-card.yaml"
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/before"
+  local fake="${SANDBOX}/two-line-version-template"
+  mkdir -p "${fake}/protocol" "${fake}/docs/tasks" "${fake}/docs/llm-context" \
+    "${fake}/rules" "${fake}/scripts"
+  cp "${RIBBON_HOME}/protocol/standalone-structure.md" "${fake}/protocol/"
+  cp "${RIBBON_HOME}/scripts/ribbon-render-protocol" "${fake}/scripts/"
+  cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${fake}/scripts/"
+  printf 'ribbon 8\nan unexpected second line\n' > "${fake}/VERSION"
+
+  install example-project "${repo}" --force --yes --ribbon-home "${fake}" \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'invalid Ribbon seed version' "${SANDBOX}/stderr" || return 1
+  grep -Fxq 'live work' "${instance}/docs/tasks/live-card.yaml" || return 1
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.local.md"
+}
+
+test_update_never_writes_through_a_stale_temporary_name() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  printf 'witness\n' > "${SANDBOX}/witness.md"
+  ln -s "${SANDBOX}/witness.md" "${instance}/.ribbon/protocol/actors/architect.md.ribbon-new"
+  printf '\nUser edit.\n' >> "${instance}/.ribbon/protocol/actors/architect.md"
+
+  install example-project --update >/dev/null 2>&1 || return 1
+
+  grep -Fxq 'witness' "${SANDBOX}/witness.md" || return 1
+  local path installed
+  render_standalone --seat-files standalone-structure.md > "${SANDBOX}/seats" || return 1
+  while IFS=$'\t' read -r path installed; do
+    [[ -f "${instance}/.ribbon/protocol/${installed}" \
+      && ! -L "${instance}/.ribbon/protocol/${installed}" ]] || return 1
+  done < "${SANDBOX}/seats"
+}
+
+test_refuses_an_agents_local_md_chain_that_ends_at_the_overlay() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  mkdir -p "${SANDBOX}/repos/shared"
+  printf '# my overlay\n' > "${repo}/herdr-config.md"
+  ln -s "${repo}/herdr-config.md" "${SANDBOX}/repos/shared/AGENTS.local.md"
+  ln -s "../shared/AGENTS.local.md" "${repo}/AGENTS.local.md"
+
+  install example-project "${repo}" > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'is a link to another file or has other names' "${SANDBOX}/stderr" || return 1
+  printf '# my overlay\n' | cmp -s - "${repo}/herdr-config.md" || return 1
+  [[ ! -e "${PROJECTS}/example-project" ]]
+}
+
+test_update_keeps_a_worktree_link_a_link() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  git -C "${repo}" init -q || return 1
+  git -C "${repo}" add AGENTS.md || return 1
+  git -C "${repo}" -c user.name=test -c user.email=test@example.com commit -qm init || return 1
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  local wt="${SANDBOX}/wt"
+  git -C "${repo}" worktree add -q -b linked "${wt}" || return 1
+  [[ -L "${wt}/AGENTS.local.md" ]] || return 1
+  local fake="${SANDBOX}/edited-template"
+  mkdir -p "${fake}/docs/tasks" "${fake}/docs/llm-context" "${fake}/rules" "${fake}/scripts"
+  cp -R "${RIBBON_HOME}/protocol" "${fake}/protocol"
+  printf '\nAn edited sentence of guidance.\n' >> "${fake}/protocol/guidance/memory.md"
+  cp "${RIBBON_HOME}/scripts/ribbon-render-protocol" "${fake}/scripts/"
+  cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${fake}/scripts/"
+  printf 'ribbon 2\n' > "${fake}/VERSION"
+
+  install example-project --update --ribbon-home "${fake}" "${wt}" >/dev/null 2>&1 || return 1
+
+  grep -Fq 'An edited sentence of guidance.' "${repo}/AGENTS.local.md" || return 1
+  [[ -L "${wt}/AGENTS.local.md" ]] \
+    && [[ "$(readlink "${wt}/AGENTS.local.md")" == "${repo}/AGENTS.local.md" ]]
+}
+
+test_refuses_a_hard_linked_agents_local_md() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  printf 'notes\n' > "${repo}/notes.md"
+  ln -f "${repo}/notes.md" "${repo}/AGENTS.local.md"
+
+  install example-project "${repo}" > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'is a link to another file or has other names' "${SANDBOX}/stderr" || return 1
+  printf 'notes\n' | cmp -s - "${repo}/notes.md" || return 1
+  [[ ! -e "${PROJECTS}/example-project" ]]
+}
+
+test_relative_projects_render_absolute_seat_paths() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  (
+    cd "${SANDBOX}" || exit 1
+    "${INSTALLER}" --projects ribbon-projects example-project "${repo}"
+  ) > "${SANDBOX}/summary" 2>&1 || return 1
+
+  # The single quotes are the point: the backticks are literal Markdown.
+  # shellcheck disable=SC2016
+  grep -o '`[^`]*/\.ribbon/protocol/[^`]*\.md`' "${repo}/AGENTS.local.md" \
+    > "${SANDBOX}/pointers" || return 1
+  [[ -s "${SANDBOX}/pointers" ]] || return 1
+  local pointer
+  while IFS= read -r pointer; do
+    pointer="${pointer#\`}"
+    pointer="${pointer%\`}"
+    [[ "${pointer}" == /* ]] || return 1
+    [[ -f "${pointer}" ]] || return 1
+  done < "${SANDBOX}/pointers"
+}
+
 readonly TESTS=(
   test_installer_exists
   test_creates_layout
@@ -1896,6 +2171,19 @@ readonly TESTS=(
   test_refuses_an_agents_local_md_that_links_to_the_overlay
   test_refuses_a_backtick_in_the_project_repo_path
   test_refuses_a_block_that_names_a_missing_seat_file
+  test_uninstall_refuses_a_repo_path_that_differs_by_an_lf
+  test_uninstall_refuses_a_linked_project_repo_pointer
+  test_mark_text_inside_prose_is_no_frame
+  test_uninstall_refuses_a_real_start_without_a_real_end
+  test_uninstall_asks_on_a_terminal
+  test_uninstall_refuses_an_unwritable_hooks_directory_before_any_removal
+  test_uninstall_removes_a_crlf_pointer_line
+  test_force_refuses_a_version_with_a_second_line
+  test_update_never_writes_through_a_stale_temporary_name
+  test_refuses_an_agents_local_md_chain_that_ends_at_the_overlay
+  test_update_keeps_a_worktree_link_a_link
+  test_refuses_a_hard_linked_agents_local_md
+  test_relative_projects_render_absolute_seat_paths
 )
 
 #######################################
