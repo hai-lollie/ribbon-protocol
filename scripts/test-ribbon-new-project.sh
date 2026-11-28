@@ -2193,6 +2193,88 @@ test_update_keeps_the_mode_of_a_rewritten_seat() {
   [[ "$(stat -c %a "${instance}/.ribbon/protocol/flows/adr.md")" == 600 ]]
 }
 
+test_uninstall_refuses_a_project_whose_real_path_ends_in_an_lf() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/proj" rc=0
+  mkdir -p "${repo}"
+  printf '# proj AGENTS\n' > "${repo}/AGENTS.md"
+  git -C "${repo}" init -q || return 1
+  install proj "${repo}" >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/local.before"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents.before"
+  cp "${repo}/.git/hooks/post-checkout" "${SANDBOX}/hook.before"
+  mkdir -p "${SANDBOX}/repos/proj"$'\n' || return 1
+  ln -s "${SANDBOX}/repos/proj"$'\n' "${SANDBOX}/repos/proj-link" || return 1
+
+  uninstall proj "${SANDBOX}/repos/proj-link" --remove-ribbon --yes \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'unsupported character in the project repo path:' "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/local.before" "${repo}/AGENTS.local.md" || return 1
+  cmp -s "${SANDBOX}/agents.before" "${repo}/AGENTS.md" || return 1
+  cmp -s "${SANDBOX}/hook.before" "${repo}/.git/hooks/post-checkout"
+}
+
+test_update_refuses_an_unwritable_main_checkout_before_any_write() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  git -C "${repo}" init -q || return 1
+  git -C "${repo}" add AGENTS.md || return 1
+  git -C "${repo}" -c user.name=test -c user.email=test@example.com commit -qm init || return 1
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  local wt="${SANDBOX}/wt"
+  git -C "${repo}" worktree add -q -b linked "${wt}" || return 1
+  [[ -L "${wt}/AGENTS.local.md" ]] || return 1
+  cp "${instance}/docs/README.md" "${SANDBOX}/readme.before"
+  cp "${instance}/project-repo" "${SANDBOX}/pointer.before"
+  cp -R "${instance}/.ribbon/protocol" "${SANDBOX}/seats.before"
+  chmod 0555 "${repo}"
+  local fake="${SANDBOX}/edited-template"
+  mkdir -p "${fake}/docs/tasks" "${fake}/docs/llm-context" "${fake}/rules" "${fake}/scripts"
+  cp -R "${RIBBON_HOME}/protocol" "${fake}/protocol"
+  printf '\nAn edited sentence of guidance.\n' >> "${fake}/protocol/guidance/memory.md"
+  cp "${RIBBON_HOME}/scripts/ribbon-render-protocol" "${fake}/scripts/"
+  cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${fake}/scripts/"
+  printf 'ribbon 2\n' > "${fake}/VERSION"
+
+  install example-project --update --ribbon-home "${fake}" "${wt}" \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+  chmod u+w "${repo}"
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq "not writable: ${repo}" "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/readme.before" "${instance}/docs/README.md" || return 1
+  cmp -s "${SANDBOX}/pointer.before" "${instance}/project-repo" || return 1
+  diff -r "${SANDBOX}/seats.before" "${instance}/.ribbon/protocol" > /dev/null || return 1
+}
+
+test_update_refuses_a_read_only_template_refresh_before_any_write() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/local.before"
+  cp -R "${instance}/.ribbon/protocol" "${SANDBOX}/seats.before"
+  chmod 0444 "${instance}/docs/tasks/_template.task.yaml"
+  local fake="${SANDBOX}/edited-template"
+  mkdir -p "${fake}/docs/tasks" "${fake}/docs/llm-context" "${fake}/rules" "${fake}/scripts"
+  cp -R "${RIBBON_HOME}/protocol" "${fake}/protocol"
+  cp "${RIBBON_HOME}/docs/tasks/_template.task.yaml" "${fake}/docs/tasks/"
+  printf '\n# an edited line of the template.\n' >> "${fake}/docs/tasks/_template.task.yaml"
+  cp "${RIBBON_HOME}/scripts/ribbon-render-protocol" "${fake}/scripts/"
+  cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${fake}/scripts/"
+  printf 'ribbon 2\n' > "${fake}/VERSION"
+
+  install example-project --update --ribbon-home "${fake}" \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+  chmod u+w "${instance}/docs/tasks/_template.task.yaml"
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq "not writable: ${instance}/docs/tasks/_template.task.yaml" "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/local.before" "${repo}/AGENTS.local.md" || return 1
+  diff -r "${SANDBOX}/seats.before" "${instance}/.ribbon/protocol" > /dev/null || return 1
+}
+
 readonly TESTS=(
   test_installer_exists
   test_creates_layout
@@ -2326,6 +2408,9 @@ readonly TESTS=(
   test_relative_ribbon_home_renders_an_absolute_field_guide_path
   test_force_refuses_a_version_with_junk_after_its_line
   test_update_keeps_the_mode_of_a_rewritten_seat
+  test_uninstall_refuses_a_project_whose_real_path_ends_in_an_lf
+  test_update_refuses_an_unwritable_main_checkout_before_any_write
+  test_update_refuses_a_read_only_template_refresh_before_any_write
 )
 
 #######################################

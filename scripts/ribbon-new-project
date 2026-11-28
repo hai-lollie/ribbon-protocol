@@ -436,22 +436,44 @@ rebuild_instance() {
 }
 
 #######################################
+# Add one destination to validate_write_destinations' planned list, as a
+# visit_instance_template_refreshes visitor (bash dynamic scoping:
+# planned is the caller's local).
+# Arguments:
+#   The destination, the template (unused).
+#######################################
+plan_write_destination() {
+  planned+=("$1")
+}
+
+#######################################
 # Before the first write, every destination of the run can be written:
-# the directory of each new file and each rewritten file is writable and
-# searchable, and each rewritten file is writable.
+# the file write_block actually replaces (LOCAL_BLOCK_TARGET once
+# validate_instruction_link_safety has resolved a worktree's link,
+# otherwise the project's AGENTS.local.md), the pointer when it is added,
+# every seat file, the instance's docs/README.md and project-repo, on
+# --update every refreshed template file, the instance's
+# docs/llm-context/history when unpack_docs would create it, and each
+# missing rule seed: the directory of each new file and each rewritten
+# file is writable and searchable, and each rewritten file is writable.
 # Globals:
 #   PROJECT_REPO, PROJECTS_DIR, INSTANCE, RIBBON_HOME, SEAT_LIST_FILE,
-#   AGENTS_POINTER_NEEDED, SELECTED_RULES
+#   AGENTS_POINTER_NEEDED, SELECTED_RULES, LOCAL_BLOCK_TARGET, UPDATE
 #######################################
 validate_write_destinations() {
   local path directory rel template
-  local -a planned=("${PROJECT_REPO}/AGENTS.local.md")
+  local -a planned=("${LOCAL_BLOCK_TARGET:-${PROJECT_REPO}/AGENTS.local.md}")
   (( AGENTS_POINTER_NEEDED == 1 )) && planned+=("${PROJECT_REPO}/AGENTS.md")
   local installed
   while IFS=$'\t' read -r rel installed; do
     planned+=("${INSTANCE}/.ribbon/protocol/${installed}")
   done < "${SEAT_LIST_FILE}"
   planned+=("${INSTANCE}/docs/README.md" "${INSTANCE}/project-repo")
+  if (( UPDATE == 1 )); then
+    visit_instance_template_refreshes plan_write_destination
+  fi
+  [[ -d "${INSTANCE}/docs/llm-context/history" ]] \
+    || planned+=("${INSTANCE}/docs/llm-context/history")
   for template in "${RIBBON_HOME}/rules"/*.md; do
     [[ -e "${template}" ]] || continue
     path_present "${PROJECT_REPO}/rules/${template##*/}" && continue
@@ -1505,7 +1527,11 @@ wire_worktree_links() {
 #######################################
 # Resolve the project repo for --uninstall: the instance's project-repo
 # pointer when the instance exists (a given path must name the same
-# directory), the given path otherwise.
+# directory), the given path otherwise. The recorded pointer and the
+# given path pass validate_canonical_path before any command substitution
+# canonicalizes them, so the identity comparison and the assignment lose
+# no byte: a path whose real name ends in an LF is refused, never trimmed
+# into another directory.
 # Globals:
 #   PROJECTS_DIR, PROJECT_NAME, PROJECT_REPO (set), INSTANCE (set)
 #######################################
@@ -1521,8 +1547,10 @@ resolve_uninstall_repo() {
       die "the instance has no usable project-repo pointer; nothing removed"
     fi
     validate_path_characters 'the project repo path' "${recorded}"
+    validate_canonical_path 'the project repo path' "${recorded}"
     if [[ -n "${PROJECT_REPO}" ]]; then
       validate_path_characters 'the project repo path' "${PROJECT_REPO}"
+      validate_canonical_path 'the project repo path' "${PROJECT_REPO}"
       [[ "$(canonical_path "${PROJECT_REPO}")" == "$(canonical_path "${recorded}")" ]] \
         || die "the instance links ${recorded}, not ${PROJECT_REPO}"
     fi
@@ -1532,6 +1560,7 @@ resolve_uninstall_repo() {
     || die "no instance for ${PROJECT_NAME}; give the project repo path"
   [[ -d "${PROJECT_REPO}" ]] || die "project repo not found: ${PROJECT_REPO}"
   validate_path_characters 'the project repo path' "${PROJECT_REPO}"
+  validate_canonical_path 'the project repo path' "${PROJECT_REPO}"
   PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
 }
 

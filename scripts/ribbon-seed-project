@@ -294,6 +294,25 @@ canonical_path() {
   "${GNU_REALPATH}" -m -- "$1"
 }
 
+#######################################
+# Set PROJECT_REPO from the canonical form of a path, keeping every byte:
+# a command substitution trims trailing LFs, so the value is captured with
+# a sentinel, which is removed together with the one LF realpath prints.
+# H8's character rule then applies to that canonical value too.
+# Globals:
+#   PROJECT_REPO (set)
+# Arguments:
+#   A path.
+#######################################
+canonicalize_project_repo() {
+  local canonical
+  canonical="$(canonical_path "$1" && printf x)" || return 1
+  canonical="${canonical%x}"
+  canonical="${canonical%$'\n'}"
+  PROJECT_REPO="${canonical}"
+  validate_path_characters 'the project repo path' "${PROJECT_REPO}"
+}
+
 # Walk the link without dropping missing components canceled by `..`.
 missing_link_component_matches_write() {
   local pending="$1" destination="$2" parent='' component entry target hops=0
@@ -353,7 +372,7 @@ resolve_repo() {
   [[ -w "${PROJECT_REPO}" && -x "${PROJECT_REPO}" ]] \
     || die "project repo is not writable with your permissions: ${PROJECT_REPO}"
   validate_path_characters 'the project repo path' "${PROJECT_REPO}"
-  PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
+  canonicalize_project_repo "${PROJECT_REPO}"
   validate_project_directory docs
   validate_project_directory rules
 
@@ -488,7 +507,7 @@ uninstall_full_install() {
   [[ -n "${PROJECT_REPO}" && -d "${PROJECT_REPO}" ]] || die "uninstall requires an existing project directory"
   local home_resolved ribbon_resolved
   validate_path_characters 'the project repo path' "${PROJECT_REPO}"
-  PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
+  canonicalize_project_repo "${PROJECT_REPO}"
   home_resolved="$(canonical_path "${HOME}")"
   ribbon_resolved="$(canonical_path "${RIBBON_HOME}")"
   [[ "${PROJECT_REPO}" != / && "${PROJECT_REPO}" != "${home_resolved}" \
@@ -699,7 +718,9 @@ def uninstall():
         if owned is None:
             changed.append(name)
         else:
-            candidate = normalized_block(owned) if version == 2 else owned
+            # A v2 'file' entry is a whole-file digest; only a block entry
+            # normalizes its region bodies before the comparison.
+            candidate = normalized_block(owned) if version == 2 and kind != b"file" else owned
             if hashlib.sha256(candidate).hexdigest().encode() != digest:
                 changed.append(name)
             else:
@@ -812,19 +833,14 @@ seed_rules() {
 }
 
 #######################################
-# Refuse any seed that would write through an instruction alias, including
-# a dangling link whose target the seed would create. Claude -> AGENTS.md
-# is intentional wiring, not a Claude-owned destination.
+# Refuse a destination that is the same file as another instruction file,
+# including a dangling link whose target the write would create. Claude ->
+# AGENTS.md is intentional wiring, not a Claude-owned destination.
 # Globals:
 #   PROJECT_REPO
 #######################################
-validate_instruction_destination() {
+validate_instruction_alias() {
   local name="$1" destination="${PROJECT_REPO}/$1" instruction path resolved_destination resolved_instruction
-  if [[ "${name}" == AGENTS.md ]] \
-    && [[ -e "${destination}" || -L "${destination}" ]]; then
-    [[ -f "${destination}" ]] || die "not a regular file: ${destination}"
-  fi
-  validate_existing_project_paths "${destination}"
   for instruction in AGENTS.md AGENTS.local.md CLAUDE.md CLAUDE.local.md; do
     [[ "${instruction}" != "${name}" ]] || continue
     path="${PROJECT_REPO}/${instruction}"
@@ -839,6 +855,23 @@ validate_instruction_destination() {
     fi
     die "${name} aliases ${instruction}; refusing to write it"
   done
+}
+
+#######################################
+# Refuse any seed that would write through an instruction alias (see
+# validate_instruction_alias), or would change an existing project doc or
+# rule that a write passes through.
+# Globals:
+#   PROJECT_REPO
+#######################################
+validate_instruction_destination() {
+  local name="$1" destination="${PROJECT_REPO}/$1"
+  if [[ "${name}" == AGENTS.md ]] \
+    && [[ -e "${destination}" || -L "${destination}" ]]; then
+    [[ -f "${destination}" ]] || die "not a regular file: ${destination}"
+  fi
+  validate_existing_project_paths "${destination}"
+  validate_instruction_alias "${name}"
 }
 
 #######################################
@@ -1433,7 +1466,7 @@ resolve_update_repo() {
   [[ -w "${PROJECT_REPO}" && -x "${PROJECT_REPO}" ]] \
     || die "project repo is not writable with your permissions: ${PROJECT_REPO}"
   validate_path_characters 'the project repo path' "${PROJECT_REPO}"
-  PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
+  canonicalize_project_repo "${PROJECT_REPO}"
   validate_project_directory docs
 }
 
@@ -1714,6 +1747,21 @@ prepare_update_removals() {
       && git -C "${PROJECT_REPO}" cat-file -e "HEAD:${rel}" 2>/dev/null; then
       REMOVED_SEAT_PATHS+=("${rel}")
     fi
+  done
+}
+
+#######################################
+# Before any --update write: each retired seat, the seed record and the
+# receipt is refused when it is the same file as an instruction file. Only
+# the alias comparison applies: the docs-and-rules comparison would refuse
+# the record and the receipt against themselves.
+# Globals:
+#   PROJECT_REPO, REMOVED_SEAT_PATHS, SEED_RECORD, INSTALL_RECEIPT
+#######################################
+validate_update_instruction_aliases() {
+  local rel
+  for rel in "${REMOVED_SEAT_PATHS[@]}" "${SEED_RECORD}" "${INSTALL_RECEIPT}"; do
+    validate_instruction_alias "${rel}"
   done
 }
 
@@ -2015,6 +2063,7 @@ update_full_install() {
   prepare_seat_files
   prepare_update_seat_ownership
   prepare_update_removals
+  validate_update_instruction_aliases
   validate_update_destinations
   prepare_write_paths "${SEAT_FILES[@]}" "${REMOVED_SEAT_PATHS[@]}" \
     "AGENTS.md" "${SEED_RECORD}" "${INSTALL_RECEIPT}"
