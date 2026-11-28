@@ -1350,6 +1350,7 @@ test_update_keeps_the_bytes_before_the_block() {
   printf '\nAn edited sentence of guidance.\n' >> "${template}/protocol/guidance/memory.md"
   seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2>&1 || return 1
 
+  grep -Fq 'An edited sentence of guidance.' "${repo}/AGENTS.md" || return 1
   head -c "${bytes}" "${repo}/AGENTS.md" | cmp -s "${SANDBOX}/agents-before" -
 }
 
@@ -1374,6 +1375,7 @@ test_update_removes_a_seat_file_the_template_dropped() {
   seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
   copy_template "${template}"
   rm "${template}/protocol/actors/entry-level-coder_template.md"
+  sed -i '/entry-level-coder/d' "${template}/protocol/seats.md"
 
   seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2>&1 || return 1
 
@@ -1394,6 +1396,7 @@ test_update_leaves_a_file_of_the_users_alone() {
 
   seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2>&1 || return 1
 
+  grep -Fq 'An edited sentence of guidance.' "${repo}/AGENTS.md" || return 1
   [[ "$(cat "${repo}/${notes}")" == 'mine' ]] \
     && ! git -C "${repo}" show --name-only --format= HEAD | grep -qx "${notes}"
 }
@@ -1473,6 +1476,29 @@ test_update_refuses_an_older_full_install_and_prints_its_belt() {
     && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md"
 }
 
+test_update_prints_only_the_belt_table_of_an_older_install() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+
+  create_older_full_install "${repo}" '| Role | Agent | Model | Writes | Never |
+|---|---|---|---|---|
+| Senior architect | Ana | human | x | y |
+
+- a bullet after the belt table
+
+| Path | Who writes | What |
+|---|---|---|
+| docs/ | everyone | the homes table |'
+
+  seed --update "${repo}" </dev/null > "${SANDBOX}/output" 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq '| Senior architect | Ana | human | x | y |' "${SANDBOX}/output" \
+    && ! grep -Fq '| Path | Who writes | What |' "${SANDBOX}/output" \
+    && ! grep -Fq 'the homes table' "${SANDBOX}/output" \
+    && grep -Fq 'holds an older full install' "${SANDBOX}/error"
+}
+
 test_update_refuses_a_standalone_install() {
   new_repo
   local repo="${SANDBOX}/example-project" rc=0
@@ -1522,6 +1548,8 @@ test_update_then_uninstall_removes_everything() {
   printf '\nAn edited sentence of guidance.\n' >> "${template}/protocol/guidance/memory.md"
 
   seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  [[ "$(git -C "${repo}" show -s --format=%s HEAD)" \
+    == "Update the Ribbon Protocol, $(template_version)" ]] || return 1
   seed --uninstall --remove-ribbon --yes "${repo}" </dev/null >/dev/null 2>&1 || return 1
 
   cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md" \
@@ -1690,6 +1718,253 @@ test_uninstall_keeps_the_receipt_until_its_directories_are_gone() {
   [[ ! -e "${repo}/.ribbon" ]]
 }
 
+test_update_refuses_a_block_that_names_a_dropped_seat() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template" rc=0 head
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  copy_template "${template}"
+  rm "${template}/protocol/actors/entry-level-coder_template.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  head="$(git -C "${repo}" rev-parse HEAD)"
+
+  seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'the block names a seat file that the template does not have: .ribbon/protocol/actors/entry-level-coder.md' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md" \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]]
+}
+
+test_update_refuses_a_seat_that_is_a_symlink() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template" rc=0
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  printf 'witness\n' > "${SANDBOX}/witness.md"
+  rm "${repo}/.ribbon/protocol/flows/adr.md"
+  ln -s "${SANDBOX}/witness.md" "${repo}/.ribbon/protocol/flows/adr.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  copy_template "${template}"
+  printf '\nAn edited sentence of guidance.\n' >> "${template}/protocol/guidance/memory.md"
+
+  seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsafe destination: .ribbon/protocol/flows/adr.md' "${SANDBOX}/error" \
+    && grep -Fxq 'witness' "${SANDBOX}/witness.md" \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md"
+}
+
+test_update_refuses_an_unwritable_seed_record_before_any_write() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template" rc=0 head
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  chmod 0444 "${repo}/docs/.ribbon-full-install"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  head="$(git -C "${repo}" rev-parse HEAD)"
+  copy_template "${template}"
+  printf '\nAn edited sentence of guidance.\n' >> "${template}/protocol/guidance/memory.md"
+
+  seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+  chmod 0644 "${repo}/docs/.ribbon-full-install"
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'not writable:' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md" \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]]
+}
+
+test_update_commits_the_retirement_of_an_already_missing_seat() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template"
+  local dropped='.ribbon/protocol/actors/entry-level-coder.md'
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  rm "${repo}/${dropped}"
+  copy_template "${template}"
+  rm "${template}/protocol/actors/entry-level-coder_template.md"
+  sed -i '/entry-level-coder/d' "${template}/protocol/seats.md"
+
+  seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2>&1 || return 1
+
+  ! git -C "${repo}" cat-file -e "HEAD:${dropped}" 2>/dev/null \
+    && ! tr '\0' '\n' < "${repo}/docs/.ribbon-full-install-receipt" | grep -qx "${dropped}"
+}
+
+test_update_refuses_a_crlf_standalone_mark() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  printf '# Local rules\r\n<!-- ribbon:standalone:start -->\r\n' > "${repo}/AGENTS.local.md"
+
+  seed --update "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'has a standalone install in AGENTS.local.md' "${SANDBOX}/error"
+}
+
+test_update_keeps_the_crlf_bytes_around_the_block() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template"
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  python3 - "${repo}/AGENTS.md" <<'PY'
+import sys
+
+path = sys.argv[1]
+data = open(path, "rb").read()
+open(path, "wb").write(data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+PY
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  copy_template "${template}"
+  printf '\nAn edited sentence of guidance.\n' >> "${template}/protocol/guidance/memory.md"
+
+  seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2>&1 || return 1
+
+  grep -Fq 'An edited sentence of guidance.' "${repo}/AGENTS.md" || return 1
+  python3 - "${SANDBOX}/agents-before" "${repo}/AGENTS.md" <<'PY'
+import sys
+
+before = open(sys.argv[1], "rb").read()
+after = open(sys.argv[2], "rb").read()
+start = b"<!-- ribbon:full-install:start -->"
+end = b"<!-- ribbon:full-install:end -->"
+
+def outside(data):
+    lo = data.index(start)
+    hi = data.index(end) + len(end)
+    if data[hi:hi + 1] == b"\r" and data[hi + 1:hi + 2] == b"\n":
+        hi += 2
+    elif data[hi:hi + 1] == b"\n":
+        hi += 1
+    return data[:lo], data[hi:]
+
+sys.exit(0 if outside(before) == outside(after) else 1)
+PY
+  python3 - "${SANDBOX}/agents-before" > "${SANDBOX}/old-block" <<'PY'
+import sys
+
+data = open(sys.argv[1], "rb").read()
+start = b"<!-- ribbon:full-install:start -->"
+end = b"<!-- ribbon:full-install:end -->"
+lines = data.split(b"\n")
+offsets = []
+position = 0
+for line in lines:
+    offsets.append(position)
+    position += len(line) + 1
+starts = [index for index, line in enumerate(lines)
+          if line == start or line == start + b"\r"]
+ends = [index for index, line in enumerate(lines)
+        if line == end or line == end + b"\r"]
+begin = offsets[starts[0]]
+if begin > 0 and data[begin - 1:begin] == b"\n":
+    begin -= 1
+finish = offsets[ends[0]] + len(end)
+if data[finish:finish + 1] == b"\r" and data[finish + 1:finish + 2] == b"\n":
+    finish += 2
+elif data[finish:finish + 1] == b"\n":
+    finish += 1
+sys.stdout.buffer.write(data[begin:finish])
+PY
+  {
+    printf '%s\n' "${START_MARK}"
+    render_with_template "${template}" --keep-from "${SANDBOX}/old-block" project-structure.md
+    printf '%s\n' "${END_MARK}"
+  } > "${SANDBOX}/block-expected"
+  extract_block "${repo}/AGENTS.md" > "${SANDBOX}/block-after"
+  cmp -s "${SANDBOX}/block-expected" "${SANDBOX}/block-after"
+}
+
+test_update_refuses_an_older_install_without_agents_md() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+
+  create_older_full_install "${repo}"
+  rm "${repo}/AGENTS.md"
+
+  seed --update "${repo}" </dev/null > "${SANDBOX}/output" 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'holds an older full install' "${SANDBOX}/error" \
+    && [[ ! -s "${SANDBOX}/output" ]]
+}
+
+test_update_refuses_an_invalid_carried_receipt_entry() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0 head
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  python3 - "${repo}/docs/.ribbon-full-install-receipt" <<'PY'
+import sys
+
+path = sys.argv[1]
+fields = open(path, "rb").read().split(b"\0")
+fields[1:1] = [b"file", b"notes.md", b"0" * 64]
+open(path, "wb").write(b"\0".join(fields))
+PY
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  head="$(git -C "${repo}" rev-parse HEAD)"
+
+  seed --update "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'invalid full-install ownership receipt; nothing changed' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md" \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]]
+}
+
+test_update_refuses_a_repo_path_with_a_newline() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+  local weird="${repo}"$'\n'
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  mkdir -p "${weird}"
+
+  seed --update "${weird}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'unsupported character in the project repo path:' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md"
+}
+
+test_update_reports_a_restore_that_matches_head() {
+  new_repo
+  local repo="${SANDBOX}/example-project"
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  printf '\nUser edit.\n' >> "${repo}/.ribbon/protocol/flows/adr.md"
+
+  seed --update "${repo}" </dev/null > "${SANDBOX}/output" 2>&1 || return 1
+
+  render_protocol flows/adr.md > "${SANDBOX}/seat-expected"
+  cmp -s "${SANDBOX}/seat-expected" "${repo}/.ribbon/protocol/flows/adr.md" || return 1
+  ! grep -Fq 'Nothing to update' "${SANDBOX}/output" || return 1
+  grep -Fq 'nothing to commit, the files match HEAD' "${SANDBOX}/output"
+}
+
+test_seed_refuses_an_ignored_rule_seed_before_any_write() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0 head
+
+  printf '/rules/testing.md\n' > "${repo}/.gitignore"
+  git -C "${repo}" add .gitignore
+  git -C "${repo}" commit -qm 'ignore a rule seed'
+  head="$(git -C "${repo}" rev-parse HEAD)"
+
+  seed "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'rules/testing.md is ignored by Git; allow it before installing' "${SANDBOX}/error" \
+    && [[ ! -e "${repo}/docs" && ! -e "${repo}/.ribbon" ]] \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]]
+}
+
 readonly TESTS=(
   test_seeder_exists
   test_seeds_docs
@@ -1775,6 +2050,7 @@ readonly TESTS=(
   test_update_of_a_current_install_changes_nothing
   test_update_commits_only_its_own_paths
   test_update_refuses_an_older_full_install_and_prints_its_belt
+  test_update_prints_only_the_belt_table_of_an_older_install
   test_update_refuses_a_standalone_install
   test_update_refuses_a_project_without_a_full_install
   test_update_refuses_a_block_with_broken_marks
@@ -1789,6 +2065,17 @@ readonly TESTS=(
   test_refuses_a_block_that_names_a_missing_seat_file
   test_amendment_refuses_a_standalone_install
   test_uninstall_keeps_the_receipt_until_its_directories_are_gone
+  test_update_refuses_a_block_that_names_a_dropped_seat
+  test_update_refuses_a_seat_that_is_a_symlink
+  test_update_refuses_an_unwritable_seed_record_before_any_write
+  test_update_commits_the_retirement_of_an_already_missing_seat
+  test_update_refuses_a_crlf_standalone_mark
+  test_update_keeps_the_crlf_bytes_around_the_block
+  test_update_refuses_an_older_install_without_agents_md
+  test_update_refuses_an_invalid_carried_receipt_entry
+  test_update_refuses_a_repo_path_with_a_newline
+  test_update_reports_a_restore_that_matches_head
+  test_seed_refuses_an_ignored_rule_seed_before_any_write
 )
 
 #######################################
