@@ -287,6 +287,56 @@ test_invalid_placeholder_name_is_a_usage_error() {
   grep -q 'lower' "${ERR}"
 }
 
+#######################################
+# Run the command against the repository's own protocol directory (no
+# --protocol: the default beside the command), capturing stdout, stderr and
+# the exit code. Used by the three repository-guard tests.
+# Globals:
+#   OUT, ERR, RC (RC set)
+#######################################
+run_repo() {
+  "${RENDER}" "$@" > "${OUT}" 2> "${ERR}"
+  RC=$?
+}
+
+test_root_agents_md_is_the_whole_rendering() {
+  new_sandbox
+  run_repo whole-structure.md
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  cmp -s "${SCRIPT_DIR}/../AGENTS.md" "${OUT}"
+}
+
+test_herdr_config_is_the_handler_rendering() {
+  new_sandbox
+  run_repo handlers/herdr_template.md
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  cmp -s "${SCRIPT_DIR}/../herdr-config.md" "${OUT}"
+}
+
+test_every_piece_is_read_by_one_rendering() {
+  new_sandbox
+  run_repo --list whole-structure.md
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  cp "${OUT}" "${SANDBOX}/whole.list"
+  run_repo --list handlers/herdr_template.md
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  cp "${OUT}" "${SANDBOX}/herdr.list"
+  LC_ALL=C sort "${SANDBOX}/whole.list" > "${SANDBOX}/whole.sorted"
+  LC_ALL=C sort "${SANDBOX}/herdr.list" > "${SANDBOX}/herdr.sorted"
+  LC_ALL=C sort "${SANDBOX}/whole.sorted" "${SANDBOX}/herdr.sorted" \
+    > "${SANDBOX}/union"
+  (
+    cd "${SCRIPT_DIR}/../protocol" || exit 1
+    find . -name '*.md' ! -name 'README.md' -printf '%P\n' | LC_ALL=C sort
+  ) > "${SANDBOX}/on-disk"
+  cmp -s "${SANDBOX}/union" "${SANDBOX}/on-disk" || return 1
+  [[ -z $(LC_ALL=C comm -12 "${SANDBOX}/whole.sorted" "${SANDBOX}/herdr.sorted") ]]
+}
+
 TESTS=(
   test_plain_template_renders_byte_for_byte
   test_include_line_is_replaced_by_the_piece
@@ -308,6 +358,9 @@ TESTS=(
   test_help_prints_usage
   test_missing_template_argument_prints_usage
   test_invalid_placeholder_name_is_a_usage_error
+  test_root_agents_md_is_the_whole_rendering
+  test_herdr_config_is_the_handler_rendering
+  test_every_piece_is_read_by_one_rendering
 )
 
 main() {
