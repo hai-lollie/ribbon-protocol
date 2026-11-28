@@ -62,6 +62,7 @@ SEAT_LIST_FILE=''
 SEAT_RENDER_DIR=''
 RENDER_ERROR_FILE=''
 RENDER_WORK_DIR=''
+SEAT_SWEEP_FILE=''
 PROTOCOL_SET_ARGS=()
 AGENTS_POINTER_NEEDED=0
 SELECTED_RULES=()
@@ -209,6 +210,7 @@ parse_args() {
 validate_flags() {
   [[ -n "${PROJECTS_DIR}" ]] \
     || die "--projects DIR is required (no environment default)"
+  validate_path_characters 'the projects directory' "${PROJECTS_DIR}"
   if (( FORCE == 1 && UPDATE == 1 )); then
     die "--force and --update do not combine"
   fi
@@ -240,6 +242,27 @@ validate_projects_dir() {
 
 path_present() {
   [[ -e "$1" || -L "$1" ]]
+}
+
+#######################################
+# Refuse a path that holds a character below U+0020, U+007F or a
+# backtick: the Markdown and pointer formats cannot carry it, and a
+# canonicalization could trim it into another pathname.
+# Arguments:
+#   What the path is ('the projects directory', 'the project repo path'),
+#   the path.
+#######################################
+validate_path_characters() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+
+what, path = sys.argv[1:3]
+if any(ord(char) < 0x20 or ord(char) == 0x7F or char == "`" for char in path):
+    escaped = "".join(
+        "\\x%02x" % ord(char) if ord(char) < 0x20 or ord(char) == 0x7F else char
+        for char in path)
+    sys.exit(f"ribbon-new-project: unsupported character in {what}: {escaped}")
+PY
 }
 
 validate_project_rules_directory() {
@@ -480,10 +503,7 @@ validate_update_instruction_aliases() {
   validate_instance_refresh_destination "${INSTANCE}/docs/README.md"
   validate_instance_refresh_destination "${INSTANCE}/project-repo"
   visit_instance_template_refreshes validate_instance_refresh_destination
-  local path installed
-  while IFS=$'\t' read -r path installed; do
-    validate_instance_refresh_destination "${INSTANCE}/.ribbon/protocol/${installed}"
-  done < "${SEAT_LIST_FILE}"
+  validate_seat_files
 }
 
 #######################################
@@ -493,7 +513,7 @@ validate_update_instruction_aliases() {
 #   PROJECT_REPO
 #######################################
 refuse_full_install() {
-  if grep -qxF '<!-- ribbon:full-install:start -->' "${PROJECT_REPO}/AGENTS.md" \
+  if grep -qE '^<!-- ribbon:full-install:start -->'$'\r''?$' "${PROJECT_REPO}/AGENTS.md" \
       || [[ -e "${PROJECT_REPO}/docs/.ribbon-full-install" ]]; then
     die "${PROJECT_REPO} has a full install; uninstall it, then install"
   fi
@@ -524,6 +544,7 @@ end = b"<!-- ribbon:standalone:end -->"
 belt_start = b"<!-- ribbon:belt:start -->"
 belt_end = b"<!-- ribbon:belt:end -->"
 gate_start = b"<!-- ribbon:gate:start -->"
+gate_end = b"<!-- ribbon:gate:end -->"
 
 def refuse(reason):
     sys.exit(f"ribbon-new-project: {reason}")
@@ -550,7 +571,17 @@ if marks != (0, 0) and not (
         and b"\n" in body[body.index(belt_start):body.index(belt_end)]):
     refuse("AGENTS.local.md has unclosed, duplicated or out-of-order Ribbon markers; fix it before re-running")
 
-if gate_start not in body:
+def has_gate_region(text):
+    start_at = None
+    for index, raw in enumerate(text.split(b"\n")):
+        line = raw[:-1] if raw.endswith(b"\r") else raw
+        if line == gate_start and start_at is None:
+            start_at = index
+        elif line == gate_end and start_at is not None:
+            return True
+    return False
+
+if not has_gate_region(body):
     rows = []
     in_table = False
     for line in body.split(b"\n"):
@@ -634,6 +665,82 @@ render_the_protocol() {
 }
 
 #######################################
+# Every '<instance>/.ribbon/protocol/<x>' path that the rendered block
+# names between backticks must be a seat file of the run.
+# Globals:
+#   INSTANCE, BLOCK_RENDERING_FILE, SEAT_LIST_FILE
+#######################################
+validate_block_seat_pointers() {
+  python3 - "${BLOCK_RENDERING_FILE}" "${SEAT_LIST_FILE}" \
+    "${INSTANCE}/.ribbon/protocol/" <<'PY'
+import re
+import sys
+
+block_file, seat_list, prefix = sys.argv[1:4]
+installed = set()
+for line in open(seat_list, encoding="utf-8"):
+    installed.add(line.rstrip("\n").split("\t")[1])
+text = open(block_file, encoding="utf-8").read()
+for match in re.finditer(r"`([^`]*)`", text):
+    name = match.group(1)
+    if not name.startswith(prefix):
+        continue
+    seat = name[len(prefix):]
+    if seat and seat not in installed:
+        sys.exit("ribbon-new-project: the block names a seat file that the "
+                 "template does not have: %s" % seat)
+PY
+}
+
+#######################################
+# A seat file is written only when every directory of its path below the
+# instance is a real directory (not a link) and the leaf, when it exists,
+# is a regular file with one hard link.
+# Globals:
+#   INSTANCE, SEAT_LIST_FILE
+#######################################
+validate_seat_files() {
+  python3 - "${INSTANCE}" "${SEAT_LIST_FILE}" <<'PY'
+import os
+import stat
+import sys
+
+instance, seat_list = sys.argv[1:3]
+for line in open(seat_list, encoding="utf-8"):
+    installed = line.rstrip("\n").split("\t")[1]
+    parts = installed.split("/")
+    current = instance
+    for component in [".ribbon", "protocol"] + parts[:-1]:
+        current = os.path.join(current, component)
+        if os.path.islink(current) or (
+                os.path.exists(current) and not os.path.isdir(current)):
+            sys.exit(f"ribbon-new-project: unsafe seat file: {current}")
+    target = os.path.join(current, parts[-1])
+    if os.path.lexists(target):
+        info = os.lstat(target)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            sys.exit(f"ribbon-new-project: unsafe seat file: {target}")
+PY
+}
+
+#######################################
+# Enumerate the seat tree for the stray sweep into a work file, checking
+# find's status, before any write. On install and --force the tree is
+# new, so the inventory stays empty.
+# Globals:
+#   UPDATE, INSTANCE, SEAT_SWEEP_FILE
+#######################################
+prepare_seat_sweep() {
+  (( UPDATE == 1 )) || return 0
+  if [[ -d "${INSTANCE}/.ribbon/protocol" ]]; then
+    if ! find "${INSTANCE}/.ribbon/protocol" \( -type f -o -type l \) -print0 \
+        > "${SEAT_SWEEP_FILE}"; then
+      die "cannot list ${INSTANCE}/.ribbon/protocol; nothing changed"
+    fi
+  fi
+}
+
+#######################################
 # Refuse an append through an AGENTS alias of an existing Claude file.
 # A Claude symlink to a regular AGENTS file is the supported direction.
 #######################################
@@ -649,6 +756,37 @@ validate_agents_destination() {
   done
 }
 
+#######################################
+# For each of AGENTS.local.md and AGENTS.md that the run will write (the
+# block appended or replaced; the pointer appended), and only for those:
+# the file may be a link only to a file of the same name (a worktree's
+# link to the main checkout's file); one that aliases the overlay, the
+# other AGENTS file or a Claude file, or that has more than one hard
+# link, is refused before any write. Runs after the existing alias and
+# refresh-destination checks, so their messages fire first where they
+# apply.
+# Globals:
+#   PROJECT_REPO, AGENTS_POINTER_NEEDED
+#######################################
+validate_instruction_link_safety() {
+  local name path target
+  for name in AGENTS.local.md AGENTS.md; do
+    if [[ "${name}" == AGENTS.md ]] && (( AGENTS_POINTER_NEEDED == 0 )); then
+      continue
+    fi
+    path="${PROJECT_REPO}/${name}"
+    if [[ -L "${path}" ]]; then
+      target="$(readlink -n -- "${path}")"
+      [[ "${target##*/}" == "${name}" ]] \
+        || die "${name} is a link to another file or has other names; refusing to write it"
+    elif [[ -f "${path}" ]]; then
+      if [[ -n "$(find "${path}" -maxdepth 0 -links +1 -print -quit)" ]]; then
+        die "${name} is a link to another file or has other names; refusing to write it"
+      fi
+    fi
+  done
+}
+
 prepare_instruction_files() {
   prepare_local_block
   if [[ "${BLOCK_MODE}" == append ]]; then
@@ -661,9 +799,11 @@ prepare_instruction_files() {
 }
 
 #######################################
-# Validate that the template repository has everything an instance needs.
+# Validate that the template repository has everything an instance needs,
+# and read everything the run needs afterwards: the seed version and every
+# template file it will copy, before any write.
 # Globals:
-#   RIBBON_HOME
+#   RIBBON_HOME, RENDER_WORK_DIR
 #######################################
 validate_template() {
   [[ -f "${RIBBON_HOME}/protocol/standalone-structure.md" ]] \
@@ -676,6 +816,39 @@ validate_template() {
     || die "template rules not found under ${RIBBON_HOME}/rules"
   [[ -f "${RIBBON_HOME}/scripts/standalone-post-checkout" ]] \
     || die "template not found: ${RIBBON_HOME}/scripts/standalone-post-checkout (point --ribbon-home at the template repo)"
+  validate_seed_version
+  validate_template_files
+}
+
+#######################################
+# Read the seed version: one line 'ribbon N'.
+# Globals:
+#   RIBBON_HOME
+#######################################
+validate_seed_version() {
+  local version_file="${RIBBON_HOME}/VERSION" line
+  [[ -f "${version_file}" && -r "${version_file}" ]] \
+    || die "template file is missing or unreadable: ${version_file}"
+  line="$(head -1 "${version_file}")"
+  [[ "${line}" =~ ^ribbon\ [0-9]+$ ]] \
+    || die "invalid Ribbon seed version: ${line}"
+}
+
+#######################################
+# Every template file the run will copy is a readable regular file.
+# Globals:
+#   RIBBON_HOME, RENDER_WORK_DIR
+#######################################
+validate_template_files() {
+  local listing="${RENDER_WORK_DIR}/template-files" file
+  if ! find "${RIBBON_HOME}/docs/tasks" "${RIBBON_HOME}/docs/llm-context" \
+      "${RIBBON_HOME}/rules" \( -type f -o -type l \) -print0 > "${listing}"; then
+    die "cannot inspect the template files under ${RIBBON_HOME}"
+  fi
+  while IFS= read -r -d '' file; do
+    [[ -f "${file}" && -r "${file}" ]] \
+      || die "template file is missing or unreadable: ${file}"
+  done < "${listing}"
 }
 
 #######################################
@@ -716,6 +889,7 @@ resolve_repo() {
     [[ -w "${PROJECT_REPO}/AGENTS.local.md" ]] \
       || die "AGENTS.local.md is not writable with your permissions: ${PROJECT_REPO}/AGENTS.local.md"
   fi
+  validate_path_characters 'the project repo path' "${PROJECT_REPO}"
   PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
   local instance_resolved ribbon_resolved home_resolved
   instance_resolved="$(canonical_path "${INSTANCE}")"
@@ -907,20 +1081,22 @@ PY
 #   INSTANCE, SEAT_LIST_FILE, SEAT_RENDER_DIR
 #######################################
 write_seat_files() {
-  local protocol_dir="${INSTANCE}/.ribbon/protocol" path installed
+  local protocol_dir="${INSTANCE}/.ribbon/protocol" path installed target
   mkdir -p "${protocol_dir}"
   while IFS=$'\t' read -r path installed; do
     if [[ "${installed}" == */* ]]; then
       mkdir -p "${protocol_dir}/${installed%/*}"
     fi
-    cp "${SEAT_RENDER_DIR}/${installed}" "${protocol_dir}/${installed}"
+    target="${protocol_dir}/${installed}"
+    cp "${SEAT_RENDER_DIR}/${installed}" "${target}.ribbon-new"
+    mv -f "${target}.ribbon-new" "${target}"
   done < "${SEAT_LIST_FILE}"
   while IFS= read -r -d '' path; do
     installed="${path#"${protocol_dir}"/}"
     if ! cut -f2 "${SEAT_LIST_FILE}" | grep -Fqx "${installed}"; then
       rm -f "${path}"
     fi
-  done < <(find "${protocol_dir}" \( -type f -o -type l \) -print0)
+  done < "${SEAT_SWEEP_FILE}"
 }
 
 #######################################
@@ -1152,6 +1328,7 @@ resolve_uninstall_repo() {
   [[ -n "${PROJECT_REPO}" ]] \
     || die "no instance for ${PROJECT_NAME}; give the project repo path"
   [[ -d "${PROJECT_REPO}" ]] || die "project repo not found: ${PROJECT_REPO}"
+  validate_path_characters 'the project repo path' "${PROJECT_REPO}"
   PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
 }
 
@@ -1440,6 +1617,16 @@ main() {
   find_gnu_realpath
   validate_import_rules
   validate_projects_dir
+  RENDER_WORK_DIR="$(mktemp -d)"
+  OLD_BLOCK_FILE="${RENDER_WORK_DIR}/old-block"
+  BELT_ROWS_FILE="${RENDER_WORK_DIR}/belt-rows"
+  BLOCK_RENDERING_FILE="${RENDER_WORK_DIR}/block-rendering"
+  SEAT_LIST_FILE="${RENDER_WORK_DIR}/seat-list"
+  SEAT_RENDER_DIR="${RENDER_WORK_DIR}/seats"
+  RENDER_ERROR_FILE="${RENDER_WORK_DIR}/renderer-stderr"
+  SEAT_SWEEP_FILE="${RENDER_WORK_DIR}/seat-sweep"
+  mkdir -p "${SEAT_RENDER_DIR}"
+  : > "${SEAT_SWEEP_FILE}"
   if (( UNINSTALL == 1 )); then
     resolve_uninstall_repo
     uninstall_standalone
@@ -1452,21 +1639,16 @@ main() {
   validate_instance_write_directories
   collect_existing_project_docs_and_rules
   validate_instance_seed_instruction_links
-  RENDER_WORK_DIR="$(mktemp -d)"
-  OLD_BLOCK_FILE="${RENDER_WORK_DIR}/old-block"
-  BELT_ROWS_FILE="${RENDER_WORK_DIR}/belt-rows"
-  BLOCK_RENDERING_FILE="${RENDER_WORK_DIR}/block-rendering"
-  SEAT_LIST_FILE="${RENDER_WORK_DIR}/seat-list"
-  SEAT_RENDER_DIR="${RENDER_WORK_DIR}/seats"
-  RENDER_ERROR_FILE="${RENDER_WORK_DIR}/renderer-stderr"
-  mkdir -p "${SEAT_RENDER_DIR}"
   prepare_instruction_files
   render_the_protocol
+  validate_block_seat_pointers
   validate_update_instruction_aliases
+  prepare_seat_sweep
   if ! path_present "${PROJECT_REPO}/rules"; then
     validate_refresh_destination "${PROJECT_REPO}/rules"
   fi
   visit_project_rule_copies validate_refresh_destination
+  validate_instruction_link_safety
   prepare_worktree_hook
   confirm_target
   prepare_user_rule_imports

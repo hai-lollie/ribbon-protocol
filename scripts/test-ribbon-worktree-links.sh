@@ -177,6 +177,18 @@ test_worktree_path_with_space_gets_links() {
   assert_linked AGENTS.local.md CLAUDE.md CLAUDE.local.md
 }
 
+test_worktree_gets_no_overlay_link() {
+  new_sandbox
+  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  printf '# my overlay\n' > "${PROJ}/herdr-config.md"
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  printf '# claude local\n' > "${PROJ}/CLAUDE.local.md"
+  WT="${SANDBOX}/wt"
+  gitc worktree add -q -b no-overlay "${WT}" || return 1
+  assert_linked AGENTS.local.md CLAUDE.md CLAUDE.local.md || return 1
+  [[ ! -e "${WT}/herdr-config.md" && ! -L "${WT}/herdr-config.md" ]]
+}
+
 test_hook_leaves_existing_link_alone() {
   new_sandbox
   install example-project "${PROJ}" >/dev/null 2>&1 || return 1
@@ -289,6 +301,7 @@ TESTS=(
   test_worktree_status_clean_when_files_ignored
   test_main_checkout_gets_no_links
   test_worktree_path_with_space_gets_links
+  test_worktree_gets_no_overlay_link
   test_hook_leaves_existing_link_alone
   test_foreign_hook_left_unchanged_and_reported
   test_update_refreshes_managed_hook
