@@ -29,10 +29,10 @@ the project working directory. Background work preserves the senior architect's 
 ## Validation before execution
 
 Before senior-architect ADR review, the architect runs the core protocol's security design
-checkpoint. The security engineer runs in its own visible Herdr tab, reviews the uncommitted draft,
-writes only its report and permitted evidence, returns to the architect and stops. The architect
-then incorporates the findings in the current ADR or justified linked ADRs, records every
-disposition and commits the reconciled design before asking for senior-architect approval.
+checkpoint. Each run's security engineer runs in a new visible Herdr tab, reviews the uncommitted
+draft, writes only its report and permitted evidence, returns to the architect and stops.
+The architect then incorporates the findings in the current ADR or justified linked ADRs, records
+every disposition and commits the reconciled design before asking for senior-architect approval.
 This assignment needs no validated implementation plan; it authorizes no coder or production edit.
 
 The architect finishes the plan, its acceptance file and every card before implementation execution. The plan
@@ -256,6 +256,9 @@ A security engineer uses the ADR id and security-report revision:
 Kodo-chan@0001/security-r1
 ```
 
+Each run gets a new tab and a new session, `security-r2` and `security-r3` included; a run never
+reuses an earlier run's tab or session.
+
 The architect gives the pane the same label when the harness supports pane names. The Herdr
 runtime name is separate and follows Herdr's naming rules. Tabs are created without taking focus,
 in the assignment's worktree, sequential work included, or in the project working directory for
@@ -290,12 +293,15 @@ The architect records the briefing's delivery identifier and the assigned accept
 the orchestration report. A reviewer briefing instead names the plan, cards, commit range, review
 cycle and review destination, and explicitly forbids production edits.
 
-A security briefing instead contains the ADR paths, diagrams, constraints, snapshot hashes, report
-revision and destination, evidence allowlist, core security checklist, selected provider/model/effort
-and selection record. It includes permission and model-verification requirements, the monitoring
-and question procedure, and an explicit ban on design/code edits, commits, live attacks and remote
-mutations. Completion means an on-disk report, a return message to the architect and no further work;
-it does not mean approval of the ADR. The architect verifies the first message before substantive work.
+A security briefing instead contains the ADR paths, diagrams, constraints, the project's language,
+framework and `rules/`, snapshot hashes, run number, report revision and destination, evidence
+allowlist, core security checklist, selected provider/model/effort and selection record and, from
+the second run, every earlier report with its response. It states facts and no opinion, as the core
+protocol's "Review and report" says. It includes permission and model-verification requirements,
+the monitoring and question procedure, and an explicit ban on design/code edits, commits, live
+attacks and remote mutations. Completion means an on-disk report, a return message to the architect
+and no further work; it does not mean approval of the ADR. The architect verifies the first message
+before substantive work.
 
 The coder performs the core protocol's read-only preflight and commits `READY` before its first
 edit. `BLOCKED` stops that card without an invented answer.

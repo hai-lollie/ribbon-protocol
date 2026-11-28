@@ -62,7 +62,7 @@ LLMs, named by a nickname or by a vendor and a model id, except the trusted veri
 |---|---|---|---|---|
 | Senior architect | TODO(belt): a person's name | human | the problem, the constraints, what success looks like, the acceptance criteria or test bodies; validates ADRs and plans | reads code line by line |
 | Architect | TODO(belt): "Kuro-chan" or "Claude Opus" | TODO(belt): claude-opus-5-5 | ADRs, plans, cards, answers to notes | directly editing production code for its own card; a Herdr post-budget solution is contract text applied and verified by the coder |
-| Security engineer | a fresh agent selected by the architect | OpenAI GPT Sol 6.1+ or Moonshot Kimi K3.1+; Kimi at high effort | an ADR security report: labelled findings, each a question with where to look | ADRs, code, commits; accepting risk for the senior architect; a circular question |
+| Security engineer | a fresh agent selected by the architect for each run | OpenAI GPT Sol 6.1+ or Moonshot Kimi K3.1+; Kimi at high effort | an ADR security report: labelled findings, each a question with where to look | ADRs, code, commits; accepting risk for the senior architect; a circular question |
 | Independent reviewer | TODO(belt): "Kodo-chan" or "GPT Sol" | TODO(belt): gpt-6.1-sol | findings and verdicts | code; a review of a plan it architected |
 | General coder | TODO(belt): "Lyn-chan" or "GLM 5.3" | TODO(belt): glm-5.3 | the patch and its evidence, inside scope | a shape the contract does not define; a protected path |
 | Entry-level coder | TODO(belt): "Lyn-chan flash" or "GLM 5.3 Flash" | TODO(belt): glm-5.3-flash | small patches inside the allowlist | a correctness decision |
@@ -135,8 +135,9 @@ approval evidence in its assignment journal or in the record named by the Herdr 
 1. **Architect.** The senior architect states the problem, the constraints, what success
    looks like and when to stop and ask; the architect resolves semantics and risk, one
    draft ADR per design problem, and brings what it cannot decide as open questions.
-2. **Security review.** The architect launches a fresh security engineer. The engineer
-   questions the draft ADR and its diagrams, writes its report and returns it to the architect.
+2. **Security review.** The architect launches a fresh security engineer for each run, at most
+   three. The engineer questions the draft ADR and its diagrams, writes its report and returns
+   it to the architect.
    The architect incorporates the findings, in the current ADR or a justified linked ADR,
    and records a disposition for each finding. Only then does the architect commit the ADRs,
    diagrams and report on the contract branch and ask the senior architect to validate the design.
@@ -160,6 +161,8 @@ Every technical ADR passes this checkpoint before its first commit for senior-ar
 The architect finishes the draft and diagrams first. The security engineer reviews that exact
 draft in a fresh session, not the architect's own session. It advises; it never approves the ADR,
 accepts residual risk, edits the design or replaces the later independent implementation reviewer.
+One design, the ADRs that go to the senior architect together, gets at most three runs: a run is
+one engineer's review of one snapshot, with its report revision.
 
 ### Selection and launch
 
@@ -169,6 +172,7 @@ when xhigh is unavailable. A model alias alone is not proof of its version. When
 are eligible, the architect makes an equal-chance coin-flip selection and records the result.
 When only one is eligible, it selects that family and records why the other is unavailable.
 With neither, it stops and asks the senior architect; it never silently lowers the minimum.
+Each run makes a new selection and starts a fresh session; no session of an earlier run continues.
 
 When Herdr is installed, the architect launches the engineer in a new tab in the current workspace,
 without taking focus, under `herdr-config.md`. If Herdr is installed but the session is not
@@ -180,8 +184,11 @@ credential access, configuration change or remote mutation is authorized by a de
 
 ### Review and report
 
-The briefing names the draft ADRs, diagrams and relevant constraints; the reviewed snapshot;
-the exact provider, model and effort; and the permitted report and evidence paths. The snapshot
+The briefing names the draft ADRs, diagrams and relevant constraints; the project's language,
+framework and `rules/`; the reviewed snapshot; the run number and, from the second run, every
+earlier report with its response; the exact provider, model and effort; and the permitted report
+and evidence paths. It states facts and no opinion: no verdict on the design, no expected finding,
+and no area to skip or to favour beyond the senior architect's constraints. The snapshot
 records each input's path and content hash, since the draft is not yet committed. The engineer
 reads the supplied design and references, the project's conventions under `rules/` and the code
 that the design changes or builds on, never unrelated repository trees or secrets.
@@ -234,7 +241,8 @@ The architect reads the whole report, checks its claims and incorporates applica
 It may revise the current ADR, or write a separate focused ADR when the extent of the changes
 justifies another design decision. The ADR under review links the new ADR; the new ADR links back.
 A separate ADR is not a way to postpone a required mitigation: it follows the same security
-checkpoint, and all ADRs needed by the design go to the senior architect together.
+checkpoint inside the same three runs, and all ADRs needed by the design go to the senior
+architect together.
 
 The engineer's report remains intact. Under its `## Architect response`, the architect appends a
 disposition for every finding: incorporated, adapted, deferred or rejected, with the reason,
@@ -246,9 +254,12 @@ The architect commits the reconciled ADRs, diagrams, report and response on the 
 before asking for senior-architect review. A missing report or incomplete response stops that
 request. The senior architect alone accepts the ADRs and every later edit. Before another approval
 request, a security-relevant change to the design, trust boundaries, exposure or mitigations gets
-another security pass, a new snapshot and a new report revision; editorial-only edits do not.
-The architect checks that the report covers the final security-relevant design, including its own
-mitigation changes. A blocked review stops the checkpoint; it is not a pass.
+the next run, a new snapshot and a new report revision; editorial-only edits do not. The third
+run is the last: its findings get the architect's response under the same rules, and a
+security-relevant change after it goes to the senior architect with the architect's analysis,
+never to a fourth run. The architect checks that the reports cover the final security-relevant
+design, including its own mitigation changes; after the third run, it names what no run covered.
+A blocked run stops the checkpoint; it is not a pass, and it does not count as a run.
 
 This design checkpoint is separate from the plan's three implementation-review cycles. Accepted
 mitigations and verification conditions become ADR rules, acceptance criteria and card contracts;
