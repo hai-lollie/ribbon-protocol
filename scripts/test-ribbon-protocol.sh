@@ -371,6 +371,83 @@ test_list_refuses_a_canonical_path_that_one_line_cannot_carry() {
   expect_render 'piece' a.md
 }
 
+test_kept_regions_of_a_crlf_old_block_keep_their_bodies() {
+  new_sandbox
+  printf '<!-- ribbon:belt:start -->\r\n| Seat |\r\n|---|---|\r\n| Senior | Ana |\r\n<!-- ribbon:belt:end -->\r\n<!-- ribbon:gate:start -->\r\nThe gate: make test\r\n<!-- ribbon:gate:end -->\r\n' \
+    > "${SANDBOX}/OLD"
+  printf '<!-- ribbon:belt:start -->\ntemplate belt\n<!-- ribbon:belt:end -->\n<!-- ribbon:gate:start -->\ntemplate gate\n<!-- ribbon:gate:end -->\n' \
+    > "${P}/a.md"
+
+  run --keep-from "${SANDBOX}/OLD" a.md
+
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  printf '<!-- ribbon:belt:start -->\n| Seat |\r\n|---|---|\r\n| Senior | Ana |\r\n<!-- ribbon:belt:end -->\n<!-- ribbon:gate:start -->\nThe gate: make test\r\n<!-- ribbon:gate:end -->\n' \
+    | cmp -s - "${OUT}"
+}
+
+test_a_bare_cr_before_a_mark_is_no_line_break() {
+  new_sandbox
+  printf 'not-a-mark\r<!-- ribbon:belt:start -->\n' > "${SANDBOX}/OLD"
+  printf '<!-- ribbon:belt:start -->\ntemplate body\n<!-- ribbon:belt:end -->\n' \
+    > "${P}/a.md"
+  expect_render '<!-- ribbon:belt:start -->
+template body
+<!-- ribbon:belt:end -->' --keep-from "${SANDBOX}/OLD" a.md
+}
+
+test_kept_regions_nested_in_the_old_block_fail() {
+  new_sandbox
+  printf '<!-- ribbon:belt:start -->\n<!-- ribbon:gate:start -->\ninner\n<!-- ribbon:gate:end -->\n<!-- ribbon:belt:end -->\n' \
+    > "${SANDBOX}/OLD"
+  printf '<!-- ribbon:belt:start -->\ntemplate belt\n<!-- ribbon:belt:end -->\n<!-- ribbon:gate:start -->\ntemplate gate\n<!-- ribbon:gate:end -->\n' \
+    > "${P}/a.md"
+
+  run --keep-from "${SANDBOX}/OLD" a.md
+
+  [[ ${RC} -eq 1 ]] || return 1
+  [[ ! -s ${OUT} ]] || return 1
+  [[ $(wc -l < "${ERR}") -eq 1 ]] || return 1
+  grep -Eq '^ribbon-render-protocol: malformed region (gate|belt) in ' "${ERR}"
+}
+
+test_seat_files_refuse_a_tab_in_a_path() {
+  new_sandbox
+  printf 'x\n' > "${P}/a.md"
+  printf 'x\n' > "${P}/problem"$'\t'"name.md"
+  expect_render_failure \
+    'ribbon-render-protocol: cannot list template: problem\x09name.md' --seat-files a.md
+}
+
+test_seat_files_fail_on_an_unreadable_directory() {
+  new_sandbox
+  printf 'x\n' > "${P}/a.md"
+  mkdir -p "${P}/locked"
+  printf 'piece\n' > "${P}/locked/seat.md"
+  chmod 000 "${P}/locked"
+
+  run --seat-files a.md
+  chmod 0755 "${P}/locked"
+
+  [[ ${RC} -eq 1 ]] || return 1
+  [[ ! -s ${OUT} ]] || return 1
+  [[ $(wc -l < "${ERR}") -eq 1 ]] || return 1
+  [[ $(<"${ERR}") == "ribbon-render-protocol: cannot read the protocol directory: ${P}/locked" ]]
+}
+
+test_keep_from_messages_stay_on_one_line() {
+  new_sandbox
+  local old="${P}/old"$'\n'"missing"
+  printf 'x\n' > "${P}/a.md"
+
+  run --keep-from "${old}" a.md
+
+  [[ ${RC} -eq 1 ]] || return 1
+  [[ ! -s ${OUT} ]] || return 1
+  [[ $(wc -l < "${ERR}") -eq 1 ]] || return 1
+  [[ $(<"${ERR}") == "ribbon-render-protocol: cannot read ${P}/old\x0amissing" ]]
+}
+
 test_sibling_directory_with_the_same_prefix_is_outside() {
   new_sandbox
   mkdir -p "${SANDBOX}/protocol-evil"
@@ -617,8 +694,8 @@ test_whole_rendering_reads_every_piece_but_the_install_ones() {
     set -o pipefail
     find . -type f -name '*.md' ! -path './README.md' ! -name '*-structure.md' \
       ! -name 'seats.md' ! -path './handlers/*' -print | sed 's|^\./||'
-    printf 'whole-structure.md\n'
   ) > "${SANDBOX}/expected" || return 1
+  printf 'whole-structure.md\n' >> "${SANDBOX}/expected"
   LC_ALL=C sort "${SANDBOX}/expected" > "${SANDBOX}/expected.sorted"
   cmp -s "${SANDBOX}/read.sorted" "${SANDBOX}/expected.sorted"
 }
@@ -651,6 +728,12 @@ TESTS=(
   test_bare_cr_inside_a_text_line_passes_through
   test_include_line_ending_in_a_bare_cr_at_the_end_of_the_file_is_malformed
   test_list_refuses_a_canonical_path_that_one_line_cannot_carry
+  test_kept_regions_of_a_crlf_old_block_keep_their_bodies
+  test_a_bare_cr_before_a_mark_is_no_line_break
+  test_kept_regions_nested_in_the_old_block_fail
+  test_seat_files_refuse_a_tab_in_a_path
+  test_seat_files_fail_on_an_unreadable_directory
+  test_keep_from_messages_stay_on_one_line
   test_sibling_directory_with_the_same_prefix_is_outside
   test_piece_without_final_newline_keeps_the_next_line
   test_list_names_every_file_in_reading_order

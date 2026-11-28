@@ -83,7 +83,7 @@ def read_old_block(path_as_written):
         with open(path_as_written, "r", encoding="utf-8", newline="") as old_file:
             return old_file.read()
     except (OSError, UnicodeDecodeError):
-        raise RenderFailure("cannot read %s" % path_as_written)
+        raise RenderFailure("cannot read %s" % message_path(path_as_written))
 
 
 def replace_placeholders(line, values, path_as_written, lineno):
@@ -151,8 +151,17 @@ def render_piece(path_as_written, protocol_root, values, read_pieces, pieces):
 
 
 def mark_of(line):
-    """Return (NAME, start or end) when the line is exactly a region mark, else None."""
-    body = line[:-1] if line.endswith("\n") else line
+    """Return (NAME, start or end) when the line is exactly a region mark, else None.
+
+    A mark line may end in LF, in CR LF, or at the end of the text; a bare CR
+    never ends a line.
+    """
+    if line.endswith("\r\n"):
+        body = line[:-2]
+    elif line.endswith("\n"):
+        body = line[:-1]
+    else:
+        body = line
     match = REGION_MARK.fullmatch(body)
     if match is None:
         return None
@@ -194,32 +203,64 @@ def scan_regions(lines, where):
     return regions
 
 
-def kept_body(old_lines, name, path_as_written):
-    """Return the body lines of NAME in the old block, or None when it has no mark of NAME."""
-    starts = []
-    ends = []
+def kept_regions(old_lines, names, path_as_written):
+    """Validate the kept names' marks in the old block; return {NAME: (start, end)}.
+
+    Each kept name has at most one start and one end, in any order; a kept
+    region may not nest or overlap another. Marks of other names are ignored.
+    """
+    regions = {}
+    closed = set()
+    open_name = None
+    open_start = 0
     for index, line in enumerate(old_lines):
         mark = mark_of(line)
-        if mark == (name, "start"):
-            starts.append(index)
-        elif mark == (name, "end"):
-            ends.append(index)
-    if not starts and not ends:
-        return None
-    if len(starts) == 1 and len(ends) == 1 and starts[0] < ends[0]:
-        return old_lines[starts[0] + 1:ends[0]]
-    raise RenderFailure("malformed region %s in %s" % (name, path_as_written))
+        if mark is None:
+            continue
+        name, kind = mark
+        if name not in names:
+            continue
+        if open_name is not None:
+            if name == open_name and kind == "end":
+                regions[name] = (open_start, index)
+                closed.add(name)
+                open_name = None
+            else:
+                raise RenderFailure(
+                    "malformed region %s in %s"
+                    % (open_name, message_path(path_as_written)))
+        elif name in closed:
+            raise RenderFailure(
+                "malformed region %s in %s"
+                % (name, message_path(path_as_written)))
+        elif kind == "start":
+            open_name = name
+            open_start = index
+        else:
+            raise RenderFailure(
+                "malformed region %s in %s"
+                % (name, message_path(path_as_written)))
+    if open_name is not None:
+        raise RenderFailure(
+            "malformed region %s in %s"
+            % (open_name, message_path(path_as_written)))
+    return regions
 
 
 def kept_bodies(lines, regions, old_text, path_as_written):
     """Replace each region's body with the old block's body of the same NAME, byte for byte."""
-    old_lines = old_text.splitlines(keepends=True)
+    old_lines = lf_lines(old_text)
+    kept = kept_regions(old_lines, {name for name, _, _ in regions},
+                        path_as_written)
     result = []
     position = 0
     for name, start, end in regions:
         result.extend(lines[position:start + 1])
-        body = kept_body(old_lines, name, path_as_written)
-        result.extend(lines[start + 1:end] if body is None else body)
+        if name in kept:
+            old_start, old_end = kept[name]
+            result.extend(old_lines[old_start + 1:old_end])
+        else:
+            result.extend(lines[start + 1:end])
         position = end
     result.extend(lines[position:])
     return "".join(result)
@@ -236,11 +277,18 @@ def seat_files(protocol_root, read_pieces):
     """Return (path, installed path) for every .md piece the rendering does not read.
 
     The path is relative to the protocol directory with '/' separators, sorted
-    in byte order. README.md and the structure files are not seat files.
+    in byte order. README.md and the structure files are not seat files. An
+    enumeration error, and a path that one UTF-8 line cannot carry, fail closed.
     """
     found = []
     installed = set()
-    for directory, _, names in os.walk(protocol_root):
+
+    def unreadable(error):
+        raise RenderFailure(
+            "cannot read the protocol directory: %s"
+            % message_path(os.fsdecode(error.filename or protocol_root)))
+
+    for directory, _, names in os.walk(protocol_root, onerror=unreadable):
         for name in names:
             if not name.endswith(".md"):
                 continue
@@ -255,14 +303,20 @@ def seat_files(protocol_root, read_pieces):
             if real != protocol_root and not real.startswith(protocol_root + os.sep):
                 raise RenderFailure(
                     "template outside the protocol directory: %s"
-                    % os.path.relpath(path, protocol_root).replace(os.sep, "/"))
+                    % message_path(
+                        os.path.relpath(path, protocol_root).replace(os.sep, "/")))
             relative = os.path.relpath(path, protocol_root).replace(os.sep, "/")
             target = installed_path(relative)
+            refusal = list_refusal(relative)
+            if refusal is None:
+                refusal = list_refusal(target)
+            if refusal is not None:
+                raise RenderFailure(refusal)
             if target in installed:
                 raise RenderFailure("two pieces install as %s" % target)
             installed.add(target)
             found.append((relative, target))
-    found.sort(key=lambda pair: pair[0].encode("utf-8"))
+    found.sort(key=lambda pair: os.fsencode(pair[0]))
     return found
 
 
@@ -316,7 +370,7 @@ def main(argv):
         rendered = render_piece(args.template, protocol_root, values,
                                 read_pieces, pieces)
         if not args.list_mode and not args.seat_mode:
-            lines = rendered.splitlines(keepends=True)
+            lines = lf_lines(rendered)
             regions = scan_regions(lines, "the rendering")
             if args.keep_from is not None:
                 old_text = read_old_block(args.keep_from)

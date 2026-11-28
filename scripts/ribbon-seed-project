@@ -487,7 +487,7 @@ root = Path(sys.argv[1])
 receipt, marker, start, end = sys.argv[2:6]
 apply, yes = (flag == "1" for flag in sys.argv[6:8])
 start = b"\n" + start.encode() + b"\n"
-end = end.encode() + b"\n"
+end = b"\n" + end.encode() + b"\n"
 
 def refuse(message):
     raise SystemExit(f"ribbon-seed-project: {message}")
@@ -573,15 +573,16 @@ def normalized_block(data):
     lines = data.split(b"\n")
     for index, body in enumerate(lines):
         line = body if index == len(lines) - 1 else body + b"\n"
+        comparison = body[:-1] if body.endswith(b"\r") else body
         if region_end is not None:
-            if body == region_end:
+            if comparison == region_end:
                 result.append(line)
                 region_end = None
             continue
-        if body == belt_start:
+        if comparison == belt_start:
             result.append(line)
             region_end = belt_end
-        elif body == gate_start:
+        elif comparison == gate_start:
             result.append(line)
             region_end = gate_end
         else:
@@ -626,7 +627,7 @@ def remove_empty_directories(removed):
         except OSError as error:
             if error.errno in (errno.ENOTEMPTY, errno.EEXIST):
                 continue
-            raise
+            raise OSError(error.errno, error.strerror, name) from error
 
 def uninstall():
     receipt_stat, proof = snapshot(receipt)
@@ -642,7 +643,7 @@ def uninstall():
     if fields[-1] != b"" or len(fields[1:-1]) % 3:
         refuse("invalid full-install ownership receipt; nothing removed")
     kinds = (b"file", b"block") if version == 1 else (b"file", b"block", b"created-block")
-    plan, changed, seen = [], [], set()
+    plan, changed, seen, seats = [], [], set(), []
     for idx in range(1, len(fields) - 1, 3):
         kind, raw_path, digest = fields[idx:idx + 3]
         name = os.fsdecode(raw_path)
@@ -651,6 +652,8 @@ def uninstall():
                 or not re.fullmatch(b"[0-9a-f]{64}", digest)):
             refuse("invalid ownership entry in full-install receipt; nothing removed")
         seen.add(name)
+        if kind == b"file" and name.startswith(".ribbon/protocol/"):
+            seats.append(name)
         info, content = snapshot(name)
         if info is None:
             if content is None:
@@ -669,9 +672,9 @@ def uninstall():
                 plan.append((name, info, content, remaining))
     if marker not in seen:
         refuse("incomplete full-install ownership receipt; nothing removed")
-    plan.append((receipt, receipt_stat, proof, None))
+    preview = plan + [(receipt, receipt_stat, proof, None)]
     print("Would remove Ribbon-owned paths or blocks:")
-    for name, _, _, replacement in plan:
+    for name, _, _, replacement in preview:
         print(f"  {display(name)}" + (" (Ribbon block only)" if replacement is not None else ""))
     if not apply:
         print("Dry run only; use --uninstall --remove-ribbon to apply.")
@@ -684,7 +687,7 @@ def uninstall():
             print("Uninstall declined; nothing removed.")
             return
     if apply:
-        for name, _, _, replacement in plan:
+        for name, _, _, replacement in preview:
             path = root / name
             if not os.access(path.parent, os.W_OK | os.X_OK) or (
                     replacement is not None and not os.access(path, os.W_OK)):
@@ -695,6 +698,15 @@ def uninstall():
             if now is None or not same_inode(original, now) or current != content:
                 refuse(f"path changed since preview: {name}; nothing removed")
         completed = []
+
+        def stopped(name, error):
+            if completed:
+                print("Completed before uninstall stopped:", file=sys.stderr)
+                for path in completed:
+                    print(f"  {display(path)}", file=sys.stderr)
+            report_changed(changed)
+            refuse(f"uninstall stopped at {display(name)}: {error}")
+
         for name, original, content, replacement in plan:
             try:
                 with bound_parent(name) as (fd, leaf):
@@ -707,13 +719,20 @@ def uninstall():
                         replace_block(fd, leaf, replacement, now.st_mode)
                 completed.append(name)
             except OSError as error:
-                if completed:
-                    print("Completed before uninstall stopped:", file=sys.stderr)
-                    for path in completed:
-                        print(f"  {display(path)}", file=sys.stderr)
-                report_changed(changed)
-                refuse(f"uninstall stopped at {display(name)}: {error}")
-        remove_empty_directories(completed)
+                stopped(name, error)
+        try:
+            remove_empty_directories(seats)
+        except OSError as error:
+            stopped(error.filename or ".ribbon/protocol", error)
+        try:
+            with bound_parent(receipt) as (fd, leaf):
+                now, current = snapshot_at(fd, leaf, receipt)
+                if now is None or not same_inode(receipt_stat, now) or current != proof:
+                    raise OSError("path changed since preview")
+                os.unlink(leaf, dir_fd=fd)
+            completed.append(receipt)
+        except OSError as error:
+            stopped(receipt, error)
         print("Full-install removal complete. No Git changes were staged.")
     report_changed(changed)
 
@@ -801,6 +820,12 @@ prepare_agents_md() {
     [[ -w "${agents}" ]] || die "not writable: ${agents}"
   fi
   validate_instruction_destination AGENTS.md
+  if path_present "${agents}"; then
+    if [[ -L "${agents}" || ! -f "${agents}" ]] \
+      || [[ "$(python3 -c 'import os, sys; print(os.stat(sys.argv[1]).st_nlink)' "${agents}")" != "1" ]]; then
+      die "AGENTS.md is a link or has other names; refusing to write it"
+    fi
+  fi
 }
 
 #######################################
@@ -925,6 +950,57 @@ prepare_seat_files() {
 }
 
 #######################################
+# Refuse a block whose backticked seat paths are not the seats to install.
+# Globals:
+#   BLOCK_FILE, SEAT_FILES, RENDER_DIR
+#######################################
+prepare_block_seat_pointers() {
+  local pointer candidate found marks="${RENDER_DIR}/seat-pointers"
+  grep -o "\`\\.ribbon/protocol/[^\`]*\`" "${BLOCK_FILE}" \
+    | sed "s/^\`//; s/\`\$//" | grep -v '^\.ribbon/protocol/$' > "${marks}" || true
+  while IFS= read -r pointer; do
+    [[ -n "${pointer}" ]] || continue
+    found=0
+    for candidate in "${SEAT_FILES[@]}"; do
+      if [[ "${candidate}" == "${pointer}" ]]; then
+        found=1
+        break
+      fi
+    done
+    (( found == 1 )) \
+      || die "the block names a seat file that the template does not have: ${pointer}"
+  done < "${marks}"
+}
+
+#######################################
+# Before any write: no planned path is ignored by Git, and the nearest existing
+# ancestor of each, and the file itself when it exists, are writable.
+# Globals:
+#   PROJECT_REPO, DOC_SEEDS, SEAT_FILES, INSTALL_RECEIPT, SEED_RECORD
+#######################################
+prepare_write_paths() {
+  local rel path directory
+  local -a planned=("${DOC_SEEDS[@]}" "${SEAT_FILES[@]}" "AGENTS.md" \
+    "${INSTALL_RECEIPT}" "${SEED_RECORD}")
+  for rel in "${planned[@]}"; do
+    [[ -n "${rel}" ]] || continue
+    path="${PROJECT_REPO}/${rel}"
+    if git -C "${PROJECT_REPO}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+      && git -C "${PROJECT_REPO}" check-ignore -q -- "${rel}" 2>/dev/null; then
+      die "${rel} is ignored by Git; allow it before installing"
+    fi
+    directory="${path%/*}"
+    while [[ ! -d "${directory}" ]]; do
+      directory="${directory%/*}"
+    done
+    [[ -w "${directory}" && -x "${directory}" ]] || die "not writable: ${directory}"
+    if path_present "${path}"; then
+      [[ -w "${path}" ]] || die "not writable: ${path}"
+    fi
+  done
+}
+
+#######################################
 # The sha256 of a block without the bodies of its belt and gate regions, so
 # each start mark line is followed directly by its end mark line.
 # Outputs:
@@ -932,13 +1008,17 @@ prepare_seat_files() {
 #######################################
 normalized_block_digest() {
   awk '
-    region != "" {
-      if ($0 == "<!-- ribbon:" region ":end -->") { print; region = "" }
-      next
+    {
+      body = $0
+      sub(/\r$/, "", body)
+      if (region != "") {
+        if (body == "<!-- ribbon:" region ":end -->") { print; region = "" }
+        next
+      }
+      if (body == "<!-- ribbon:belt:start -->") { print; region = "belt"; next }
+      if (body == "<!-- ribbon:gate:start -->") { print; region = "gate"; next }
+      print
     }
-    $0 == "<!-- ribbon:belt:start -->" { print; region = "belt"; next }
-    $0 == "<!-- ribbon:gate:start -->" { print; region = "gate"; next }
-    { print }
   ' | file_digest
 }
 
@@ -948,6 +1028,9 @@ normalized_block_digest() {
 full_instruction_block() {
   printf '\n%s\n' "${START_MARK}"
   cat "${BLOCK_FILE}"
+  if [[ -s "${BLOCK_FILE}" ]] && [[ -n "$(tail -c 1 "${BLOCK_FILE}")" ]]; then
+    printf '\n'
+  fi
   printf '%s\n' "${END_MARK}"
 }
 
@@ -1461,6 +1544,8 @@ finish = offsets[ends[0]] + len(end_line)
 if data[finish:finish + 1] == b"\n":
     finish += 1
 block = open(rendered, "rb").read()
+if block and not block.endswith(b"\n"):
+    block += b"\n"
 frame = b"\n" + start_line + b"\n" + block + end_line + b"\n"
 new = data[:begin] + frame + data[finish:]
 if new == data:
@@ -1793,14 +1878,16 @@ main() {
   [[ "${SEED_VERSION}" =~ ^ribbon\ [0-9]+$ ]] || die "invalid Ribbon seed version: ${SEED_VERSION}"
   confirm_target
   collect_existing_project_docs_and_rules
+  refuse_standalone_install
+  refuse_existing_ribbon_path
   if (( AMEND == 0 )); then
     prepare_agents_md
-    refuse_standalone_install
-    refuse_existing_ribbon_path
     render_protocol
     prepare_seat_files
+    prepare_block_seat_pointers
     prepare_doc_seeds
     prepare_seed_record
+    prepare_write_paths
   fi
   if ! path_present "${PROJECT_REPO}/rules"; then
     validate_instruction_destination rules

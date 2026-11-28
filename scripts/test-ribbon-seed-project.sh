@@ -984,7 +984,14 @@ import errno, os
 from pathlib import Path
 
 real_unlink = os.unlink
+real_rmdir = os.rmdir
 first = True
+
+def rmdir(path, *args, **kwargs):
+    name = os.path.basename(os.fsdecode(path))
+    if os.environ.get("RIBBON_FAULT_MODE") == "rmdir-permission" and name == "protocol":
+        raise PermissionError(errno.EACCES, "Permission denied", path)
+    return real_rmdir(path, *args, **kwargs)
 
 def unlink(path, *args, **kwargs):
     global first
@@ -1001,6 +1008,7 @@ def unlink(path, *args, **kwargs):
     return result
 
 os.unlink = unlink
+os.rmdir = rmdir
 PY
 }
 
@@ -1095,8 +1103,7 @@ test_installs_the_seat_files_under_ribbon_protocol() {
     [[ -n "${path}" ]] || continue
     render_protocol "${path}" > "${SANDBOX}/seat-expected" || return 1
     cmp -s "${SANDBOX}/seat-expected" "${repo}/.ribbon/protocol/${installed}" || return 1
-    git -C "${repo}" ls-files --error-unmatch ".ribbon/protocol/${installed}" \
-      >/dev/null 2>&1 || return 1
+    git -C "${repo}" cat-file -e "HEAD:.ribbon/protocol/${installed}" || return 1
     count=$((count + 1))
   done < "${SANDBOX}/seat-plan"
   (( count > 0 ))
@@ -1108,6 +1115,9 @@ test_writes_no_herdr_config() {
 
   seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
 
+  [[ -f "${repo}/docs/.ribbon-full-install-receipt" ]] \
+    && [[ "$(git -C "${repo}" log -1 --format=%s)" == "Seed the Ribbon Protocol, $(template_version)" ]] \
+    || return 1
   [[ ! -e "${repo}/herdr-config.md" && ! -L "${repo}/herdr-config.md" ]] \
     && ! git -C "${repo}" show --name-only --format= HEAD | grep -qx 'herdr-config.md'
 }
@@ -1121,6 +1131,9 @@ test_leaves_an_overlay_link_alone() {
 
   seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
 
+  [[ -f "${repo}/docs/.ribbon-full-install-receipt" ]] \
+    && [[ "$(git -C "${repo}" log -1 --format=%s)" == "Seed the Ribbon Protocol, $(template_version)" ]] \
+    || return 1
   [[ "$(readlink "${repo}/herdr-config.md")" == CLAUDE.local.md ]] \
     && cmp -s "${SANDBOX}/claude-before" "${repo}/CLAUDE.local.md" \
     && ! git -C "${repo}" show --name-only --format= HEAD | grep -qx 'herdr-config.md'
@@ -1207,8 +1220,8 @@ assert fields[0] == b"ribbon-full-install-receipt-v2", fields[0]
 assert fields[-1] == b"", fields[-1]
 entries = [tuple(fields[i:i + 3]) for i in range(1, len(fields) - 1, 3)]
 assert all(kind in (b"file", b"block", b"created-block") for kind, _, _ in entries)
-blocks = [name for kind, name, _ in entries if kind in (b"block", b"created-block")]
-assert blocks == [b"AGENTS.md"], blocks
+kinds = [(kind, name) for kind, name, _ in entries if kind in (b"block", b"created-block")]
+assert kinds == [(b"block", b"AGENTS.md")], kinds
 files = {name for kind, name, _ in entries if kind == b"file"}
 for line in open(plan, "rb").read().splitlines():
     _, installed = line.split(b"\t")
@@ -1222,9 +1235,12 @@ test_uninstall_removes_the_block_with_a_filled_roster_and_gate() {
   cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
 
   seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-seeded"
   sed -i "s/TODO(belt): a person's name/Lollie/" "${repo}/AGENTS.md"
   sed -i 's/^The gate: TODO(belt): the exact commands, in order\.$/The gate: make test/' \
     "${repo}/AGENTS.md"
+  cmp -s "${SANDBOX}/agents-seeded" "${repo}/AGENTS.md" && return 1
+  grep -Fq 'Lollie' "${repo}/AGENTS.md" || return 1
 
   seed --uninstall --remove-ribbon --yes "${repo}" </dev/null >/dev/null 2>&1 || return 1
 
@@ -1523,6 +1539,157 @@ test_update_refuses_import_rules() {
     && [[ ! -e "${repo}/docs" && ! -e "${repo}/.ribbon" ]]
 }
 
+test_refuses_an_agents_md_that_is_a_symlink() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+
+  printf '# An overlay, not for us\n' > "${repo}/herdr-config.md"
+  cp "${repo}/herdr-config.md" "${SANDBOX}/overlay-before"
+  rm "${repo}/AGENTS.md"
+  ln -s herdr-config.md "${repo}/AGENTS.md"
+
+  seed "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'AGENTS.md is a link or has other names; refusing to write it' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/overlay-before" "${repo}/herdr-config.md" \
+    && [[ ! -e "${repo}/docs" ]]
+}
+
+test_refuses_an_agents_md_with_another_hard_link() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+
+  ln "${repo}/AGENTS.md" "${repo}/notes.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/notes-before"
+
+  seed "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'AGENTS.md is a link or has other names; refusing to write it' "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/notes-before" "${repo}/notes.md" \
+    && [[ ! -e "${repo}/docs" ]]
+}
+
+test_refuses_an_ignored_agents_md_before_any_write() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0 head
+
+  git -C "${repo}" rm -q AGENTS.md
+  printf '/AGENTS.md\n' > "${repo}/.gitignore"
+  head="$(git -C "${repo}" rev-parse HEAD)"
+
+  seed "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'AGENTS.md is ignored by Git; allow it before installing' "${SANDBOX}/error" \
+    && [[ ! -e "${repo}/docs" && ! -e "${repo}/.ribbon" ]] \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]]
+}
+
+test_refuses_an_unwritable_docs_directory_before_any_write() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+
+  mkdir -p "${repo}/docs/tasks"
+  chmod a-w "${repo}/docs/tasks"
+
+  seed "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+  chmod u+w "${repo}/docs/tasks"
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq "not writable: ${repo}/docs/tasks" "${SANDBOX}/error" \
+    && [[ ! -e "${repo}/docs/README.md" && ! -e "${repo}/.ribbon" ]]
+}
+
+test_end_mark_gets_its_own_line() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template"
+
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  copy_template "${template}"
+  printf 'a last line without a newline' >> "${template}/protocol/project-structure.md"
+
+  seed --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2>&1 || return 1
+
+  grep -Fxq "${END_MARK}" "${repo}/AGENTS.md" || return 1
+  seed --uninstall --remove-ribbon --yes "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md" && [[ ! -e "${repo}/.ribbon" ]]
+}
+
+test_uninstall_names_a_crlf_converted_block_as_changed() {
+  new_repo
+  local repo="${SANDBOX}/example-project"
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  python3 - "${repo}/AGENTS.md" <<'PY'
+import sys
+
+path = sys.argv[1]
+data = open(path, "rb").read()
+data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+open(path, "wb").write(data)
+PY
+  sed -i "s/TODO(belt): a person's name/Lollie/" "${repo}/AGENTS.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+
+  seed --uninstall --remove-ribbon --yes "${repo}" </dev/null > "${SANDBOX}/output" 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md" \
+    && grep -Fq 'Review changed files manually' "${SANDBOX}/output" \
+    && grep -Fxq '  AGENTS.md' "${SANDBOX}/output" \
+    && [[ ! -e "${repo}/.ribbon" ]]
+}
+
+test_refuses_a_block_that_names_a_missing_seat_file() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template" rc=0 head
+
+  copy_template "${template}"
+  rm "${template}/protocol/actors/architect_template.md"
+  head="$(git -C "${repo}" rev-parse HEAD)"
+
+  seed --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'the block names a seat file that the template does not have: .ribbon/protocol/actors/architect.md' "${SANDBOX}/error" \
+    && [[ ! -e "${repo}/docs" && ! -e "${repo}/.ribbon" ]] \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]]
+}
+
+test_amendment_refuses_a_standalone_install() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+
+  mkdir "${repo}/docs"
+  printf 'Seeded from the Ribbon Protocol, ribbon 1.\n' > "${repo}/docs/README.md"
+  printf '# Local rules\n%s\n' "${STANDALONE_MARK}" > "${repo}/AGENTS.local.md"
+
+  seed "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq 'has a standalone install' "${SANDBOX}/error" \
+    && [[ ! -e "${repo}/rules/README.md" ]]
+}
+
+test_uninstall_keeps_the_receipt_until_its_directories_are_gone() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  uninstall_fault_fixture
+
+  PYTHONPATH="${SANDBOX}/python" RIBBON_FAULT_MODE=rmdir-permission \
+    seed --uninstall --remove-ribbon --yes "${repo}" </dev/null > "${SANDBOX}/error" 2>&1 || rc=$?
+
+  [[ "${rc}" != 0 ]] \
+    && grep -Fq 'Completed before uninstall stopped:' "${SANDBOX}/error" \
+    && [[ -f "${repo}/docs/.ribbon-full-install-receipt" ]] || return 1
+
+  seed --uninstall --remove-ribbon --yes "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  [[ ! -e "${repo}/.ribbon" ]]
+}
+
 readonly TESTS=(
   test_seeder_exists
   test_seeds_docs
@@ -1613,6 +1780,15 @@ readonly TESTS=(
   test_update_refuses_a_block_with_broken_marks
   test_update_then_uninstall_removes_everything
   test_update_refuses_import_rules
+  test_refuses_an_agents_md_that_is_a_symlink
+  test_refuses_an_agents_md_with_another_hard_link
+  test_refuses_an_ignored_agents_md_before_any_write
+  test_refuses_an_unwritable_docs_directory_before_any_write
+  test_end_mark_gets_its_own_line
+  test_uninstall_names_a_crlf_converted_block_as_changed
+  test_refuses_a_block_that_names_a_missing_seat_file
+  test_amendment_refuses_a_standalone_install
+  test_uninstall_keeps_the_receipt_until_its_directories_are_gone
 )
 
 #######################################
