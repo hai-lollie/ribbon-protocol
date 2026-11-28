@@ -115,7 +115,7 @@ test_worktree_gets_links_to_local_files() {
   printf '# claude local\n' > "${PROJ}/CLAUDE.local.md"
   WT="${SANDBOX}/wt"
   gitc worktree add -q -b links "${WT}" || return 1
-  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md
+  assert_linked AGENTS.local.md CLAUDE.md CLAUDE.local.md
 }
 
 test_worktree_keeps_tracked_file() {
@@ -128,7 +128,7 @@ test_worktree_keeps_tracked_file() {
   gitc worktree add -q -b tracked "${WT}" || return 1
   [[ -f "${WT}/CLAUDE.md" && ! -L "${WT}/CLAUDE.md" ]] || return 1
   [[ "$(cat "${WT}/CLAUDE.md")" = '# claude' ]] || return 1
-  assert_linked AGENTS.local.md herdr-config.md
+  assert_linked AGENTS.local.md
 }
 
 test_worktree_skips_absent_local_file() {
@@ -138,29 +138,32 @@ test_worktree_skips_absent_local_file() {
   WT="${SANDBOX}/wt"
   gitc worktree add -q -b absent "${WT}" || return 1
   [[ ! -e "${WT}/CLAUDE.md" && ! -L "${WT}/CLAUDE.md" ]] || return 1
-  assert_linked AGENTS.local.md herdr-config.md CLAUDE.local.md
+  assert_linked AGENTS.local.md CLAUDE.local.md
 }
 
 test_worktree_status_clean_when_files_ignored() {
   new_sandbox
   install example-project "${PROJ}" >/dev/null 2>&1 || return 1
-  printf 'AGENTS.local.md\nherdr-config.md\nCLAUDE.md\nCLAUDE.local.md\n' > "${PROJ}/.gitignore"
+  printf 'AGENTS.local.md\nCLAUDE.md\nCLAUDE.local.md\n' > "${PROJ}/.gitignore"
   printf '# claude\n' > "${PROJ}/CLAUDE.md"
   printf '# claude local\n' > "${PROJ}/CLAUDE.local.md"
   gitc add -A
   gitc commit -q -m 'ignore local files' || return 1
   WT="${SANDBOX}/wt"
   gitc worktree add -q -b ignored "${WT}" || return 1
-  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md || return 1
+  assert_linked AGENTS.local.md CLAUDE.md CLAUDE.local.md || return 1
   [[ -z "$(git -C "${WT}" status --porcelain)" ]]
 }
 
 test_main_checkout_gets_no_links() {
   new_sandbox
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  gitc add CLAUDE.md
+  gitc commit -q -m 'track CLAUDE.md' || return 1
   install example-project "${PROJ}" >/dev/null 2>&1 || return 1
   gitc switch -q -c elsewhere || return 1
   [[ -f "${PROJ}/AGENTS.local.md" && ! -L "${PROJ}/AGENTS.local.md" ]] || return 1
-  [[ -f "${PROJ}/herdr-config.md" && ! -L "${PROJ}/herdr-config.md" ]] || return 1
+  [[ -f "${PROJ}/CLAUDE.md" && ! -L "${PROJ}/CLAUDE.md" ]] || return 1
   [[ ! -e "${PROJ}/CLAUDE.local.md" && ! -L "${PROJ}/CLAUDE.local.md" ]]
 }
 
@@ -171,7 +174,7 @@ test_worktree_path_with_space_gets_links() {
   printf '# claude local\n' > "${PROJ}/CLAUDE.local.md"
   WT="${SANDBOX}/my worktree"
   gitc worktree add -q -b spaced "${WT}" || return 1
-  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md
+  assert_linked AGENTS.local.md CLAUDE.md CLAUDE.local.md
 }
 
 test_hook_leaves_existing_link_alone() {

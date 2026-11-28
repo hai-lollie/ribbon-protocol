@@ -18,9 +18,11 @@
 # into each new worktree. Only the final artifacts (docs/adrs,
 # docs/diagrams) are ever written into the project repository.
 #
-# --update refreshes template and schema files and the seed version in an
-# existing instance. Project agent instructions are only appended when
-# missing; live plans, cards and reports are never touched.
+# --update renders the standalone block of AGENTS.local.md again, keeping
+# only the roster and the gate between their marks, rewrites the seat files
+# under <instance>/.ribbon/protocol/, and refreshes template and schema
+# files and the seed version in an existing instance. Live plans, cards and
+# reports are never touched.
 
 # macOS ships bash 3.2 as /bin/bash. Before 4.4, `set -u` treats an empty
 # array as unbound, and this script expands empty arrays on purpose.
@@ -43,19 +45,35 @@ RIBBON_HOME=''
 PROJECT_NAME=''
 PROJECT_REPO=''
 INSTANCE=''
-HERDR_NOTE=''
-HERDR_COPY_NEEDED=0
 IMPORT_NOTE=''
 IMPORT_RULES=()
 ASSUME_YES=0
 NEEDS_REBUILD=0
 WORKTREE_NOTE=''
 WORKTREE_HOOK=''
-LOCAL_BLOCK=''
+BLOCK_MODE=''
+OLD_BLOCK_FILE=''
+BELT_ROWS_FILE=''
+BLOCK_RENDERING_FILE=''
+SEAT_LIST_FILE=''
+SEAT_RENDER_DIR=''
+RENDER_ERROR_FILE=''
+RENDER_WORK_DIR=''
+PROTOCOL_SET_ARGS=()
 AGENTS_POINTER_NEEDED=0
 SELECTED_RULES=()
 EXISTING_PROJECT_DOCS_AND_RULES=()
 GNU_REALPATH=''
+
+#######################################
+# Remove the render work dir when the run ends.
+# Globals:
+#   RENDER_WORK_DIR
+#######################################
+cleanup_work_dir() {
+  [[ -n "${RENDER_WORK_DIR}" ]] && rm -rf "${RENDER_WORK_DIR}"
+}
+trap cleanup_work_dir EXIT
 
 #######################################
 # Validate every --import-rules file before any mutating step, so a typo
@@ -447,72 +465,157 @@ validate_update_instruction_aliases() {
   validate_instance_refresh_destination "${INSTANCE}/docs/README.md"
   validate_instance_refresh_destination "${INSTANCE}/project-repo"
   visit_instance_template_refreshes validate_instance_refresh_destination
+  local path installed
+  while IFS=$'\t' read -r path installed; do
+    validate_instance_refresh_destination "${INSTANCE}/.ribbon/protocol/${installed}"
+  done < "${SEAT_LIST_FILE}"
 }
 
 #######################################
-# Validate the existing standalone block before any rebuild. Render the
-# append only when the block is absent; never reserialize the existing file.
+# Refuse a project that holds a full install, by its block mark or by its
+# receipt, before any write.
+# Globals:
+#   PROJECT_REPO
+#######################################
+refuse_full_install() {
+  if grep -qxF '<!-- ribbon:full-install:start -->' "${PROJECT_REPO}/AGENTS.md" \
+      || [[ -e "${PROJECT_REPO}/docs/.ribbon-full-install" ]]; then
+    die "${PROJECT_REPO} has a full install; uninstall it, then install"
+  fi
+}
+
+#######################################
+# Validate the existing standalone block before any rebuild and classify
+# it: no block (append), a ribbon 2 block with a ribbon:gate region
+# (replace, keeping the roster and the gate), or an older block (refuse).
+# The old block and the older block's belt table rows go to work files.
+# Globals:
+#   PROJECT_REPO, RENDER_WORK_DIR, BLOCK_MODE (set), OLD_BLOCK_FILE,
+#   BELT_ROWS_FILE
 #######################################
 prepare_local_block() {
   local local_md="${PROJECT_REPO}/AGENTS.local.md"
   if [[ -e "${local_md}" || -L "${local_md}" ]]; then
     [[ -f "${local_md}" ]] || die "not a regular file: ${local_md}"
   fi
-  LOCAL_BLOCK="$(python3 - "${RIBBON_HOME}/AGENTS.standalone.md" "${local_md}" \
-    "${RIBBON_HOME}" "${PROJECTS_DIR}" "${INSTANCE}" "${PROJECT_NAME}" "${PROJECT_REPO}" \
-    "${START_MARK}" "${END_MARK}" <<'PY'
-import os
-from pathlib import Path
+  BLOCK_MODE=append
+  local state
+  state="$(python3 - "${local_md}" "${OLD_BLOCK_FILE}" "${BELT_ROWS_FILE}" <<'PY'
 import sys
 
-template, agents, ribbon_home, projects_dir, instance, name, repo, start, end = sys.argv[1:]
-start, end = start.encode(), end.encode()
-belt_start, belt_end = b"<!-- ribbon:belt:start -->", b"<!-- ribbon:belt:end -->"
+local_md, old_block_file, belt_rows_file = sys.argv[1:4]
+start = b"<!-- ribbon:standalone:start -->"
+end = b"<!-- ribbon:standalone:end -->"
+belt_start = b"<!-- ribbon:belt:start -->"
+belt_end = b"<!-- ribbon:belt:end -->"
+gate_start = b"<!-- ribbon:gate:start -->"
 
 def refuse(reason):
     sys.exit(f"ribbon-new-project: {reason}")
 
-def valid_belt(body, allow_legacy=False):
-    marks = body.count(belt_start), body.count(belt_end)
-    return (allow_legacy and marks == (0, 0)) or (
-        marks == (1, 1)
-        and b"\n" in body[body.index(belt_start):body.index(belt_end)]
-    )
-
 try:
-    content = Path(agents).read_bytes()
+    with open(local_md, "rb") as stream:
+        content = stream.read()
 except FileNotFoundError:
     content = b""
 except OSError as error:
     refuse(str(error))
 
-if start in content or end in content:
-    _, _, block_and_tail = content.partition(start)
-    body, end_after_start, _ = block_and_tail.partition(end)
-    if (content.count(start), content.count(end)) != (1, 1) \
-            or not end_after_start or not valid_belt(body, allow_legacy=True):
-        refuse("AGENTS.local.md has unclosed, duplicated or out-of-order Ribbon markers; fix it before re-running")
+if start not in content and end not in content:
+    print("none")
     sys.exit(0)
 
-try:
-    block = Path(template).read_bytes()
-except OSError as error:
-    refuse(str(error))
-if not valid_belt(block):
-    refuse(f"the belt marks in the template {template} are missing, duplicated or out of order")
-for placeholder, value in [
-    (b"{{RIBBON_HOME}}", ribbon_home),
-    (b"{{RIBBON_PROJECTS}}", projects_dir),
-    (b"{{INSTANCE}}", instance),
-    (b"{{PROJECT_NAME}}", name),
-    (b"{{PROJECT_REPO}}", repo),
-]:
-    block = block.replace(placeholder, os.fsencode(value))
+_, _, block_and_tail = content.partition(start)
+body, end_after_start, _ = block_and_tail.partition(end)
+if (content.count(start), content.count(end)) != (1, 1) or not end_after_start:
+    refuse("AGENTS.local.md has unclosed, duplicated or out-of-order Ribbon markers; fix it before re-running")
+marks = body.count(belt_start), body.count(belt_end)
+if marks != (0, 0) and not (
+        marks == (1, 1)
+        and b"\n" in body[body.index(belt_start):body.index(belt_end)]):
+    refuse("AGENTS.local.md has unclosed, duplicated or out-of-order Ribbon markers; fix it before re-running")
 
-separator = (b"\n" if content.endswith(b"\n") else b"\n\n") if content else b""
-sys.stdout.buffer.write(separator + start + b"\n" + block.rstrip() + b"\n" + end)
+if gate_start not in body:
+    rows = []
+    in_table = False
+    for line in body.split(b"\n"):
+        if line.startswith(b"| Role | Agent | Model"):
+            in_table = True
+        if not in_table:
+            continue
+        if not line.startswith(b"|"):
+            break
+        rows.append(line)
+    with open(belt_rows_file, "wb") as stream:
+        for row in rows:
+            stream.write(row + b"\n")
+    print("older")
+    sys.exit(0)
+
+block = content[content.index(start):content.index(end) + len(end)]
+with open(old_block_file, "wb") as stream:
+    stream.write(block)
+print("replace")
 PY
 )"
+  if [[ "${state}" == older ]]; then
+    cat "${BELT_ROWS_FILE}"
+    die "AGENTS.local.md holds an older standalone block; uninstall it (ribbon-new-project --uninstall), then install"
+  fi
+  if [[ "${state}" == replace ]]; then
+    BLOCK_MODE=replace
+  fi
+}
+
+#######################################
+# Run the template's renderer once; a failure stops the run before any
+# write, with the renderer's stderr line in the message.
+# Arguments:
+#   Output file, then the renderer's arguments after the --set values.
+# Globals:
+#   RIBBON_HOME, PROTOCOL_SET_ARGS, RENDER_ERROR_FILE
+#######################################
+run_renderer() {
+  local output="$1"
+  shift
+  if ! "${RIBBON_HOME}/scripts/ribbon-render-protocol" \
+      --protocol "${RIBBON_HOME}/protocol" "${PROTOCOL_SET_ARGS[@]}" "$@" \
+      > "${output}" 2> "${RENDER_ERROR_FILE}"; then
+    die "cannot render the protocol: $(cat "${RENDER_ERROR_FILE}")"
+  fi
+}
+
+#######################################
+# Render the block and every seat file before any write: the block with
+# --keep-from the old block when one is replaced, the seat list, then each
+# seat file into the render work dir.
+# Globals:
+#   RIBBON_HOME, RIBBON_PROJECTS, INSTANCE, PROJECT_NAME, PROJECT_REPO,
+#   PROTOCOL_SET_ARGS (set), BLOCK_MODE, OLD_BLOCK_FILE,
+#   BLOCK_RENDERING_FILE, SEAT_LIST_FILE, SEAT_RENDER_DIR
+#######################################
+render_the_protocol() {
+  PROTOCOL_SET_ARGS=(
+    --set "RIBBON_HOME=${RIBBON_HOME}"
+    --set "RIBBON_PROJECTS=${PROJECTS_DIR}"
+    --set "INSTANCE=${INSTANCE}"
+    --set "PROJECT_NAME=${PROJECT_NAME}"
+    --set "PROJECT_REPO=${PROJECT_REPO}"
+    --set "PROTOCOL_DIR=${INSTANCE}/.ribbon/protocol"
+  )
+  local -a keep=()
+  if [[ "${BLOCK_MODE}" == replace ]]; then
+    keep=(--keep-from "${OLD_BLOCK_FILE}")
+  fi
+  run_renderer "${BLOCK_RENDERING_FILE}" "${keep[@]}" standalone-structure.md
+  run_renderer "${SEAT_LIST_FILE}" --seat-files standalone-structure.md
+  local path installed
+  while IFS=$'\t' read -r path installed; do
+    if [[ "${installed}" == */* ]]; then
+      mkdir -p "${SEAT_RENDER_DIR}/${installed%/*}"
+    fi
+    run_renderer "${SEAT_RENDER_DIR}/${installed}" "${path}"
+  done < "${SEAT_LIST_FILE}"
 }
 
 #######################################
@@ -533,7 +636,7 @@ validate_agents_destination() {
 
 prepare_instruction_files() {
   prepare_local_block
-  if [[ -n "${LOCAL_BLOCK}" ]]; then
+  if [[ "${BLOCK_MODE}" == append ]]; then
     validate_agents_destination AGENTS.local.md
   fi
   if ! grep -q 'AGENTS\.local\.md' "${PROJECT_REPO}/AGENTS.md"; then
@@ -548,8 +651,10 @@ prepare_instruction_files() {
 #   RIBBON_HOME
 #######################################
 validate_template() {
-  [[ -f "${RIBBON_HOME}/AGENTS.standalone.md" ]] \
-    || die "template not found: ${RIBBON_HOME}/AGENTS.standalone.md (point --ribbon-home at the template repo)"
+  [[ -f "${RIBBON_HOME}/protocol/standalone-structure.md" ]] \
+    || die "template not found: ${RIBBON_HOME}/protocol/standalone-structure.md (point --ribbon-home at the template repo)"
+  [[ -x "${RIBBON_HOME}/scripts/ribbon-render-protocol" ]] \
+    || die "template not found: ${RIBBON_HOME}/scripts/ribbon-render-protocol (point --ribbon-home at the template repo)"
   [[ -d "${RIBBON_HOME}/docs/tasks" && -d "${RIBBON_HOME}/docs/llm-context" ]] \
     || die "template docs not found under ${RIBBON_HOME}/docs"
   [[ -d "${RIBBON_HOME}/rules" ]] \
@@ -709,7 +814,7 @@ ${version}
 
 Standalone Ribbon Protocol instance for ${PROJECT_NAME}.
 Linked project repo: ${PROJECT_REPO}
-Seeded from: ${RIBBON_HOME} — the protocol text (AGENTS.md) and the field guide are read from there, unchanged.
+Seeded from: ${RIBBON_HOME} — the field guide is read from there; each seat's files are rendered under ${INSTANCE}/.ribbon/protocol/.
 Final artifacts are written into the project repo: ${PROJECT_REPO}/docs/adrs and ${PROJECT_REPO}/docs/diagrams.
 EOF
 }
@@ -724,12 +829,83 @@ write_pointer() {
 }
 
 #######################################
-# Append the standalone block if preflight found it missing.
+# Write the standalone block: appended when preflight found none, or the
+# old block's span replaced by the rendering, through a temporary file in
+# the project directory and os.replace, keeping the file's mode. The bytes
+# outside the block do not change.
+# Globals:
+#   PROJECT_REPO, BLOCK_MODE, BLOCK_RENDERING_FILE
 #######################################
-write_local_block() {
-  if [[ -n "${LOCAL_BLOCK}" ]]; then
-    printf '%s\n' "${LOCAL_BLOCK}" >> "${PROJECT_REPO}/AGENTS.local.md"
-  fi
+write_block() {
+  python3 - "${PROJECT_REPO}/AGENTS.local.md" "${BLOCK_RENDERING_FILE}" \
+    "${BLOCK_MODE}" "${START_MARK}" "${END_MARK}" <<'PY'
+import os
+import stat
+import sys
+import tempfile
+
+local_md, rendering_file, mode, start, end = sys.argv[1:6]
+start = start.encode()
+end = end.encode()
+
+with open(rendering_file, "rb") as stream:
+    rendering = stream.read()
+
+try:
+    with open(local_md, "rb") as stream:
+        content = stream.read()
+    file_mode = stat.S_IMODE(os.stat(local_md).st_mode)
+except FileNotFoundError:
+    content = b""
+    file_mode = None
+
+block = start + b"\n" + rendering.rstrip() + b"\n" + end
+
+if mode == "append":
+    separator = (b"\n" if content.endswith(b"\n") else b"\n\n") if content else b""
+    with open(local_md, "ab") as stream:
+        stream.write(separator + block + b"\n")
+    sys.exit(0)
+
+head, _, block_and_tail = content.partition(start)
+_, _, tail = block_and_tail.partition(end)
+new_content = head + block + tail
+
+fd, temporary = tempfile.mkstemp(dir=os.path.dirname(local_md) or ".")
+try:
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(new_content)
+    if file_mode is not None:
+        os.chmod(temporary, file_mode)
+    os.replace(temporary, local_md)
+except BaseException:
+    os.unlink(temporary)
+    raise
+PY
+}
+
+#######################################
+# Write each rendered seat file under <instance>/.ribbon/protocol/ and
+# remove a file there that the template no longer names (the instance is
+# the installer's).
+# Globals:
+#   INSTANCE, SEAT_LIST_FILE, SEAT_RENDER_DIR
+#######################################
+write_seat_files() {
+  local protocol_dir="${INSTANCE}/.ribbon/protocol" path installed
+  mkdir -p "${protocol_dir}"
+  while IFS=$'\t' read -r path installed; do
+    if [[ "${installed}" == */* ]]; then
+      mkdir -p "${protocol_dir}/${installed%/*}"
+    fi
+    cp "${SEAT_RENDER_DIR}/${installed}" "${protocol_dir}/${installed}"
+  done < "${SEAT_LIST_FILE}"
+  while IFS= read -r -d '' path; do
+    installed="${path#"${protocol_dir}"/}"
+    if ! cut -f2 "${SEAT_LIST_FILE}" | grep -Fqx "${installed}"; then
+      rm -f "${path}"
+    fi
+  done < <(find "${protocol_dir}" \( -type f -o -type l \) -print0)
 }
 
 #######################################
@@ -884,33 +1060,6 @@ pick_rules() {
 }
 
 #######################################
-# Validate the overlay before a rebuild can remove its target. A regular
-# file or working external symlink is kept; an absent file is seeded.
-#######################################
-prepare_herdr_destination() {
-  local overlay="${PROJECT_REPO}/herdr-config.md"
-  HERDR_NOTE='herdr-config.md already present, left unchanged'
-  if [[ -e "${overlay}" || -L "${overlay}" ]]; then
-    [[ -f "${overlay}" ]] || die "herdr-config.md is not a regular file or working symlink"
-    if (( NEEDS_REBUILD == 1 )) && [[ -L "${overlay}" ]] && path_uses_instance "${overlay}"; then
-      die "herdr-config.md points inside the instance; refusing to rebuild ${INSTANCE}"
-    fi
-    return 0
-  fi
-  [[ -f "${RIBBON_HOME}/herdr-config.md" && -r "${RIBBON_HOME}/herdr-config.md" ]] \
-    || die "overlay template is missing or unreadable: ${RIBBON_HOME}/herdr-config.md"
-  validate_refresh_destination "${overlay}"
-  HERDR_COPY_NEEDED=1
-}
-
-wire_herdr() {
-  if (( HERDR_COPY_NEEDED == 1 )); then
-    cp "${RIBBON_HOME}/herdr-config.md" "${PROJECT_REPO}/herdr-config.md"
-    HERDR_NOTE='herdr-config.md copied beside AGENTS.md'
-  fi
-}
-
-#######################################
 # Pick the post-checkout destination without writing anything. Foreign
 # hooks and custom hook paths are left alone.
 #######################################
@@ -971,15 +1120,15 @@ wire_worktree_links() {
 #######################################
 # Print a summary of what happened.
 # Globals:
-#   UPDATE, INSTANCE, PROJECT_NAME, PROJECT_REPO, LOCAL_BLOCK,
-#   AGENTS_POINTER_NEEDED, HERDR_NOTE, WORKTREE_NOTE
+#   UPDATE, INSTANCE, PROJECT_NAME, PROJECT_REPO, BLOCK_MODE,
+#   AGENTS_POINTER_NEEDED, WORKTREE_NOTE
 #######################################
 print_summary() {
   local mode='Unpacked'
-  local local_note='existing standalone block left unchanged'
+  local local_note='existing standalone block replaced, roster and gate kept'
   local pointer_note='existing reference left unchanged'
   (( UPDATE == 1 )) && mode='Updated'
-  [[ -n "${LOCAL_BLOCK}" ]] && local_note='standalone block appended'
+  [[ "${BLOCK_MODE}" == append ]] && local_note='standalone block appended'
   (( AGENTS_POINTER_NEEDED == 1 )) && pointer_note='one-line pointer appended (see AGENTS.local.md)'
   local import_line=''
   if [[ -n "${IMPORT_NOTE}" ]]; then
@@ -997,10 +1146,10 @@ ${mode} Ribbon Protocol instance for ${PROJECT_NAME}:
   AGENTS.md:       ${pointer_note}
   rules:           existing project themes left unchanged; missing themes added when seeding
 ${import_line}  gitignore:       add AGENTS.local.md — it is personal to this machine
-  herdr:           ${HERDR_NOTE}
+  herdr:           the overlay is the architect's seat file, handlers/herdr.md
   worktrees:       ${WORKTREE_NOTE}
 
-Next: read the protocol at ${RIBBON_HOME}/AGENTS.md — it governs unchanged.
+Next: fill the roster and the gate in AGENTS.local.md, between their ribbon:belt and ribbon:gate marks.
 EOF
 }
 
@@ -1017,17 +1166,26 @@ main() {
   validate_projects_dir
   validate_template
   resolve_repo
+  refuse_full_install
   validate_project_rules_directory
   validate_instance_write_directories
   collect_existing_project_docs_and_rules
   validate_instance_seed_instruction_links
+  RENDER_WORK_DIR="$(mktemp -d)"
+  OLD_BLOCK_FILE="${RENDER_WORK_DIR}/old-block"
+  BELT_ROWS_FILE="${RENDER_WORK_DIR}/belt-rows"
+  BLOCK_RENDERING_FILE="${RENDER_WORK_DIR}/block-rendering"
+  SEAT_LIST_FILE="${RENDER_WORK_DIR}/seat-list"
+  SEAT_RENDER_DIR="${RENDER_WORK_DIR}/seats"
+  RENDER_ERROR_FILE="${RENDER_WORK_DIR}/renderer-stderr"
+  mkdir -p "${SEAT_RENDER_DIR}"
   prepare_instruction_files
+  render_the_protocol
   validate_update_instruction_aliases
   if ! path_present "${PROJECT_REPO}/rules"; then
     validate_refresh_destination "${PROJECT_REPO}/rules"
   fi
   visit_project_rule_copies validate_refresh_destination
-  prepare_herdr_destination
   prepare_worktree_hook
   confirm_target
   prepare_user_rule_imports
@@ -1035,11 +1193,11 @@ main() {
   unpack_docs
   write_instance_readme
   write_pointer
-  write_local_block
+  write_block
+  write_seat_files
   ensure_pointer
   seed_rules
   import_user_rules
-  wire_herdr
   wire_worktree_links
   print_summary
   warn_unlinked_claude_files

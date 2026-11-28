@@ -7,7 +7,7 @@ main=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
 top=$(git rev-parse --show-toplevel)
 [ "$top" = "$main" ] && exit 0
 
-for f in AGENTS.local.md herdr-config.md CLAUDE.md CLAUDE.local.md; do
+for f in AGENTS.local.md CLAUDE.md CLAUDE.local.md; do
   if [ -e "$main/$f" ] && [ ! -e "$top/$f" ] && [ ! -L "$top/$f" ]; then
     ln -s "$main/$f" "$top/$f"
   fi

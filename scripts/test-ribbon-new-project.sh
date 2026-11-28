@@ -173,6 +173,65 @@ belt_count() {
   grep -c "$1" "${SANDBOX}/repos/example-project/AGENTS.local.md" 2>/dev/null || true
 }
 
+#######################################
+# Render a template of the real protocol with the six values a fresh
+# install of example-project uses: the test's oracle, never the
+# installer's own output.
+# Arguments:
+#   Renderer arguments after the --set values (mode flags and TEMPLATE).
+#######################################
+render_standalone() {
+  "${RIBBON_HOME}/scripts/ribbon-render-protocol" \
+    --protocol "${RIBBON_HOME}/protocol" \
+    --set "RIBBON_HOME=${RIBBON_HOME}" \
+    --set "RIBBON_PROJECTS=${PROJECTS}" \
+    --set "INSTANCE=${PROJECTS}/example-project" \
+    --set "PROJECT_NAME=example-project" \
+    --set "PROJECT_REPO=${SANDBOX}/repos/example-project" \
+    --set "PROTOCOL_DIR=${PROJECTS}/example-project/.ribbon/protocol" \
+    "$@"
+}
+
+#######################################
+# Succeed when the standalone block body of an AGENTS.local.md is the
+# given rendering, without trailing whitespace, byte for byte.
+# Arguments:
+#   AGENTS.local.md path, rendering file path.
+#######################################
+assert_block_is_rendering() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+
+local = open(sys.argv[1], "rb").read()
+expected = open(sys.argv[2], "rb").read()
+start = b"<!-- ribbon:standalone:start -->\n"
+end = b"\n<!-- ribbon:standalone:end -->"
+if start not in local or end not in local:
+    sys.exit(1)
+body = local.split(start, 1)[1].split(end, 1)[0]
+sys.exit(0 if body == expected.rstrip() else 1)
+PY
+}
+
+#######################################
+# Print the bytes of an AGENTS.local.md outside the standalone block: the
+# prefix before the start mark, a NUL, the suffix after the end mark.
+# Arguments:
+#   AGENTS.local.md path.
+#######################################
+block_outside() {
+  python3 - "$1" <<'PY'
+import sys
+
+data = open(sys.argv[1], "rb").read()
+start = b"<!-- ribbon:standalone:start -->"
+end = b"<!-- ribbon:standalone:end -->"
+pre = data.split(start, 1)[0]
+post = data.split(end, 1)[1]
+sys.stdout.buffer.write(pre + b"\x00" + post)
+PY
+}
+
 test_installer_exists() {
   [[ -x "${INSTALLER}" ]]
 }
@@ -265,10 +324,10 @@ test_install_does_not_warn_for_linked_claude_files() {
   ! grep -E '^warning: CLAUDE(\.local)?\.md ' "${SANDBOX}/warnings"
 }
 
-test_copies_herdr_config() {
+test_writes_no_herdr_config() {
   new_sandbox
   install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1
-  [[ -f "${SANDBOX}/repos/example-project/herdr-config.md" ]]
+  [[ ! -e "${SANDBOX}/repos/example-project/herdr-config.md" ]]
 }
 
 test_seeds_rules_into_repo() {
@@ -684,20 +743,23 @@ test_update_keeps_filled_belt() {
   grep -q '^| Senior architect | Ana |' "${local_md}"
 }
 
-test_update_leaves_managed_instructions_byte_identical() {
+test_update_replaces_the_block_and_keeps_the_rest() {
   new_sandbox
   local repo="${SANDBOX}/repos/example-project"
   install example-project "${repo}" >/dev/null 2>&1 || return 1
-  sed -i '/ribbon:standalone:start/a preserved line inside the managed block' "${repo}/AGENTS.local.md"
-  cp "${repo}/AGENTS.md" "${repo}/AGENTS.local.md" "${SANDBOX}/"
+  sed -i '/ribbon:standalone:start/a dropped line inside the managed block' "${repo}/AGENTS.local.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/AGENTS.md.before"
+  block_outside "${repo}/AGENTS.local.md" > "${SANDBOX}/outside.before"
 
   install example-project --update >/dev/null 2>&1 || return 1
 
-  cmp -s "${SANDBOX}/AGENTS.md" "${repo}/AGENTS.md" \
-    && cmp -s "${SANDBOX}/AGENTS.local.md" "${repo}/AGENTS.local.md"
+  ! grep -q 'dropped line inside the managed block' "${repo}/AGENTS.local.md" || return 1
+  cmp -s "${SANDBOX}/AGENTS.md.before" "${repo}/AGENTS.md" || return 1
+  block_outside "${repo}/AGENTS.local.md" > "${SANDBOX}/outside.after"
+  cmp -s "${SANDBOX}/outside.before" "${SANDBOX}/outside.after"
 }
 
-test_update_leaves_legacy_block_byte_identical() {
+test_update_refuses_an_older_block() {
   new_sandbox
   install example-project "${SANDBOX}/repos/example-project" >/dev/null 2>&1 || return 1
   local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
@@ -727,24 +789,29 @@ old rules text
 trailing local content
 EOF
   cp "${local_md}" "${SANDBOX}/before"
+  local rc=0
 
-  install example-project --update >/dev/null 2>&1 || return 1
+  install example-project --update > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
 
-  cmp -s "${SANDBOX}/before" "${local_md}"
+  [[ "${rc}" == 1 ]] || return 1
+  cmp -s "${SANDBOX}/before" "${local_md}" || return 1
+  grep -Fq 'holds an older standalone block' "${SANDBOX}/stderr" || return 1
+  grep -Fq '| Senior architect | Ana | human | the problem | nothing |' "${SANDBOX}/stdout"
 }
 
-test_force_leaves_managed_instructions_byte_identical() {
+test_force_replaces_the_block_and_keeps_the_roster() {
   new_sandbox
   local repo="${SANDBOX}/repos/example-project"
   install example-project "${repo}" >/dev/null 2>&1 || return 1
   sed -i "s/TODO(belt): a person's name/Ana/" "${repo}/AGENTS.local.md"
-  sed -i '/ribbon:standalone:start/a preserved line inside the managed block' "${repo}/AGENTS.local.md"
-  cp "${repo}/AGENTS.md" "${repo}/AGENTS.local.md" "${SANDBOX}/"
+  sed -i '/ribbon:standalone:start/a dropped line inside the managed block' "${repo}/AGENTS.local.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/AGENTS.md.before"
 
   install example-project "${repo}" --force >/dev/null 2>&1 || return 1
 
-  cmp -s "${SANDBOX}/AGENTS.md" "${repo}/AGENTS.md" \
-    && cmp -s "${SANDBOX}/AGENTS.local.md" "${repo}/AGENTS.local.md"
+  grep -q '^| Senior architect | Ana |' "${repo}/AGENTS.local.md" || return 1
+  ! grep -q 'dropped line inside the managed block' "${repo}/AGENTS.local.md" || return 1
+  cmp -s "${SANDBOX}/AGENTS.md.before" "${repo}/AGENTS.md"
 }
 
 test_update_keeps_one_belt_section() {
@@ -755,7 +822,9 @@ test_update_keeps_one_belt_section() {
   local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
   [[ "$(belt_count 'ribbon:belt:start')" == "1" ]] \
     && [[ "$(belt_count 'ribbon:belt:end')" == "1" ]] \
-    && [[ "$(grep -c '^| Role | Agent | Model | Writes | Never |$' "${local_md}")" == "1" ]]
+    && [[ "$(belt_count 'ribbon:gate:start')" == "1" ]] \
+    && [[ "$(belt_count 'ribbon:gate:end')" == "1" ]] \
+    && [[ "$(grep -c '^| Seat | Agent | Model |$' "${local_md}")" == "1" ]]
 }
 
 test_update_keeps_belt_text_verbatim() {
@@ -799,7 +868,11 @@ test_install_marks_belt_section() {
   local local_md="${SANDBOX}/repos/example-project/AGENTS.local.md"
   [[ "$(belt_count 'ribbon:belt:start')" == "1" ]] \
     && [[ "$(belt_count 'ribbon:belt:end')" == "1" ]] \
-    && sed -n '/ribbon:belt:start/,/ribbon:belt:end/p' "${local_md}" | grep -q '^## The belt$'
+    && sed -n '/ribbon:belt:start/,/ribbon:belt:end/p' "${local_md}" \
+      | grep -q '^| Seat | Agent | Model |$' \
+    && ! sed -n '/ribbon:belt:start/,/ribbon:belt:end/p' "${local_md}" \
+      | grep -q '^## The belt$' \
+    && [[ "$(belt_count 'ribbon:gate:start')" == "1" ]]
 }
 
 test_refuses_force_and_update() {
@@ -844,11 +917,14 @@ test_refuses_symlinked_overlap() {
 test_refuses_template_as_instance() {
   new_sandbox
   local tmpl="${PROJECTS}/example-project"
-  mkdir -p "${tmpl}/docs/tasks" "${tmpl}/docs/llm-context" "${tmpl}/rules" "${tmpl}/scripts"
+  mkdir -p "${tmpl}/docs/tasks" "${tmpl}/docs/llm-context" "${tmpl}/rules" "${tmpl}/scripts" "${tmpl}/protocol"
   printf '# fake template\n' > "${tmpl}/AGENTS.standalone.md"
   printf '# fake\n' > "${tmpl}/AGENTS.md"
   printf 'ribbon 1\n' > "${tmpl}/VERSION"
   cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${tmpl}/scripts/"
+  cp "${RIBBON_HOME}/protocol/standalone-structure.md" "${tmpl}/protocol/"
+  cp "${RIBBON_HOME}/scripts/ribbon-render-protocol" "${tmpl}/scripts/"
+  chmod +x "${tmpl}/scripts/ribbon-render-protocol"
   local rc=0
   install --ribbon-home "${tmpl}" example-project \
       "${SANDBOX}/repos/example-project" --force >/dev/null 2> "${SANDBOX}/error" || rc=$?
@@ -859,11 +935,14 @@ test_refuses_template_as_instance() {
 test_refuses_template_inside_instance() {
   new_sandbox
   local tmpl="${PROJECTS}/example-project/inner-template"
-  mkdir -p "${tmpl}/docs/tasks" "${tmpl}/docs/llm-context" "${tmpl}/rules" "${tmpl}/scripts"
+  mkdir -p "${tmpl}/docs/tasks" "${tmpl}/docs/llm-context" "${tmpl}/rules" "${tmpl}/scripts" "${tmpl}/protocol"
   printf '# fake\n' > "${tmpl}/AGENTS.standalone.md"
   printf '# fake\n' > "${tmpl}/AGENTS.md"
   printf 'ribbon 1\n' > "${tmpl}/VERSION"
   cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${tmpl}/scripts/"
+  cp "${RIBBON_HOME}/protocol/standalone-structure.md" "${tmpl}/protocol/"
+  cp "${RIBBON_HOME}/scripts/ribbon-render-protocol" "${tmpl}/scripts/"
+  chmod +x "${tmpl}/scripts/ribbon-render-protocol"
   local rc=0
   install --ribbon-home "${tmpl}" example-project \
       "${SANDBOX}/repos/example-project" --force >/dev/null 2> "${SANDBOX}/error" || rc=$?
@@ -1030,40 +1109,6 @@ test_update_rejects_an_instruction_hardlink_to_the_managed_hook() {
     && grep -Fxq 'original version' "${PROJECTS}/example-project/docs/README.md"
 }
 
-test_force_validates_overlay_destination_before_rebuild() {
-  local kind repo instance target rc failed=0
-  for kind in dangling inside via-instance; do
-    new_sandbox
-    repo="${SANDBOX}/repos/example-project"
-    instance="${PROJECTS}/example-project"
-    install example-project "${repo}" >/dev/null 2>&1 || return 1
-    if [[ "${kind}" == dangling ]]; then
-      target="${repo}/missing-overlay"
-    elif [[ "${kind}" == inside ]]; then
-      target="${instance}/custom-overlay"
-      printf 'custom overlay\n' > "${target}"
-    else
-      target="${instance}/overlay-link"
-      printf 'custom overlay outside the instance\n' > "${repo}/kept-overlay"
-      ln -s "${repo}/kept-overlay" "${target}"
-    fi
-    ln -sf "${target}" "${repo}/herdr-config.md"
-    printf 'live work\n' > "${instance}/docs/tasks/live-card.yaml"
-
-    rc=0
-    install example-project "${repo}" --force --yes >/dev/null 2> "${SANDBOX}/error" || rc=$?
-
-    if [[ "${rc}" != "1" ]] \
-      || ! grep -Fq 'herdr-config.md' "${SANDBOX}/error" \
-      || ! grep -Fxq 'live work' "${instance}/docs/tasks/live-card.yaml" \
-      || [[ "$(readlink "${repo}/herdr-config.md")" != "${target}" ]]; then
-      printf 'rebuild did not refuse the %s overlay link before deletion\n' "${kind}" >&2
-      failed=1
-    fi
-  done
-  return "${failed}"
-}
-
 test_force_keeps_a_working_overlay_link_outside_the_instance() {
   new_sandbox
   local repo="${SANDBOX}/repos/example-project"
@@ -1137,7 +1182,7 @@ test_install_rejects_an_instruction_link_into_the_new_instance() {
     && grep -Fq 'CLAUDE.md points inside the instance' "${SANDBOX}/error"
 }
 
-test_force_keeps_legacy_block_without_belt_marks() {
+test_force_refuses_an_older_block_without_belt_marks() {
   new_sandbox
   local repo="${SANDBOX}/repos/example-project"
   install example-project "${repo}" >/dev/null 2>&1 || return 1
@@ -1150,10 +1195,15 @@ test_force_keeps_legacy_block_without_belt_marks() {
 <!-- ribbon:standalone:end -->
 EOF
   cp "${repo}/AGENTS.local.md" "${SANDBOX}/before"
+  local rc=0
 
-  install example-project "${repo}" --force --yes >/dev/null 2>&1 || return 1
+  install example-project "${repo}" --force --yes > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
 
-  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.local.md"
+  [[ "${rc}" == 1 ]] || return 1
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.local.md" || return 1
+  [[ -d "${PROJECTS}/example-project/docs/tasks" ]] || return 1
+  grep -Fq 'holds an older standalone block' "${SANDBOX}/stderr" || return 1
+  [[ ! -s "${SANDBOX}/stdout" ]]
 }
 
 test_rejects_surplus_positionals() {
@@ -1227,6 +1277,141 @@ test_install_keeps_existing_project_theme() {
     && [[ -f "${SANDBOX}/repos/example-project/rules/README.md" ]]
 }
 
+test_block_is_the_rendering_of_the_standalone_structure() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  render_standalone standalone-structure.md > "${SANDBOX}/expected" || return 1
+  assert_block_is_rendering "${repo}/AGENTS.local.md" "${SANDBOX}/expected"
+}
+
+test_installs_the_seat_files_in_the_instance() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  render_standalone --seat-files standalone-structure.md > "${SANDBOX}/seats" || return 1
+  [[ -s "${SANDBOX}/seats" ]] || return 1
+  local path installed
+  while IFS=$'\t' read -r path installed; do
+    render_standalone "${path}" > "${SANDBOX}/expected-seat" || return 1
+    cmp -s "${SANDBOX}/expected-seat" "${instance}/.ribbon/protocol/${installed}" || return 1
+  done < "${SANDBOX}/seats"
+}
+
+test_update_keeps_the_roster_and_the_gate() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  local local_md="${repo}/AGENTS.local.md"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  sed -i 's/TODO(belt): "Kuro-chan" or "Claude Opus"/Kuro-chan/' "${local_md}"
+  sed -i 's/The gate: TODO(belt): the exact commands, in order\./The gate: make check./' "${local_md}"
+  cp "${local_md}" "${SANDBOX}/old-block"
+
+  install example-project --update >/dev/null 2>&1 || return 1
+
+  render_standalone --keep-from "${SANDBOX}/old-block" standalone-structure.md \
+    > "${SANDBOX}/expected" || return 1
+  assert_block_is_rendering "${local_md}" "${SANDBOX}/expected" || return 1
+  grep -q '^| Architect | Kuro-chan |' "${local_md}" || return 1
+  grep -Fqx 'The gate: make check.' "${local_md}"
+}
+
+test_update_rewrites_the_seat_files_and_drops_stray_ones() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  printf 'edited by hand\n' > "${instance}/.ribbon/protocol/actors/architect.md"
+  printf 'stray\n' > "${instance}/.ribbon/protocol/old.md"
+
+  install example-project --update >/dev/null 2>&1 || return 1
+
+  [[ ! -e "${instance}/.ribbon/protocol/old.md" ]] || return 1
+  render_standalone actors/architect_template.md > "${SANDBOX}/expected-seat" || return 1
+  cmp -s "${SANDBOX}/expected-seat" "${instance}/.ribbon/protocol/actors/architect.md"
+}
+
+test_refuses_a_project_with_a_full_install_block() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  printf '\n<!-- ribbon:full-install:start -->\n' >> "${repo}/AGENTS.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/before"
+
+  install example-project "${repo}" > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'has a full install' "${SANDBOX}/stderr" || return 1
+  [[ ! -e "${PROJECTS}/example-project" ]] || return 1
+  [[ ! -e "${repo}/AGENTS.local.md" ]] || return 1
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.md"
+}
+
+test_refuses_a_project_with_a_full_install_record() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  mkdir -p "${repo}/docs"
+  printf 'receipt\n' > "${repo}/docs/.ribbon-full-install"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/before"
+
+  install example-project "${repo}" > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'has a full install' "${SANDBOX}/stderr" || return 1
+  [[ ! -e "${PROJECTS}/example-project" ]] || return 1
+  [[ ! -e "${repo}/AGENTS.local.md" ]] || return 1
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.md"
+}
+
+test_render_failure_stops_before_any_write() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  local fake="${SANDBOX}/fake-template"
+  mkdir -p "${fake}/protocol" "${fake}/docs/tasks" "${fake}/docs/llm-context" \
+    "${fake}/rules" "${fake}/scripts"
+  cp "${RIBBON_HOME}/protocol/standalone-structure.md" "${fake}/protocol/"
+  printf '#!/usr/bin/env bash\nprintf "boom\\n" >&2\nexit 1\n' \
+    > "${fake}/scripts/ribbon-render-protocol"
+  chmod +x "${fake}/scripts/ribbon-render-protocol"
+  cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${fake}/scripts/"
+  printf 'ribbon 1\n' > "${fake}/VERSION"
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/before-local"
+  cp "${instance}/docs/README.md" "${SANDBOX}/before-readme"
+  cp "${instance}/.ribbon/protocol/actors/architect.md" "${SANDBOX}/before-seat"
+  local rc=0
+
+  install --ribbon-home "${fake}" example-project --update \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fxq 'ribbon-new-project: cannot render the protocol: boom' "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/before-local" "${repo}/AGENTS.local.md" || return 1
+  cmp -s "${SANDBOX}/before-readme" "${instance}/docs/README.md" || return 1
+  cmp -s "${SANDBOX}/before-seat" "${instance}/.ribbon/protocol/actors/architect.md"
+}
+
+test_update_keeps_the_roster_of_a_crlf_file() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  local local_md="${repo}/AGENTS.local.md"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  sed -i "s/TODO(belt): a person's name/Ana/" "${local_md}"
+  sed -i 's/$/\r/' "${local_md}"
+
+  install example-project --update >/dev/null 2>&1 || return 1
+
+  grep -q '^| Senior architect | Ana |' "${local_md}"
+}
+
+test_writes_no_herdr_config_and_names_the_handler() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  install example-project "${repo}" > "${SANDBOX}/summary" 2>&1 || return 1
+  [[ ! -e "${repo}/herdr-config.md" ]] || return 1
+  grep -Fq 'handlers/herdr.md' "${SANDBOX}/summary" || return 1
+  grep -Fxq "Seeded from: ${RIBBON_HOME} — the field guide is read from there; each seat's files are rendered under ${PROJECTS}/example-project/.ribbon/protocol/." \
+    "${PROJECTS}/example-project/docs/README.md"
+}
+
 readonly TESTS=(
   test_installer_exists
   test_creates_layout
@@ -1237,7 +1422,7 @@ readonly TESTS=(
   test_install_appends_to_agents_files_without_rewriting_bytes
   test_update_warns_for_unlinked_claude_files_without_editing_them
   test_install_does_not_warn_for_linked_claude_files
-  test_copies_herdr_config
+  test_writes_no_herdr_config
   test_seeds_rules_into_repo
   test_update_seeds_rules_when_missing
   test_update_does_not_resurrect_deleted_theme
@@ -1275,9 +1460,9 @@ readonly TESTS=(
   test_update_rewrites_version
   test_update_keeps_one_block
   test_update_keeps_filled_belt
-  test_update_leaves_managed_instructions_byte_identical
-  test_update_leaves_legacy_block_byte_identical
-  test_force_leaves_managed_instructions_byte_identical
+  test_update_replaces_the_block_and_keeps_the_rest
+  test_update_refuses_an_older_block
+  test_force_replaces_the_block_and_keeps_the_roster
   test_update_keeps_one_belt_section
   test_update_keeps_belt_text_verbatim
   test_update_refuses_block_without_end_mark
@@ -1298,11 +1483,10 @@ readonly TESTS=(
   test_force_refuses_to_rebuild_an_instance_holding_project_instructions
   test_update_rejects_instruction_aliases_of_refresh_destinations
   test_update_rejects_an_instruction_hardlink_to_the_managed_hook
-  test_force_validates_overlay_destination_before_rebuild
   test_force_keeps_a_working_overlay_link_outside_the_instance
   test_rule_seeds_and_imports_keep_instruction_aliases_dangling
   test_install_rejects_an_instruction_link_into_the_new_instance
-  test_force_keeps_legacy_block_without_belt_marks
+  test_force_refuses_an_older_block_without_belt_marks
   test_rejects_surplus_positionals
   test_import_rejects_directory_operand
   test_refuses_overlapping_repo_and_instance
@@ -1311,6 +1495,15 @@ readonly TESTS=(
   test_import_rules_requires_one_value
   test_import_rules_rejects_paths
   test_install_keeps_existing_project_theme
+  test_block_is_the_rendering_of_the_standalone_structure
+  test_installs_the_seat_files_in_the_instance
+  test_update_keeps_the_roster_and_the_gate
+  test_update_rewrites_the_seat_files_and_drops_stray_ones
+  test_refuses_a_project_with_a_full_install_block
+  test_refuses_a_project_with_a_full_install_record
+  test_render_failure_stops_before_any_write
+  test_update_keeps_the_roster_of_a_crlf_file
+  test_writes_no_herdr_config_and_names_the_handler
 )
 
 #######################################

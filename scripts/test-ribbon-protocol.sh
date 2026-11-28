@@ -471,6 +471,26 @@ test_malformed_region_in_the_rendering_fails() {
     'ribbon-render-protocol: malformed region belt in the rendering' a.md
 }
 
+test_region_mark_with_a_crlf_ending_is_kept() {
+  new_sandbox
+  printf '<!-- ribbon:belt:start -->\r\nnew body\r\n<!-- ribbon:belt:end -->\r\n' \
+    > "${P}/a.md"
+  printf '<!-- ribbon:belt:start -->\r\nold body\r\n<!-- ribbon:belt:end -->\r\n' \
+    > "${SANDBOX}/OLD"
+  run --keep-from "${SANDBOX}/OLD" a.md
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  printf '<!-- ribbon:belt:start -->\r\nold body\r\n<!-- ribbon:belt:end -->\r\n' \
+    | cmp -s - "${OUT}"
+}
+
+test_unreadable_keep_from_file_stays_on_one_line() {
+  new_sandbox
+  printf 'plain\n' > "${P}/a.md"
+  expect_render_failure \
+    'ribbon-render-protocol: cannot read no\x0ape' --keep-from $'no\npe' a.md
+}
+
 test_seat_files_are_the_pieces_the_template_does_not_read() {
   new_sandbox
   printf '<!-- ribbon:include b.md -->\n' > "${P}/a.md"
@@ -613,6 +633,8 @@ TESTS=(
   test_kept_body_is_inserted_verbatim
   test_malformed_region_in_the_old_file_fails
   test_malformed_region_in_the_rendering_fails
+  test_region_mark_with_a_crlf_ending_is_kept
+  test_unreadable_keep_from_file_stays_on_one_line
   test_seat_files_are_the_pieces_the_template_does_not_read
   test_two_pieces_with_one_installed_path_fail
   test_seat_files_and_list_together_are_a_usage_error

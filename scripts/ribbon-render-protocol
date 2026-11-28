@@ -66,7 +66,7 @@ def read_old_block(path_as_written):
         with open(path_as_written, "r", encoding="utf-8", newline="") as old_file:
             return old_file.read()
     except (OSError, UnicodeDecodeError):
-        raise RenderFailure("cannot read %s" % path_as_written)
+        raise RenderFailure("cannot read %s" % message_path(path_as_written))
 
 
 def replace_placeholders(line, values, path_as_written, lineno):
@@ -120,8 +120,14 @@ def render_piece(path_as_written, protocol_root, values, read_pieces, pieces):
 
 
 def mark_of(line):
-    """Return (NAME, start or end) when the line is exactly a region mark, else None."""
+    """Return (NAME, start or end) when the line is exactly a region mark, else None.
+
+    One trailing '\\r' is ignored, so a mark that ends in CRLF still matches;
+    the bodies keep every byte.
+    """
     body = line[:-1] if line.endswith("\n") else line
+    if body.endswith("\r"):
+        body = body[:-1]
     match = REGION_MARK.fullmatch(body)
     if match is None:
         return None

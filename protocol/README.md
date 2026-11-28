@@ -6,6 +6,8 @@ structure file and the pieces that it includes into one text:
 - `whole-structure.md` renders the root `AGENTS.md`, the whole protocol in one file;
 - `project-structure.md` renders the block of a full install, with
   `--set PROTOCOL_DIR=.ribbon/protocol`; `--seat-files` names the seat files that it installs;
+- `standalone-structure.md` renders the block of a standalone install in `AGENTS.local.md`,
+  with `--set PROTOCOL_DIR=<instance>/.ribbon/protocol` and the instance's other paths;
 - `handlers/herdr_template.md` renders `herdr-config.md`, the optional Herdr overlay.
 
 Edit a piece, never a rendering. Then render again, from the repository root, through a
