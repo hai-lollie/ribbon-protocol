@@ -154,6 +154,48 @@ install() {
 }
 
 #######################################
+# Run the installer in uninstall mode against the sandbox projects dir.
+# Arguments:
+#   Remaining installer arguments.
+#######################################
+uninstall() {
+  "${INSTALLER}" --projects "${PROJECTS}" --uninstall "$@"
+}
+
+#######################################
+# A ribbon 1 standalone install, made by hand: an AGENTS.local.md with a
+# ribbon 1 block (belt marks, no gate), the pointer line in AGENTS.md,
+# the ribbon 1 hook, and an instance with a live plan.
+# Arguments:
+#   The project repo path.
+#######################################
+make_older_standalone_install() {
+  local repo="$1" instance="${PROJECTS}/example-project"
+  mkdir -p "${instance}/docs/tasks"
+  printf 'live plan\n' > "${instance}/docs/tasks/live-plan.yaml"
+  printf '%s\n' "${repo}" > "${instance}/project-repo"
+  cat > "${repo}/AGENTS.local.md" <<'EOF'
+# my notes
+
+<!-- ribbon:standalone:start -->
+# Ribbon Protocol, standalone mode
+<!-- ribbon:belt:start -->
+| Role | Agent | Model |
+|---|---|---|
+| Senior architect | Ana | human |
+<!-- ribbon:belt:end -->
+old rules text
+<!-- ribbon:standalone:end -->
+EOF
+  printf '\n%s\n' 'Ribbon Protocol (standalone): this machine'"'"'s working files live outside this repository; read AGENTS.local.md for where each file lives.' \
+    >> "${repo}/AGENTS.md"
+  mkdir -p "${repo}/.git/hooks"
+  sed 's/AGENTS.local.md /AGENTS.local.md herdr-config.md /' \
+    "${RIBBON_HOME}/scripts/standalone-post-checkout" > "${repo}/.git/hooks/post-checkout"
+  chmod +x "${repo}/.git/hooks/post-checkout"
+}
+
+#######################################
 # Count the marked standalone blocks in the project AGENTS.local.md.
 # Outputs:
 #   The block count on stdout.
@@ -1412,6 +1454,171 @@ test_writes_no_herdr_config_and_names_the_handler() {
     "${PROJECTS}/example-project/docs/README.md"
 }
 
+test_uninstall_previews_by_default() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  git -C "${repo}" init -q || return 1
+  printf '# my notes\n' > "${repo}/AGENTS.local.md"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents.before"
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/local.before"
+  cp "${repo}/.git/hooks/post-checkout" "${SANDBOX}/hook.before"
+
+  uninstall example-project > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || return 1
+
+  grep -Fxq 'Would remove Ribbon-owned blocks, lines and files:' "${SANDBOX}/stdout" || return 1
+  grep -Fxq '  AGENTS.local.md (Ribbon block only)' "${SANDBOX}/stdout" || return 1
+  grep -Fxq '  AGENTS.md (Ribbon pointer line only)' "${SANDBOX}/stdout" || return 1
+  grep -Fxq "  ${repo}/.git/hooks/post-checkout" "${SANDBOX}/stdout" || return 1
+  grep -Fxq 'Dry run only; use --uninstall --remove-ribbon to apply.' "${SANDBOX}/stdout" || return 1
+  cmp -s "${SANDBOX}/agents.before" "${repo}/AGENTS.md" || return 1
+  cmp -s "${SANDBOX}/local.before" "${repo}/AGENTS.local.md" || return 1
+  cmp -s "${SANDBOX}/hook.before" "${repo}/.git/hooks/post-checkout"
+}
+
+test_uninstall_without_terminal_requires_yes() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents.before"
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/local.before"
+
+  uninstall example-project --remove-ribbon > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'non-interactive removal requires --yes; nothing removed' "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/agents.before" "${repo}/AGENTS.md" || return 1
+  cmp -s "${SANDBOX}/local.before" "${repo}/AGENTS.local.md"
+}
+
+test_uninstall_restores_agents_md_and_removes_a_created_agents_local_md() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents.before"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+
+  uninstall example-project --remove-ribbon --yes >/dev/null 2>&1 || return 1
+
+  cmp -s "${SANDBOX}/agents.before" "${repo}/AGENTS.md" || return 1
+  [[ ! -e "${repo}/AGENTS.local.md" ]]
+}
+
+test_uninstall_keeps_the_rest_of_agents_local_md() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  printf '# my notes\n' > "${repo}/AGENTS.local.md"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+
+  uninstall example-project --remove-ribbon --yes >/dev/null 2>&1 || return 1
+
+  printf '# my notes\n' | cmp -s - "${repo}/AGENTS.local.md"
+}
+
+test_uninstall_removes_the_managed_hook() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  git -C "${repo}" init -q || return 1
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  [[ -f "${repo}/.git/hooks/post-checkout" ]] || return 1
+
+  uninstall example-project --remove-ribbon --yes >/dev/null 2>&1 || return 1
+
+  [[ ! -e "${repo}/.git/hooks/post-checkout" ]]
+}
+
+test_uninstall_leaves_a_foreign_hook_and_names_it() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  git -C "${repo}" init -q || return 1
+  mkdir -p "${repo}/.git/hooks"
+  printf '#!/bin/sh\n# my own hook\nexit 0\n' > "${repo}/.git/hooks/post-checkout"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+
+  uninstall example-project --remove-ribbon --yes > "${SANDBOX}/stdout" 2>&1 || return 1
+
+  printf '#!/bin/sh\n# my own hook\nexit 0\n' | cmp -s - "${repo}/.git/hooks/post-checkout" || return 1
+  grep -Fq "${repo}/.git/hooks/post-checkout (not Ribbon's hook)" "${SANDBOX}/stdout"
+}
+
+test_uninstall_leaves_the_instance_and_names_it() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+
+  uninstall example-project --remove-ribbon --yes > "${SANDBOX}/stdout" 2>&1 || return 1
+
+  [[ -d "${instance}/docs/tasks" ]] || return 1
+  [[ "$(tail -1 "${SANDBOX}/stdout")" \
+    == "Standalone removal complete. The instance stays: ${instance}." ]]
+}
+
+test_uninstall_leaves_herdr_config_and_names_it() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  printf '# my overlay\n' > "${repo}/herdr-config.md"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+
+  uninstall example-project --remove-ribbon --yes > "${SANDBOX}/stdout" 2>&1 || return 1
+
+  printf '# my overlay\n' | cmp -s - "${repo}/herdr-config.md" || return 1
+  grep -Fq 'herdr-config.md (Ribbon cannot prove it wrote it)' "${SANDBOX}/stdout"
+}
+
+test_uninstall_removes_an_older_standalone_install() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  git -C "${repo}" init -q || return 1
+  make_older_standalone_install "${repo}"
+
+  uninstall example-project --remove-ribbon --yes >/dev/null 2>&1 || return 1
+
+  printf '# example-project AGENTS\n' | cmp -s - "${repo}/AGENTS.md" || return 1
+  printf '# my notes\n' | cmp -s - "${repo}/AGENTS.local.md" || return 1
+  [[ ! -e "${repo}/.git/hooks/post-checkout" ]] || return 1
+  [[ -f "${PROJECTS}/example-project/docs/tasks/live-plan.yaml" ]]
+}
+
+test_uninstall_refuses_broken_marks_and_removes_nothing() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  sed -i '/ribbon:standalone:end/d' "${repo}/AGENTS.local.md"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents.before"
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/local.before"
+
+  uninstall example-project --remove-ribbon --yes > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'unclosed, duplicated or out-of-order' "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/agents.before" "${repo}/AGENTS.md" || return 1
+  cmp -s "${SANDBOX}/local.before" "${repo}/AGENTS.local.md"
+}
+
+test_uninstall_without_an_instance_takes_the_repo_path() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mv "${PROJECTS}/example-project" "${SANDBOX}/instance-away"
+
+  uninstall example-project "${repo}" --remove-ribbon --yes >/dev/null 2>&1 || return 1
+
+  ! grep -q 'ribbon:standalone:start' "${repo}/AGENTS.local.md" || return 1
+  ! grep -q 'AGENTS\.local\.md' "${repo}/AGENTS.md"
+}
+
+test_uninstall_then_install_brings_the_new_layout() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project"
+  git -C "${repo}" init -q || return 1
+  make_older_standalone_install "${repo}"
+
+  uninstall example-project --remove-ribbon --yes >/dev/null 2>&1 || return 1
+  install example-project "${repo}" --force >/dev/null 2>&1 || return 1
+
+  grep -q 'ribbon:gate:start' "${repo}/AGENTS.local.md" || return 1
+  [[ -f "${PROJECTS}/example-project/.ribbon/protocol/actors/architect.md" ]]
+}
+
 readonly TESTS=(
   test_installer_exists
   test_creates_layout
@@ -1504,6 +1711,18 @@ readonly TESTS=(
   test_render_failure_stops_before_any_write
   test_update_keeps_the_roster_of_a_crlf_file
   test_writes_no_herdr_config_and_names_the_handler
+  test_uninstall_previews_by_default
+  test_uninstall_without_terminal_requires_yes
+  test_uninstall_restores_agents_md_and_removes_a_created_agents_local_md
+  test_uninstall_keeps_the_rest_of_agents_local_md
+  test_uninstall_removes_the_managed_hook
+  test_uninstall_leaves_a_foreign_hook_and_names_it
+  test_uninstall_leaves_the_instance_and_names_it
+  test_uninstall_leaves_herdr_config_and_names_it
+  test_uninstall_removes_an_older_standalone_install
+  test_uninstall_refuses_broken_marks_and_removes_nothing
+  test_uninstall_without_an_instance_takes_the_repo_path
+  test_uninstall_then_install_brings_the_new_layout
 )
 
 #######################################

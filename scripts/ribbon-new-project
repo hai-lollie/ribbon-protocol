@@ -36,10 +36,13 @@ set -euo pipefail
 
 readonly START_MARK='<!-- ribbon:standalone:start -->'
 readonly END_MARK='<!-- ribbon:standalone:end -->'
+readonly POINTER_LINE='Ribbon Protocol (standalone): this machine'"'"'s working files live outside this repository; read AGENTS.local.md for where each file lives.'
 
 # State set by parse_args and consumed by the pipeline below.
 FORCE=0
 UPDATE=0
+UNINSTALL=0
+REMOVE_RIBBON=0
 PROJECTS_DIR=''
 RIBBON_HOME=''
 PROJECT_NAME=''
@@ -71,7 +74,7 @@ GNU_REALPATH=''
 #   RENDER_WORK_DIR
 #######################################
 cleanup_work_dir() {
-  [[ -n "${RENDER_WORK_DIR}" ]] && rm -rf "${RENDER_WORK_DIR}"
+  [[ -z "${RENDER_WORK_DIR}" ]] || rm -rf "${RENDER_WORK_DIR}"
 }
 trap cleanup_work_dir EXIT
 
@@ -115,6 +118,8 @@ Usage:
       [--ribbon-home DIR] [--import-rules F]... <project-name> <project-repo-path>
   scripts/ribbon-new-project --update [--yes] --projects DIR \
       [--ribbon-home DIR] [--import-rules F]... <project-name> [project-repo-path]
+  scripts/ribbon-new-project --uninstall [--remove-ribbon] [--yes] --projects DIR \
+      <project-name> [project-repo-path]
 
 Unpacks a standalone Ribbon instance for one project (default mode), or
 refreshes an existing instance (--update): template files and seed version.
@@ -173,6 +178,8 @@ parse_args() {
       --ribbon-home) shift; ribbon_home_override="${1:-}"; shift ;;
       --force) FORCE=1; shift ;;
       --update) UPDATE=1; shift ;;
+      --uninstall) UNINSTALL=1; shift ;;
+      --remove-ribbon) REMOVE_RIBBON=1; shift ;;
       --yes) ASSUME_YES=1; shift ;;
       --import-rules)
         shift
@@ -204,6 +211,14 @@ validate_flags() {
     || die "--projects DIR is required (no environment default)"
   if (( FORCE == 1 && UPDATE == 1 )); then
     die "--force and --update do not combine"
+  fi
+  if (( REMOVE_RIBBON == 1 && UNINSTALL == 0 )); then
+    die "--remove-ribbon requires --uninstall"
+  fi
+  if (( UNINSTALL == 1 )); then
+    (( UPDATE == 0 )) || die "--update cannot be used with --uninstall"
+    (( FORCE == 0 )) || die "--force cannot be used with --uninstall"
+    [[ "${#IMPORT_RULES[@]}" -eq 0 ]] || die "--import-rules cannot be used with --uninstall"
   fi
   [[ -n "${PROJECT_NAME}" ]] || { usage; die "missing <project-name>"; }
   [[ "${PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9-]*$ ]] \
@@ -917,8 +932,7 @@ write_seat_files() {
 #######################################
 ensure_pointer() {
   if (( AGENTS_POINTER_NEEDED == 1 )); then
-    printf '\n%s\n' \
-      "Ribbon Protocol (standalone): this machine's working files live outside this repository; read AGENTS.local.md for where each file lives." \
+    printf '\n%s\n' "${POINTER_LINE}" \
       >> "${PROJECT_REPO}/AGENTS.md"
   fi
 }
@@ -1118,6 +1132,268 @@ wire_worktree_links() {
 }
 
 #######################################
+# Resolve the project repo for --uninstall: the instance's project-repo
+# pointer when the instance exists (a given path must name the same
+# directory), the given path otherwise.
+# Globals:
+#   PROJECTS_DIR, PROJECT_NAME, PROJECT_REPO (set), INSTANCE (set)
+#######################################
+resolve_uninstall_repo() {
+  INSTANCE="${PROJECTS_DIR}/${PROJECT_NAME}"
+  if [[ -d "${INSTANCE}" && -f "${INSTANCE}/project-repo" ]]; then
+    local recorded
+    recorded="$(cat "${INSTANCE}/project-repo")"
+    if [[ -n "${PROJECT_REPO}" ]]; then
+      [[ "$(canonical_path "${PROJECT_REPO}")" == "$(canonical_path "${recorded}")" ]] \
+        || die "the instance links ${recorded}, not ${PROJECT_REPO}"
+    fi
+    PROJECT_REPO="${recorded}"
+  fi
+  [[ -n "${PROJECT_REPO}" ]] \
+    || die "no instance for ${PROJECT_NAME}; give the project repo path"
+  [[ -d "${PROJECT_REPO}" ]] || die "project repo not found: ${PROJECT_REPO}"
+  PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
+}
+
+#######################################
+# Print the post-checkout hook of the project's git repository, found as
+# prepare_worktree_hook finds it; print nothing when there is none to
+# consider (no git, not the main worktree, custom hooks path).
+# Globals:
+#   PROJECT_REPO
+#######################################
+find_uninstall_hook() {
+  local worktrees main_checkout hooks_dir common_dir
+  worktrees="$(git -C "${PROJECT_REPO}" worktree list --porcelain 2>/dev/null)" || return 0
+  main_checkout="$(printf '%s\n' "${worktrees}" | sed -n '1s/^worktree //p')"
+  [[ "${main_checkout}" == "${PROJECT_REPO}" ]] || return 0
+  hooks_dir="$(git -C "${PROJECT_REPO}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)" \
+    || return 0
+  common_dir="$(git -C "${PROJECT_REPO}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+    || return 0
+  [[ "${hooks_dir}" == "${common_dir}/hooks" ]] || return 0
+  printf '%s\n' "${hooks_dir}/post-checkout"
+}
+
+#######################################
+# Preview or remove a standalone install: the block of AGENTS.local.md,
+# the pointer line of AGENTS.md and Ribbon's own hook, of either layout.
+# The instance and herdr-config.md are never removed. The plan is printed
+# first; every item is re-verified before the first write; a rewrite goes
+# through a temporary file and os.replace; no link is followed.
+# Globals:
+#   PROJECT_REPO, INSTANCE, RIBBON_HOME, START_MARK, END_MARK,
+#   POINTER_LINE, REMOVE_RIBBON, ASSUME_YES
+#######################################
+uninstall_standalone() {
+  [[ -f "${RIBBON_HOME}/scripts/standalone-post-checkout" ]] \
+    || die "template not found: ${RIBBON_HOME}/scripts/standalone-post-checkout (point --ribbon-home at the template repo)"
+  local hook_path=''
+  hook_path="$(find_uninstall_hook)"
+  python3 - "${PROJECT_REPO}" "${INSTANCE}" "${hook_path}" \
+    "${RIBBON_HOME}/scripts/standalone-post-checkout" \
+    "${START_MARK}" "${END_MARK}" "${POINTER_LINE}" \
+    "${REMOVE_RIBBON}" "${ASSUME_YES}" <<'PY'
+from contextlib import contextmanager
+import errno
+import os
+from pathlib import PurePosixPath
+import secrets
+import stat
+import sys
+
+root, instance, hook_path, hook_template, start, end, pointer = sys.argv[1:8]
+apply, yes = sys.argv[8] == "1", sys.argv[9] == "1"
+start = start.encode()
+end = end.encode()
+pointer = pointer.encode()
+with open(hook_template, "rb") as stream:
+    ribbon2_hook = stream.read()
+ribbon1_hook = ribbon2_hook.replace(
+    b"AGENTS.local.md ", b"AGENTS.local.md herdr-config.md ", 1)
+
+def refuse(message):
+    raise SystemExit(f"ribbon-new-project: {message}")
+
+root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+
+@contextmanager
+def bound_parent(name):
+    fd = os.dup(root_fd)
+    parts = PurePosixPath(name).parts
+    try:
+        for component in parts[:-1]:
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd, parts[-1]
+    finally:
+        os.close(fd)
+
+def snapshot(name):
+    """(stat, bytes) of a regular file; (None, b"") when absent;
+    (None, None) when it is not a regular file. No link is followed."""
+    try:
+        with bound_parent(name) as (fd, leaf):
+            before = os.stat(leaf, dir_fd=fd, follow_symlinks=False)
+            if not stat.S_ISREG(before.st_mode):
+                return None, None
+            with os.fdopen(os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd),
+                           "rb") as stream:
+                current = os.fstat(stream.fileno())
+                if (current.st_dev, current.st_ino) != (before.st_dev, before.st_ino):
+                    raise OSError(f"path changed during uninstall: {name}")
+                return before, stream.read()
+    except FileNotFoundError:
+        return None, b""
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            return None, None
+        raise
+
+def same_file(first, second):
+    return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+def replace_file(fd, leaf, replacement, mode):
+    temporary = ".ribbon-uninstall-" + secrets.token_hex(12)
+    temp_fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600,
+                      dir_fd=fd)
+    try:
+        with os.fdopen(temp_fd, "wb") as stream:
+            stream.write(replacement)
+            os.fchmod(stream.fileno(), stat.S_IMODE(mode))
+        os.replace(temporary, leaf, src_dir_fd=fd, dst_dir_fd=fd)
+        temporary = None
+    finally:
+        if temporary is not None:
+            os.unlink(temporary, dir_fd=fd)
+
+def block_removal(content):
+    """AGENTS.local.md without the standalone block (and the blank line
+    before it), or None when the file has no block."""
+    if start not in content and end not in content:
+        return None
+    if (content.count(start) != 1 or content.count(end) != 1
+            or content.index(end) < content.index(start)):
+        refuse("AGENTS.local.md has unclosed, duplicated or out-of-order "
+               "Ribbon markers; nothing removed")
+    lo = content.index(start)
+    hi = content.index(end)
+    line_start = content.rfind(b"\n", 0, lo) + 1
+    line_end = content.find(b"\n", hi + len(end))
+    line_end = len(content) if line_end == -1 else line_end + 1
+    if line_start > 0:
+        prev_end = line_start - 1
+        prev_start = content.rfind(b"\n", 0, prev_end) + 1
+        if content[prev_start:prev_end] == b"":
+            line_start = prev_start
+    return content[:line_start] + content[line_end:]
+
+def pointer_removal(content):
+    """AGENTS.md without each pointer line (and the blank line before it),
+    or None when there is no pointer line."""
+    out = []
+    removed = False
+    for line in content.splitlines(keepends=True):
+        if line in (pointer + b"\n", pointer):
+            removed = True
+            if out and out[-1] == b"\n":
+                out.pop()
+            continue
+        out.append(line)
+    return b"".join(out) if removed else None
+
+def uninstall():
+    plan = []
+    left = []
+
+    local_stat, local_content = snapshot("AGENTS.local.md")
+    if local_stat is None and local_content is None:
+        refuse("not a regular file: AGENTS.local.md; nothing removed")
+    if local_stat is not None:
+        remaining = block_removal(local_content)
+        if remaining is not None:
+            if remaining.strip() == b"":
+                plan.append(("AGENTS.local.md", "AGENTS.local.md",
+                             local_stat, local_content, None))
+            else:
+                plan.append(("AGENTS.local.md (Ribbon block only)",
+                             "AGENTS.local.md", local_stat, local_content,
+                             remaining))
+
+    agents_stat, agents_content = snapshot("AGENTS.md")
+    if agents_stat is None and agents_content is None:
+        refuse("not a regular file: AGENTS.md; nothing removed")
+    if agents_stat is not None:
+        remaining = pointer_removal(agents_content)
+        if remaining is not None:
+            plan.append(("AGENTS.md (Ribbon pointer line only)", "AGENTS.md",
+                         agents_stat, agents_content, remaining))
+
+    if os.path.lexists(os.path.join(root, "herdr-config.md")):
+        left.append("herdr-config.md (Ribbon cannot prove it wrote it)")
+
+    if hook_path:
+        relative = os.path.relpath(hook_path, root)
+        hook_stat, hook_content = (None, None)
+        if not relative.startswith(".."):
+            hook_stat, hook_content = snapshot(relative)
+        hook_lines = (hook_content or b"").split(b"\n")
+        second_line = hook_lines[1] if len(hook_lines) > 1 else b""
+        if (hook_stat is not None
+                and second_line == b"# ribbon:standalone:post-checkout"
+                and hook_content in (ribbon2_hook, ribbon1_hook)):
+            plan.append((hook_path, relative, hook_stat, hook_content, None))
+        elif os.path.lexists(hook_path):
+            left.append(f"{hook_path} (not Ribbon's hook)")
+
+    print("Would remove Ribbon-owned blocks, lines and files:")
+    for label, _, _, _, _ in plan:
+        print(f"  {label}")
+    print("Left in place:")
+    print(f"  {instance} (the instance: its plans, cards and reports)")
+    for label in left:
+        print(f"  {label}")
+
+    if not apply:
+        print("Dry run only; use --uninstall --remove-ribbon to apply.")
+        return
+    if not yes:
+        if not sys.stdin.isatty():
+            refuse("non-interactive removal requires --yes; nothing removed")
+        print("Remove these Ribbon blocks and files? [y/N] ", end="",
+              file=sys.stderr, flush=True)
+        if input().strip().lower() not in ("y", "yes"):
+            print("Uninstall declined; nothing removed.")
+            return
+
+    for label, name, original, content, _ in plan:
+        now, current = snapshot(name)
+        if now is None or not same_file(original, now) or current != content:
+            refuse(f"path changed since preview: {label}; nothing removed")
+    for label, name, original, content, replacement in plan:
+        with bound_parent(name) as (fd, leaf):
+            now, current = snapshot(name)
+            if now is None or not same_file(original, now) or current != content:
+                refuse(f"path changed since preview: {label}; nothing removed")
+            if replacement is None:
+                os.unlink(leaf, dir_fd=fd)
+            else:
+                replace_file(fd, leaf, replacement, now.st_mode)
+    print(f"Standalone removal complete. The instance stays: {instance}.")
+
+try:
+    try:
+        uninstall()
+    finally:
+        os.close(root_fd)
+except (OSError, EOFError) as error:
+    refuse(f"uninstall stopped: {error}")
+PY
+}
+
+#######################################
 # Print a summary of what happened.
 # Globals:
 #   UPDATE, INSTANCE, PROJECT_NAME, PROJECT_REPO, BLOCK_MODE,
@@ -1164,6 +1440,11 @@ main() {
   find_gnu_realpath
   validate_import_rules
   validate_projects_dir
+  if (( UNINSTALL == 1 )); then
+    resolve_uninstall_repo
+    uninstall_standalone
+    return
+  fi
   validate_template
   resolve_repo
   refuse_full_install
