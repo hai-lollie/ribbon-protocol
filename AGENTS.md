@@ -137,10 +137,10 @@ approval evidence in its assignment journal or in the record named by the Herdr 
    draft ADR per design problem, and brings what it cannot decide as open questions.
 2. **Security review.** The architect launches a fresh security engineer for each run, at most
    three. The engineer questions the draft ADR and its diagrams, writes its report and returns
-   it to the architect. The architect answers every question itself, with research and its own
-   experiments, in the current ADR or a justified linked ADR, and records a disposition for each
-   finding. Only then does the architect commit the ADRs, diagrams and reports on the contract
-   branch and ask the senior architect to validate the design.
+   it to the architect. The architect answers every question itself, with research and, where a
+   change needs trying, its own experiments, in the current ADR or a justified linked ADR, and
+   records a disposition for each finding. Only then does the architect commit the ADRs, diagrams
+   and reports on the contract branch and ask the senior architect to validate the design.
    The section "Security design review" defines this checkpoint and its repeat conditions.
 3. **Contract.** The architect cuts the design into one plan (one deliverable, one
    branch) and its cards (one green commit each), in dependency order, never while an
@@ -263,18 +263,21 @@ security checkpoint inside the same three runs, and all ADRs needed by the desig
 senior architect together.
 
 The architect has the final say on what to solve and when, within one rule: in each response it
-solves every `critical` and `security incident` finding, and at least 51 percent of the report's
-findings other than nitpicks. A finding is solved when the ADR, or a linked ADR, holds the change
-that closes its path, or the evidence that the path does not exist, and its verification
-condition. A finding that the architect does not solve is deferred to a named later ADR or plan,
-with an owner, or rejected with the reason; neither counts as solved.
+solves every `critical` and `security incident` finding that it can and escalates the others, and
+it solves at least 51 percent of the report's findings other than nitpicks and escalated ones. A
+finding is solved when the ADR, or a linked ADR, holds the change that closes its path, or the
+evidence that the path does not exist, and its verification condition. Any other finding that the
+architect does not solve is deferred to a named later ADR or plan, with an owner, or rejected with
+the reason; neither counts as solved.
 
 The engineer's report remains intact. Under its `## Architect response`, the architect appends a
-disposition for every finding: incorporated, adapted, deferred or rejected, with the reason, the
-ADR section or linked ADR, its experiment cards and an owner for any remaining action, then the
-count. A `critical` or `security incident` finding that the architect cannot solve is an explicit
-open question for the senior architect, with its impact and alternatives, and needs her decision;
-the architect never defers it, rejects it or accepts it as a risk.
+disposition for every finding: incorporated, adapted, deferred, rejected or escalated, with the
+reason, the ADR section or linked ADR, its experiment cards and an owner for any remaining action,
+then the count. Only a `critical` or `security incident` finding that the architect cannot solve
+is escalated: it becomes an explicit open question of the ADR for the senior architect, with its
+impact and alternatives, and needs her decision; the architect never defers it, rejects it or
+accepts it as a risk. A response with an escalated finding is complete, and the design goes to
+the senior architect with that open question.
 
 The architect commits the reconciled ADRs, diagrams, reports and responses on the contract branch
 before asking for senior-architect review. A missing report or incomplete response stops that
