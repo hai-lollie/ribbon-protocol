@@ -1334,6 +1334,86 @@ test_summary_command_works_from_the_project_for_a_relative_template_path() {
   assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
 }
 
+# The installer started from a directory that reaches the template by a
+# relative name, with a CDPATH that holds another directory of that name
+# first: the command it prints must still name the template.
+install_with_relative_template_under_cdpath() { # 1: the relative name, 2: a directory that holds another of that name
+  ( cd "${SANDBOX}/from" && CDPATH="$2:${SANDBOX}/from" \
+    install_with_managed_hooks example-project "${PROJ}" --ribbon-home "$1" \
+    > "${SANDBOX}/summary.txt" 2>&1 )
+}
+
+test_block_command_is_right_under_cdpath_for_a_relative_template_path() {
+  new_sandbox
+  managed_hooks
+  mkdir -p "${SANDBOX}/from" "${SANDBOX}/elsewhere/ribbon" || return 1
+  ln -s "$(cd "${SCRIPT_DIR}/.." && pwd)" "${SANDBOX}/from/ribbon" || return 1
+  install_with_relative_template_under_cdpath ribbon "${SANDBOX}/elsewhere" || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed cdpath "${WT}" || return 1
+  local command
+  command="$(command_to_paste "${PROJ}/AGENTS.local.md" 'agent starts in' '    ')"
+  command="${command% <path>}"
+  one_executable_word "${command}" || return 1
+  ( cd "${PROJ}" && sh -c "${command} ${WT}" ) >/dev/null 2>&1 || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+}
+
+test_summary_command_is_right_under_cdpath_for_a_relative_template_path() {
+  new_sandbox
+  managed_hooks
+  mkdir -p "${SANDBOX}/from" "${SANDBOX}/elsewhere/ribbon" || return 1
+  ln -s "$(cd "${SCRIPT_DIR}/.." && pwd)" "${SANDBOX}/from/ribbon" || return 1
+  install_with_relative_template_under_cdpath ribbon "${SANDBOX}/elsewhere" || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed cdpath-summary "${WT}" || return 1
+  local command
+  command="$(command_to_paste "${SANDBOX}/summary.txt" '  worktree links:' "$(printf '%19s' '')")"
+  command="${command% <path>}"
+  one_executable_word "${command}" || return 1
+  ( cd "${PROJ}" && sh -c "${command} ${WT}" ) >/dev/null 2>&1 || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+}
+
+test_block_command_names_a_template_path_that_ends_in_a_new_line() {
+  new_sandbox
+  managed_hooks
+  local template="${SANDBOX}/tpl"$'\n'
+  ln -s "$(cd "${SCRIPT_DIR}/.." && pwd)" "${template}" || return 1
+  install_with_managed_hooks example-project "${PROJ}" \
+    --ribbon-home "${template}" > "${SANDBOX}/summary.txt" 2>&1 || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed new-line-at-the-end "${WT}" || return 1
+  local command
+  command="$(command_to_paste "${PROJ}/AGENTS.local.md" 'agent starts in' '    ')"
+  command="${command% <path>}"
+  one_executable_word "${command}" || return 1
+  ( cd "${PROJ}" && sh -c "${command} ${WT}" ) >/dev/null 2>&1 || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+}
+
+test_summary_command_names_a_template_path_that_ends_in_a_new_line() {
+  new_sandbox
+  managed_hooks
+  # The relative form, under the same CDPATH as the first two tests.
+  local template="tpl"$'\n'
+  mkdir -p "${SANDBOX}/from" "${SANDBOX}/elsewhere" || return 1
+  ln -s "$(cd "${SCRIPT_DIR}/.." && pwd)" "${SANDBOX}/from/${template}" || return 1
+  install_with_relative_template_under_cdpath "${template}" "${SANDBOX}/elsewhere" || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed new-line-at-the-end-summary "${WT}" || return 1
+  local command
+  command="$(command_to_paste "${SANDBOX}/summary.txt" '  worktree links:' "$(printf '%19s' '')")"
+  command="${command% <path>}"
+  one_executable_word "${command}" || return 1
+  ( cd "${PROJ}" && sh -c "${command} ${WT}" ) >/dev/null 2>&1 || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+}
+
 TESTS=(
   test_install_writes_managed_hook
   test_worktree_gets_links_to_local_files
@@ -1415,6 +1495,10 @@ TESTS=(
   test_summary_command_can_be_pasted_from_a_template_path_with_a_new_line
   test_printed_command_works_from_the_project_for_a_relative_template_path
   test_summary_command_works_from_the_project_for_a_relative_template_path
+  test_block_command_is_right_under_cdpath_for_a_relative_template_path
+  test_summary_command_is_right_under_cdpath_for_a_relative_template_path
+  test_block_command_names_a_template_path_that_ends_in_a_new_line
+  test_summary_command_names_a_template_path_that_ends_in_a_new_line
 )
 
 main() {

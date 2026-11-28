@@ -45,6 +45,7 @@ FORCE=0
 UPDATE=0
 PROJECTS_DIR=''
 RIBBON_HOME=''
+TEMPLATE_PATH=''
 PROJECT_NAME=''
 PROJECT_REPO=''
 INSTANCE=''
@@ -809,18 +810,35 @@ shell_word() {
 #######################################
 # The template checkout as an absolute path, for a command that a person
 # pastes from another directory. A relative --ribbon-home would make that
-# command point into the project's own scripts directory.
+# command point into the project's own scripts directory. A relative path
+# is joined to the working directory by text alone: no cd, which an
+# exported CDPATH could send to another checkout or make print its
+# destination, and no command substitution, which would strip a new line
+# from the end of the name.
 # Globals:
-#   RIBBON_HOME
+#   RIBBON_HOME, PWD
 # Outputs:
-# The path on STDOUT: RIBBON_HOME when it is absolute, else the directory
-# it names, made absolute.
+#   TEMPLATE_PATH (set): RIBBON_HOME when it is absolute, else the working
+#   directory and the relative path, without a leading "./" and without a
+#   trailing "/".
 #######################################
 absolute_template_path() {
+  local relative
   if [[ "${RIBBON_HOME}" == /* ]]; then
-    printf '%s\n' "${RIBBON_HOME}"
+    TEMPLATE_PATH="${RIBBON_HOME}"
+    return 0
+  fi
+  relative="${RIBBON_HOME}"
+  while [[ "${relative}" == ./* ]]; do
+    relative="${relative#./}"
+  done
+  while [[ "${relative}" == */ && "${relative}" != / ]]; do
+    relative="${relative%/}"
+  done
+  if [[ -z "${relative}" || "${relative}" == . ]]; then
+    TEMPLATE_PATH="${PWD}"
   else
-    (cd "${RIBBON_HOME}" && pwd)
+    TEMPLATE_PATH="${PWD}/${relative}"
   fi
 }
 
@@ -1104,7 +1122,8 @@ prepare_worktree_hook() {
       # summary says why the block is missing.
       WORKTREE_BLOCK_NOTE="not appended: AGENTS.local.md is the same file as ${AGENTS_ALIAS_OF}"
     else
-      WORKTREE_BLOCK="${WORKTREE_BLOCK_BODY//\{\{RIBBON_HOME\}\}/"$(shell_word "$(absolute_template_path)")"}"
+      absolute_template_path
+      WORKTREE_BLOCK="${WORKTREE_BLOCK_BODY//\{\{RIBBON_HOME\}\}/"$(shell_word "${TEMPLATE_PATH}")"}"
       # Any other reason not to append is a skip too, and the summary says
       # why: an optional block never fails the run, and nothing is written.
       local reason
@@ -1173,7 +1192,8 @@ note_stale_worktree_block() {
 # Globals:
 #   UPDATE, INSTANCE, PROJECT_NAME, PROJECT_REPO, LOCAL_BLOCK,
 #   AGENTS_POINTER_NEEDED, HERDR_NOTE, WORKTREE_NOTE,
-#   WORKTREE_HOOK_SKIPPED, WORKTREE_LINK_COMMAND_NEEDED, RIBBON_HOME
+#   WORKTREE_HOOK_SKIPPED, WORKTREE_LINK_COMMAND_NEEDED, RIBBON_HOME,
+#   TEMPLATE_PATH (the last two through absolute_template_path)
 #######################################
 print_summary() {
   local mode='Unpacked'
@@ -1189,8 +1209,9 @@ print_summary() {
   fi
   local worktree_links_line=''
   if (( WORKTREE_HOOK_SKIPPED == 1 || WORKTREE_LINK_COMMAND_NEEDED == 1 )); then
+    absolute_template_path
     worktree_links_line="  worktree links:  Ribbon's post-checkout hook is not in place. After each 'git worktree add <path>', run
-                   $(shell_word "$(absolute_template_path)/scripts/ribbon-link-worktree") <path>
+                   $(shell_word "${TEMPLATE_PATH}/scripts/ribbon-link-worktree") <path>
 "
   fi
   local worktree_block_line=''
