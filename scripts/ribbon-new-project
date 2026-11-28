@@ -246,7 +246,7 @@ import sys
 
 what, path = sys.argv[1:3]
 resolved = os.path.realpath(path)
-if any(ord(char) < 0x20 or ord(char) == 0x7F for char in resolved):
+if any(ord(char) < 0x20 or ord(char) == 0x7F or char == "`" for char in resolved):
     escaped = "".join(
         "\\x%02x" % ord(char) if ord(char) < 0x20 or ord(char) == 0x7F else char
         for char in resolved)
@@ -436,30 +436,41 @@ rebuild_instance() {
 }
 
 #######################################
-# Before --force deletes the old instance, every planned write
-# destination of the run that the rebuild does not recreate is writable:
-# the project's rules/ when a rule seed or an imported rule will be
-# written into it. The instance's parent is checked by
-# validate_projects_dir, and the instruction files by resolve_repo.
+# Before the first write, every destination of the run can be written:
+# the directory of each new file and each rewritten file is writable and
+# searchable, and each rewritten file is writable.
 # Globals:
-#   NEEDS_REBUILD, PROJECT_REPO, RIBBON_HOME, SELECTED_RULES
+#   PROJECT_REPO, PROJECTS_DIR, INSTANCE, RIBBON_HOME, SEAT_LIST_FILE,
+#   AGENTS_POINTER_NEEDED, SELECTED_RULES
 #######################################
-validate_rebuild_destinations() {
-  (( NEEDS_REBUILD == 1 )) || return 0
-  local template f directory="${PROJECT_REPO}/rules" writing=0
+validate_write_destinations() {
+  local path directory rel template
+  local -a planned=("${PROJECT_REPO}/AGENTS.local.md")
+  (( AGENTS_POINTER_NEEDED == 1 )) && planned+=("${PROJECT_REPO}/AGENTS.md")
+  local installed
+  while IFS=$'\t' read -r rel installed; do
+    planned+=("${INSTANCE}/.ribbon/protocol/${installed}")
+  done < "${SEAT_LIST_FILE}"
+  planned+=("${INSTANCE}/docs/README.md" "${INSTANCE}/project-repo")
   for template in "${RIBBON_HOME}/rules"/*.md; do
     [[ -e "${template}" ]] || continue
-    path_present "${PROJECT_REPO}/rules/${template##*/}" || writing=1
+    path_present "${PROJECT_REPO}/rules/${template##*/}" && continue
+    planned+=("${PROJECT_REPO}/rules/${template##*/}")
   done
-  for f in "${SELECTED_RULES[@]}"; do
-    path_present "${PROJECT_REPO}/rules/${f}" || writing=1
+  for rel in "${SELECTED_RULES[@]}"; do
+    path_present "${PROJECT_REPO}/rules/${rel}" && continue
+    planned+=("${PROJECT_REPO}/rules/${rel}")
   done
-  (( writing == 1 )) || return 0
-  while [[ ! -d "${directory}" ]]; do
-    directory="${directory%/*}"
+  for path in "${planned[@]}"; do
+    directory="${path%/*}"
+    while [[ ! -d "${directory}" ]]; do
+      directory="${directory%/*}"
+    done
+    [[ -w "${directory}" && -x "${directory}" ]] || die "not writable: ${directory}"
+    if path_present "${path}"; then
+      [[ -w "${path}" ]] || die "not writable: ${path}"
+    fi
   done
-  [[ -w "${directory}" && -x "${directory}" ]] \
-    || die "not writable: ${directory}"
 }
 
 #######################################
@@ -872,8 +883,10 @@ validate_instruction_link_safety() {
 #######################################
 # Follow one instruction file's link chain and print its final target.
 # Every link in the chain must name a file of the same basename; the
-# final target must be a regular file with one hard link and not one of
-# the other instruction files.
+# final target must be a regular file with one hard link. A Claude file
+# that links to the AGENTS file (the README's wiring) changes neither
+# and stays supported; a hard link of the AGENTS file fails the one-hard
+# -link check.
 # Arguments:
 #   The file name (AGENTS.local.md or AGENTS.md).
 # Globals:
@@ -886,8 +899,6 @@ import stat
 import sys
 
 root, name = sys.argv[1:3]
-others = {"AGENTS.md", "AGENTS.local.md", "CLAUDE.md", "CLAUDE.local.md",
-          "herdr-config.md"} - {name}
 
 def refuse():
     sys.exit(f"ribbon-new-project: {name} is a link to another file or has "
@@ -909,10 +920,6 @@ if os.path.lexists(current):
     info = os.lstat(current)
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
         refuse()
-    for other in others:
-        other_path = os.path.join(root, other)
-        if os.path.exists(other_path) and os.path.samefile(current, other_path):
-            refuse()
 sys.stdout.write(current + "\n")
 PY
 }
@@ -960,7 +967,8 @@ validate_seed_version() {
   [[ -f "${version_file}" && -r "${version_file}" ]] \
     || die "template file is missing or unreadable: ${version_file}"
   line="$(head -1 "${version_file}")"
-  if [[ "$(wc -l < "${version_file}")" != 1 || ! "${line}" =~ ^ribbon\ [0-9]+$ ]]; then
+  if [[ ! "${line}" =~ ^ribbon\ [0-9]+$ ]] \
+    || ! cmp -s "${version_file}" <(printf '%s\n' "${line}"); then
     die "invalid Ribbon seed version: ${line}"
   fi
 }
@@ -1124,18 +1132,39 @@ seed_rules() {
 
 #######################################
 # Write stdin to a target through an exclusively created temporary file
-# in the same directory and a rename, never through the existing inode.
+# (os.open with O_CREAT|O_EXCL, a random name) in the same directory and
+# os.replace, never through the existing inode. The new file keeps the
+# mode of the file it replaces, or 0644 for a new one.
 # Arguments:
 #   The target path.
 #######################################
 write_through_temp() {
-  local target="$1" temp mask
-  temp="$(mktemp "${target}.XXXXXXXX")" \
-    || die "cannot create a temporary file for ${target}"
-  cat > "${temp}"
-  mask="$(umask)"
-  chmod "$(printf '%o' "$(( 0666 & ~0${mask} ))")" "${temp}"
-  mv -f "${temp}" "${target}"
+  python3 -c "$(cat <<'PY'
+import os
+import secrets
+import stat
+import sys
+
+target = sys.argv[1]
+data = sys.stdin.buffer.read()
+try:
+    mode = stat.S_IMODE(os.stat(target).st_mode)
+except FileNotFoundError:
+    mode = 0o644
+directory = os.path.dirname(target) or "."
+temporary = os.path.join(directory, ".ribbon-write-" + secrets.token_hex(12))
+fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+try:
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(data)
+        os.fchmod(stream.fileno(), mode)
+    os.replace(temporary, target)
+    temporary = None
+finally:
+    if temporary is not None:
+        os.unlink(temporary)
+PY
+)" "$1"
 }
 
 #######################################
@@ -1819,6 +1848,8 @@ main() {
   parse_args "$@"
   validate_flags
   find_gnu_realpath
+  validate_canonical_path 'the template repository' "${RIBBON_HOME}"
+  RIBBON_HOME="$(canonical_path "${RIBBON_HOME}")"
   validate_import_rules
   validate_projects_dir
   RENDER_WORK_DIR="$(mktemp -d)"
@@ -1856,7 +1887,7 @@ main() {
   prepare_worktree_hook
   confirm_target
   prepare_user_rule_imports
-  validate_rebuild_destinations
+  validate_write_destinations
   rebuild_instance
   unpack_docs
   write_instance_readme
