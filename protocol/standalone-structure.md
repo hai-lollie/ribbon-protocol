@@ -28,9 +28,12 @@ to this file.
   `{{INSTANCE}}/docs/tasks/`, write reports, notes, handoff and evidence to
   `{{INSTANCE}}/docs/llm-context/`.
 - The instance is not a Git repository. Where a rule reads a card from Git
-  (`git show main:docs/tasks/<task-id>.yaml`), read it from `{{INSTANCE}}/docs/tasks/`,
-  where the architect revises it and tells the coder. Where a rule commits evidence with
-  the work, or moves closed work into `docs/llm-context/history/` with `git mv`, the
+  (`git show main:docs/tasks/<task-id>.yaml`), read it from `{{INSTANCE}}/docs/tasks/`:
+  the architect revises a card there and tells the coder, and no merge carries it. Where a
+  rule commits the preflight block, the coder writes the block in its report in the instance
+  and, before the first edit, makes an empty commit `<task-id>: preflight READY` (or
+  `BLOCKED`) in this repository, so Git still proves the order. Where a rule commits evidence
+  with the work, or moves closed work into `docs/llm-context/history/` with `git mv`, the
   evidence stays in the instance, uncommitted, and closed work moves there with `mv`.
 - The coding-rule themes that a card names live in `{{PROJECT_REPO}}/rules/`.
 - Write ADRs and diagrams only under `{{PROJECT_REPO}}/docs/adrs/` and

@@ -63,6 +63,7 @@ AGENTS_BLOCK_KIND=''
 AGENTS_BLOCK_DIGEST=''
 DOC_SEEDS=()
 SELECTED_RULES=()
+PLANNED_RULE_PATHS=()
 SEAT_PATHS=()
 SEAT_FILES=()
 SEAT_RENDERS=()
@@ -185,6 +186,25 @@ parse_args() {
 
 path_present() {
   [[ -e "$1" || -L "$1" ]]
+}
+
+#######################################
+# Refuse a project repo path that holds a character below U+0020 or
+# U+007F: a canonicalization could trim it into another pathname.
+# Arguments:
+#   What the path is, the path.
+#######################################
+validate_path_characters() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+
+what, path = sys.argv[1:3]
+if any(ord(char) < 0x20 or ord(char) == 0x7F for char in path):
+    escaped = "".join(
+        "\\x%02x" % ord(char) if ord(char) < 0x20 or ord(char) == 0x7F else char
+        for char in path)
+    sys.exit(f"ribbon-seed-project: unsupported character in {what}: {escaped}")
+PY
 }
 
 file_digest() {
@@ -332,6 +352,7 @@ resolve_repo() {
   [[ -d "${PROJECT_REPO}" ]] || die "project repo not found: ${PROJECT_REPO}"
   [[ -w "${PROJECT_REPO}" && -x "${PROJECT_REPO}" ]] \
     || die "project repo is not writable with your permissions: ${PROJECT_REPO}"
+  validate_path_characters 'the project repo path' "${PROJECT_REPO}"
   PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
   validate_project_directory docs
   validate_project_directory rules
@@ -466,6 +487,7 @@ write_install_receipt() {
 uninstall_full_install() {
   [[ -n "${PROJECT_REPO}" && -d "${PROJECT_REPO}" ]] || die "uninstall requires an existing project directory"
   local home_resolved ribbon_resolved
+  validate_path_characters 'the project repo path' "${PROJECT_REPO}"
   PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
   home_resolved="$(canonical_path "${HOME}")"
   ribbon_resolved="$(canonical_path "${RIBBON_HOME}")"
@@ -486,8 +508,8 @@ import sys
 root = Path(sys.argv[1])
 receipt, marker, start, end = sys.argv[2:6]
 apply, yes = (flag == "1" for flag in sys.argv[6:8])
-start = b"\n" + start.encode() + b"\n"
-end = b"\n" + end.encode() + b"\n"
+start = start.encode()
+end = end.encode()
 
 def refuse(message):
     raise SystemExit(f"ribbon-seed-project: {message}")
@@ -590,12 +612,26 @@ def normalized_block(data):
     return b"".join(result)
 
 def unchanged_block(data):
-    if data.count(start) != 1 or data.count(end) != 1:
+    lines = data.split(b"\n")
+    offsets = []
+    position = 0
+    for line in lines:
+        offsets.append(position)
+        position += len(line) + 1
+    starts = [index for index, line in enumerate(lines)
+              if line == start or line == start + b"\r"]
+    ends = [index for index, line in enumerate(lines)
+            if line == end or line == end + b"\r"]
+    if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
         return None, None
-    lo = data.index(start)
-    hi = data.index(end) + len(end)
-    if hi <= lo:
-        return None, None
+    lo = offsets[starts[0]]
+    if lo > 0 and data[lo - 1:lo] == b"\n":
+        lo -= 1
+    hi = offsets[ends[0]] + len(end)
+    if data[hi:hi + 1] == b"\r" and data[hi + 1:hi + 2] == b"\n":
+        hi += 2
+    elif data[hi:hi + 1] == b"\n":
+        hi += 1
     return data[lo:hi], data[:lo] + data[hi:]
 
 def report_changed(changed):
@@ -814,7 +850,7 @@ prepare_agents_md() {
   local agents="${PROJECT_REPO}/AGENTS.md"
   if [[ -f "${agents}" ]]; then
     [[ -r "${agents}" ]] || die "not readable: ${agents}"
-    if grep -Fxq "${START_MARK}" "${agents}"; then
+    if grep -qE "^${START_MARK}"$'\r''?$' "${agents}"; then
       die "AGENTS.md already holds a Ribbon block; remove it, then install"
     fi
     [[ -w "${agents}" ]] || die "not writable: ${agents}"
@@ -836,7 +872,7 @@ prepare_agents_md() {
 has_standalone_install() {
   local local_agents="${PROJECT_REPO}/AGENTS.local.md"
   [[ -f "${local_agents}" ]] \
-    && grep -Fxq '<!-- ribbon:standalone:start -->' "${local_agents}"
+    && grep -qE '^<!-- ribbon:standalone:start -->'$'\r''?$' "${local_agents}"
 }
 
 refuse_standalone_install() {
@@ -973,16 +1009,37 @@ prepare_block_seat_pointers() {
 }
 
 #######################################
+# The rule files the run will write: the missing template themes and the
+# imported user rules not already present.
+# Globals:
+#   RIBBON_HOME, PROJECT_REPO, SELECTED_RULES, PLANNED_RULE_PATHS (set)
+#######################################
+collect_planned_rule_paths() {
+  PLANNED_RULE_PATHS=()
+  local f rel
+  for f in "${RIBBON_HOME}/rules"/*.md; do
+    [[ -e "${f}" ]] || continue
+    rel="rules/${f##*/}"
+    path_present "${PROJECT_REPO}/${rel}" && continue
+    PLANNED_RULE_PATHS+=("${rel}")
+  done
+  for f in "${SELECTED_RULES[@]}"; do
+    path_present "${PROJECT_REPO}/rules/${f}" && continue
+    PLANNED_RULE_PATHS+=("rules/${f}")
+  done
+}
+
+#######################################
 # Before any write: no planned path is ignored by Git, and the nearest existing
 # ancestor of each, and the file itself when it exists, are writable.
+# Arguments:
+#   The paths the run will write or remove, relative to the project.
 # Globals:
-#   PROJECT_REPO, DOC_SEEDS, SEAT_FILES, INSTALL_RECEIPT, SEED_RECORD
+#   PROJECT_REPO
 #######################################
 prepare_write_paths() {
   local rel path directory
-  local -a planned=("${DOC_SEEDS[@]}" "${SEAT_FILES[@]}" "AGENTS.md" \
-    "${INSTALL_RECEIPT}" "${SEED_RECORD}")
-  for rel in "${planned[@]}"; do
+  for rel in "$@"; do
     [[ -n "${rel}" ]] || continue
     path="${PROJECT_REPO}/${rel}"
     if git -C "${PROJECT_REPO}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
@@ -1342,10 +1399,14 @@ old_install_belt_rows() {
     $0 == end_mark { inside = 0; next }
     !inside { next }
     {
+      if (done) { next }
       n++
       line[n] = $0
-      if ($0 ~ /^\| Role \| Agent \| Model/) { header = n }
-      else if (header && $0 ~ /^\|/) { last = n }
+      if (!header) {
+        if ($0 ~ /^\| Role \| Agent \| Model/) { header = n; last = n }
+        next
+      }
+      if ($0 ~ /^\|/) { last = n } else { done = 1 }
     }
     END {
       if (header && last >= header) {
@@ -1369,6 +1430,7 @@ resolve_update_repo() {
   [[ -d "${PROJECT_REPO}" ]] || die "project repo not found: ${PROJECT_REPO}"
   [[ -w "${PROJECT_REPO}" && -x "${PROJECT_REPO}" ]] \
     || die "project repo is not writable with your permissions: ${PROJECT_REPO}"
+  validate_path_characters 'the project repo path' "${PROJECT_REPO}"
   PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
   validate_project_directory docs
 }
@@ -1399,6 +1461,22 @@ if not data.startswith(b"ribbon-full-install-receipt-v2\0"):
 fields = data.split(b"\0")
 if fields[-1] != b"" or len(fields[1:-1]) % 3:
     refuse("invalid full-install ownership receipt; nothing removed")
+
+def permitted(name):
+    path = PurePosixPath(name)
+    if path.as_posix() != name or path.is_absolute() or ".." in path.parts:
+        return False
+    if name in {"AGENTS.md", "herdr-config.md", record_name, "docs/README.md",
+                "docs/field-guide.md", "docs/tasks/README.md",
+                "docs/llm-context/README.md"}:
+        return True
+    if (str(path.parent) == "docs/tasks" and path.name.startswith("_template.")) or (
+            str(path.parent) == "docs/llm-context" and path.name.startswith("_")
+            and path.suffix == ".md"):
+        return True
+    return (len(path.parts) >= 3 and path.parts[0] == ".ribbon"
+            and path.parts[1] == "protocol" and name.endswith(".md"))
+
 docs, seats, kinds, seen = [], [], [], set()
 record_seen = False
 for index in range(1, len(fields) - 1, 3):
@@ -1408,6 +1486,8 @@ for index in range(1, len(fields) - 1, 3):
     seat = (path.as_posix() == name and len(path.parts) >= 3
             and path.parts[0] == ".ribbon" and path.parts[1] == "protocol"
             and ".." not in path.parts and name.endswith(".md"))
+    if not permitted(name):
+        refuse("invalid full-install ownership receipt; nothing changed")
     if (path.as_posix() != name or path.is_absolute() or ".." in path.parts
             or name in seen or kind not in (b"file", b"block", b"created-block")
             or not re.fullmatch(b"[0-9a-f]{64}", digest)
@@ -1488,15 +1568,19 @@ position = 0
 for line in lines:
     offsets.append(position)
     position += len(line) + 1
-starts = [index for index, line in enumerate(lines) if line == start_line]
-ends = [index for index, line in enumerate(lines) if line == end_line]
+starts = [index for index, line in enumerate(lines)
+          if line == start_line or line == start_line + b"\r"]
+ends = [index for index, line in enumerate(lines)
+        if line == end_line or line == end_line + b"\r"]
 if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
     refuse("AGENTS.md's Ribbon block is missing, duplicated or out of order; fix it before re-running")
 begin = offsets[starts[0]]
 if begin > 0 and data[begin - 1:begin] == b"\n":
     begin -= 1
 finish = offsets[ends[0]] + len(end_line)
-if data[finish:finish + 1] == b"\n":
+if data[finish:finish + 1] == b"\r" and data[finish + 1:finish + 2] == b"\n":
+    finish += 2
+elif data[finish:finish + 1] == b"\n":
     finish += 1
 with open(output, "wb") as stream:
     stream.write(data[begin:finish])
@@ -1533,15 +1617,19 @@ position = 0
 for line in lines:
     offsets.append(position)
     position += len(line) + 1
-starts = [index for index, line in enumerate(lines) if line == start_line]
-ends = [index for index, line in enumerate(lines) if line == end_line]
+starts = [index for index, line in enumerate(lines)
+          if line == start_line or line == start_line + b"\r"]
+ends = [index for index, line in enumerate(lines)
+        if line == end_line or line == end_line + b"\r"]
 if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
     refuse("AGENTS.md's Ribbon block is missing, duplicated or out of order; fix it before re-running")
 begin = offsets[starts[0]]
 if begin > 0 and data[begin - 1:begin] == b"\n":
     begin -= 1
 finish = offsets[ends[0]] + len(end_line)
-if data[finish:finish + 1] == b"\n":
+if data[finish:finish + 1] == b"\r" and data[finish + 1:finish + 2] == b"\n":
+    finish += 2
+elif data[finish:finish + 1] == b"\n":
     finish += 1
 block = open(rendered, "rb").read()
 if block and not block.endswith(b"\n"):
@@ -1615,26 +1703,63 @@ prepare_update_removals() {
       fi
     done
     (( named == 0 )) || continue
-    path_present "${PROJECT_REPO}/${rel}" || continue
-    if [[ -L "${PROJECT_REPO}/${rel}" || ! -f "${PROJECT_REPO}/${rel}" ]]; then
-      die "unsafe seat file: ${rel}"
+    if path_present "${PROJECT_REPO}/${rel}"; then
+      if [[ -L "${PROJECT_REPO}/${rel}" || ! -f "${PROJECT_REPO}/${rel}" ]]; then
+        die "unsafe seat file: ${rel}"
+      fi
+      REMOVED_SEAT_PATHS+=("${rel}")
+    elif git -C "${PROJECT_REPO}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+      && git -C "${PROJECT_REPO}" cat-file -e "HEAD:${rel}" 2>/dev/null; then
+      REMOVED_SEAT_PATHS+=("${rel}")
     fi
-    REMOVED_SEAT_PATHS+=("${rel}")
   done
 }
 
 #######################################
-# Write each seat file whose rendering differs from the file on disk.
+# Every --update destination: each directory of its path below the
+# project is a real directory (not a link), and the leaf, when it exists,
+# is a regular file, not a link, with one hard link. Runs after V4's
+# checks, so their messages fire first where they apply.
+# Globals:
+#   PROJECT_REPO, SEAT_FILES, SEED_RECORD, INSTALL_RECEIPT
+#######################################
+validate_update_destinations() {
+  local rel path current component
+  local -a parts
+  for rel in "${SEAT_FILES[@]}" "${SEED_RECORD}" "${INSTALL_RECEIPT}" "AGENTS.md"; do
+    current="${PROJECT_REPO}"
+    IFS='/' read -ra parts <<< "${rel}"
+    for component in "${parts[@]:0:${#parts[@]}-1}"; do
+      current="${current}/${component}"
+      if [[ -L "${current}" ]] || { [[ -e "${current}" ]] && [[ ! -d "${current}" ]]; }; then
+        die "unsafe destination: ${rel}"
+      fi
+    done
+    path="${PROJECT_REPO}/${rel}"
+    if [[ -e "${path}" || -L "${path}" ]]; then
+      if [[ -L "${path}" || ! -f "${path}" ]] \
+        || [[ -n "$(find "${path}" -maxdepth 0 -links +1 -print -quit)" ]]; then
+        die "unsafe destination: ${rel}"
+      fi
+    fi
+  done
+}
+
+#######################################
+# Write each seat file whose rendering differs from the file on disk,
+# through a temporary file in the same directory and a rename.
 # Globals:
 #   PROJECT_REPO, SEAT_FILES, SEAT_RENDERS, UPDATED_PATHS,
 #   UPDATED_SEATS, UPDATE_CHANGED (set)
 #######################################
 write_update_seat_files() {
-  local rel index=0
+  local rel index=0 target
   for rel in "${SEAT_FILES[@]}"; do
     if ! cmp -s "${SEAT_RENDERS[$index]}" "${PROJECT_REPO}/${rel}" 2>/dev/null; then
       mkdir -p "${PROJECT_REPO}/${rel%/*}"
-      cat "${SEAT_RENDERS[$index]}" > "${PROJECT_REPO}/${rel}"
+      target="${PROJECT_REPO}/${rel}"
+      cp "${SEAT_RENDERS[$index]}" "${target}.ribbon-new"
+      mv -f "${target}.ribbon-new" "${target}"
       UPDATED_PATHS+=("${rel}")
       UPDATED_SEATS=$((UPDATED_SEATS + 1))
       UPDATE_CHANGED=1
@@ -1745,12 +1870,14 @@ build_update_receipt() {
 
 write_update_records() {
   if ! cmp -s "${RENDER_DIR}/record.new" "${PROJECT_REPO}/${SEED_RECORD}" 2>/dev/null; then
-    cp "${RENDER_DIR}/record.new" "${PROJECT_REPO}/${SEED_RECORD}"
+    cp "${RENDER_DIR}/record.new" "${PROJECT_REPO}/${SEED_RECORD}.ribbon-new"
+    mv -f "${PROJECT_REPO}/${SEED_RECORD}.ribbon-new" "${PROJECT_REPO}/${SEED_RECORD}"
     UPDATED_PATHS+=("${SEED_RECORD}")
     UPDATE_CHANGED=1
   fi
   if ! cmp -s "${RENDER_DIR}/receipt.new" "${PROJECT_REPO}/${INSTALL_RECEIPT}" 2>/dev/null; then
-    cp "${RENDER_DIR}/receipt.new" "${PROJECT_REPO}/${INSTALL_RECEIPT}"
+    cp "${RENDER_DIR}/receipt.new" "${PROJECT_REPO}/${INSTALL_RECEIPT}.ribbon-new"
+    mv -f "${PROJECT_REPO}/${INSTALL_RECEIPT}.ribbon-new" "${PROJECT_REPO}/${INSTALL_RECEIPT}"
     UPDATED_PATHS+=("${INSTALL_RECEIPT}")
     UPDATE_CHANGED=1
   fi
@@ -1759,10 +1886,10 @@ write_update_records() {
 #######################################
 # Commit the update's own paths when the project is a git repository. A
 # write that only restores the committed bytes leaves nothing to commit:
-# the run then reports nothing to update instead of an empty commit.
+# the run then reports the write with 'nothing to commit, the files match
+# HEAD' instead of an empty commit.
 # Globals:
-#   RIBBON_HOME, PROJECT_REPO, UPDATED_PATHS, UPDATE_CHANGED,
-#   COMMIT_NOTE (set)
+#   RIBBON_HOME, PROJECT_REPO, UPDATED_PATHS, COMMIT_NOTE (set)
 #######################################
 commit_update() {
   local version
@@ -1775,7 +1902,7 @@ commit_update() {
     done
     git -C "${PROJECT_REPO}" add -- "${literal_specs[@]}"
     if git -C "${PROJECT_REPO}" diff --cached --quiet HEAD -- "${literal_specs[@]}"; then
-      UPDATE_CHANGED=0
+      COMMIT_NOTE='nothing to commit, the files match HEAD'
       return 0
     fi
     git -C "${PROJECT_REPO}" commit -m "Update the Ribbon Protocol, ${version}" \
@@ -1820,7 +1947,9 @@ update_full_install() {
   refuse_standalone_update
   case "$(update_mode)" in
     old)
-      old_install_belt_rows
+      if [[ -f "${PROJECT_REPO}/AGENTS.md" ]]; then
+        old_install_belt_rows
+      fi
       die "${PROJECT_REPO} holds an older full install, which --update cannot change; uninstall it (--uninstall --remove-ribbon), then install"
       ;;
     none)
@@ -1834,9 +1963,13 @@ update_full_install() {
   extract_agents_block
   BLOCK_KEEP_FROM="${OLD_BLOCK_FILE}"
   render_protocol
+  prepare_block_seat_pointers
   prepare_seat_files
   prepare_update_seat_ownership
   prepare_update_removals
+  validate_update_destinations
+  prepare_write_paths "${SEAT_FILES[@]}" "${REMOVED_SEAT_PATHS[@]}" \
+    "AGENTS.md" "${SEED_RECORD}" "${INSTALL_RECEIPT}"
   build_update_record
   build_update_receipt
   write_update_seat_files
@@ -1887,13 +2020,19 @@ main() {
     prepare_block_seat_pointers
     prepare_doc_seeds
     prepare_seed_record
-    prepare_write_paths
   fi
   if ! path_present "${PROJECT_REPO}/rules"; then
     validate_instruction_destination rules
   fi
   visit_rule_seeds validate_instruction_destination
   prepare_user_rule_imports
+  collect_planned_rule_paths
+  if (( AMEND == 0 )); then
+    prepare_write_paths "${DOC_SEEDS[@]}" "${SEAT_FILES[@]}" "AGENTS.md" \
+      "${INSTALL_RECEIPT}" "${SEED_RECORD}" "${PLANNED_RULE_PATHS[@]}"
+  else
+    prepare_write_paths "${PLANNED_RULE_PATHS[@]}"
+  fi
   if (( AMEND == 1 )); then
     seed_rules
     import_user_rules
