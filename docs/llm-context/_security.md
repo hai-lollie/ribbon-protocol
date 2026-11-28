@@ -19,7 +19,7 @@ After handback, preserve the engineer's sections; only the architect appends the
 - Effort: <Sol xhigh, or high if unavailable; Kimi high>
 - Launch: <Herdr workspace/tab/pane and agent ids, a new tab and session for this run; subagent only if Herdr is absent from the system>
 - Briefing and selection evidence: <delivery id and evidence paths>
-- Read access: <named ADRs, diagrams, constraints and references; the project's `rules/` and the code that the design changes or builds on; no unrelated trees or secrets>
+- Read access: <named ADRs, diagrams, constraints and references; the other ADRs and diagrams that bear on the design; the project's `rules/` and the code that the design changes or builds on; no unrelated trees or secrets>
 - Write access: <this report and the exact evidence allowlist>
 - Permission enforcement: <mechanism, or prompt-only limitation and compensating controls>
 - Baseline and post-review scope comparison: <evidence paths; the architect records the result in its response>
@@ -51,24 +51,25 @@ invent deployment facts or treat an absent control as implemented.
 | Sensitive-data lifecycle, audit, safe errors and recovery | <evidence> |
 | Anti-patterns of the language, framework and `rules/`, in the design and the code it builds on | <evidence> |
 
-Unverified assumptions, unavailable inputs and review limits: <explicit list, or none>
+Unverified assumptions, unavailable inputs, relevant inputs that the briefing left out, and review
+limits, such as an area that the senior architect's constraints leave out: <explicit list, or none>
 `NO_FINDINGS` means no findings in this snapshot, not proof of safety. Use `BLOCKED` when required
 inputs or model verification are missing; it does not complete the checkpoint or count as a run.
 
 ## Findings
 
-Repeat this subsection for each finding, with stable ids across runs: a later run continues the
-numbering. Each finding is a question to the architect, as AGENTS.md, "Review and report", asks.
+Repeat this subsection for each finding, with stable ids across runs, for example by continuing
+the numbering. Each finding is a question to the architect, as AGENTS.md, "Review and report", asks.
 With no findings, write `None in the reviewed snapshot` and retain the coverage and limits above.
 
-### <adr-id>-sec-01: <the question to the architect, in one sentence>
+### <adr-id>-sec-01: <the question to the architect>
 
-- Label and reason: <critical | security incident | best-practice violation | desirable | nitpick; why this label>
+- Label and reason: <critical | security incident | best-practice violation | desirable | nitpick; why this label; the higher one when two fit>
 - Location: <ADR section or diagram participant/message>
-- Attack path or counterexample: <actor, access/preconditions, action and violated boundary or invariant>
+- Attack path or counterexample: <actor, access/preconditions, action and violated boundary or invariant; for desirable, the threat that the design already blocks and what the extra control adds; for nitpick, the wording or form to change>
 - Impact: <asset, unauthorized capability, availability loss or design consequence>
 - Mitigation: <the smallest change that the project can deploy and that closes the path>
-- Where to look: <references, standards, ADRs, project files or code examples that answer the question>
+- Where to look: <a reference, a standard, an ADR, a project file or a code example, named precisely enough to find the part that applies, such as a section, a line or a version>
 - Verification condition: <observable acceptance condition that can enter a plan/card>
 - Evidence and sources: <design excerpt or concrete omission; a common pattern or a best practice is cited once>
 - Earlier run: <the earlier finding and response that this question follows up, and what the ADR lacks; or none>
@@ -96,21 +97,23 @@ review with the design.
 
 | Finding | Label | Disposition | Solved | Reason | ADR section or linked ADR | Experiment cards | Remaining action and owner |
 |---|---|---|---|---|---|---|---|
-| <adr-id>-sec-01 | <label> | <incorporated/adapted/deferred/rejected; choose one> | <yes: the ADR holds the change that closes the path, or the evidence that the path does not exist, and the verification condition; or no> | <reason> | <link and section> | <ids, or none> | <action and owner, or none; deferred: the named later ADR or plan> |
+| <adr-id>-sec-01 | <label> | <incorporated/adapted/deferred/rejected/escalated; choose one> | <yes: the ADR holds the change that closes the path, or the evidence that the path does not exist, and the verification condition; or no> | <reason> | <link and section> | <ids, or none> | <action and owner, or none; deferred: the named later ADR or plan> |
 
-Count: <solved critical and security incident findings, of their total: every one>;
-<solved findings other than nitpicks, of their total: at least 51 percent>
+Count: <critical and security incident findings solved or escalated, of their total: every one>;
+<solved findings other than nitpicks and escalated ones, of their total: at least 51 percent; none
+needed when the total is 0>
 
 - Actual model verification and report-only scope check: <commands/records, results and evidence paths>
 - Final design coverage: <this run covers the security-relevant design; or the next run; after the third run, what no run covered>
-- Unsolved critical or security incident findings: <the ADR open questions for the senior architect, with impact and alternatives; or none>
+- Escalated findings: <the ADR open questions for the senior architect, with impact and alternatives; the response is complete with them; or none>
 - Senior-review bundle: <reconciled ADRs, diagrams, reports and responses; commit on the contract branch before asking for review>
 - Follow-through: <accepted mitigations and verification conditions to carry into acceptance criteria and card contracts>
 
 ### Experiment card <adr-id>-experiment-01
 
-Repeat for each experiment, numbered across runs. The architect writes the first four lines
-before the run, runs it itself only under `/tmp` or `~/tmp`, and changes nothing in the project.
+Repeat for each experiment, for example numbered across runs. The architect writes the first
+four lines before the run, runs it itself only under `/tmp` or `~/tmp`, and changes nothing in
+the project.
 
 - Finding: <adr-id>-sec-NN
 - Change it tries: <the change>
