@@ -1965,6 +1965,66 @@ test_seed_refuses_an_ignored_rule_seed_before_any_write() {
     && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]]
 }
 
+test_update_never_writes_through_a_staging_name() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template"
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  printf 'witness\n' > "${SANDBOX}/witness.md"
+  ln -s "${SANDBOX}/witness.md" "${repo}/.ribbon/protocol/flows/adr.md.ribbon-new"
+  copy_template "${template}"
+  printf '\nAn edited sentence of the adr flow.\n' >> "${template}/protocol/flows/adr.md"
+
+  seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2>&1 || return 1
+
+  grep -Fxq 'witness' "${SANDBOX}/witness.md" || return 1
+  [[ -f "${repo}/.ribbon/protocol/flows/adr.md" \
+    && ! -L "${repo}/.ribbon/protocol/flows/adr.md" ]] || return 1
+  render_with_template "${template}" flows/adr.md > "${SANDBOX}/seat-expected" || return 1
+  cmp -s "${SANDBOX}/seat-expected" "${repo}/.ribbon/protocol/flows/adr.md" || return 1
+  [[ -L "${repo}/.ribbon/protocol/flows/adr.md.ribbon-new" ]] \
+    && [[ "$(readlink "${repo}/.ribbon/protocol/flows/adr.md.ribbon-new")" \
+      == "${SANDBOX}/witness.md" ]]
+}
+
+test_update_refuses_to_retire_a_seat_through_a_linked_parent() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template" rc=0 head
+  local retired='.ribbon/protocol/handlers/herdr.md'
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  mv "${repo}/.ribbon/protocol/handlers" "${SANDBOX}/outside-handlers"
+  ln -s "${SANDBOX}/outside-handlers" "${repo}/.ribbon/protocol/handlers"
+  cp "${SANDBOX}/outside-handlers/herdr.md" "${SANDBOX}/herdr.before"
+  cp "${repo}/AGENTS.md" "${SANDBOX}/agents-before"
+  head="$(git -C "${repo}" rev-parse HEAD)"
+  copy_template "${template}"
+  rm "${template}/protocol/handlers/herdr_template.md"
+  sed -i '/handlers\/herdr.md/d' "${template}/protocol/seats.md"
+
+  seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq "unsafe destination: ${retired}" "${SANDBOX}/error" \
+    && cmp -s "${SANDBOX}/herdr.before" "${SANDBOX}/outside-handlers/herdr.md" \
+    && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md" \
+    && [[ "$(git -C "${repo}" rev-parse HEAD)" == "${head}" ]]
+}
+
+test_update_keeps_the_mode_of_a_rewritten_seat() {
+  new_repo
+  local repo="${SANDBOX}/example-project" template="${SANDBOX}/template"
+
+  seed "${repo}" </dev/null >/dev/null 2>&1 || return 1
+  chmod 0600 "${repo}/.ribbon/protocol/flows/adr.md"
+  copy_template "${template}"
+  printf '\nAn edited sentence of the adr flow.\n' >> "${template}/protocol/flows/adr.md"
+
+  seed --update --ribbon-home "${template}" "${repo}" </dev/null >/dev/null 2>&1 || return 1
+
+  [[ "$(stat -c %a "${repo}/.ribbon/protocol/flows/adr.md")" == 600 ]]
+}
+
 readonly TESTS=(
   test_seeder_exists
   test_seeds_docs
@@ -2076,6 +2136,9 @@ readonly TESTS=(
   test_update_refuses_a_repo_path_with_a_newline
   test_update_reports_a_restore_that_matches_head
   test_seed_refuses_an_ignored_rule_seed_before_any_write
+  test_update_never_writes_through_a_staging_name
+  test_update_refuses_to_retire_a_seat_through_a_linked_parent
+  test_update_keeps_the_mode_of_a_rewritten_seat
 )
 
 #######################################
