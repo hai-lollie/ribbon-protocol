@@ -1476,6 +1476,29 @@ test_update_refuses_an_older_full_install_and_prints_its_belt() {
     && cmp -s "${SANDBOX}/agents-before" "${repo}/AGENTS.md"
 }
 
+test_update_prints_only_the_belt_table_of_an_older_install() {
+  new_repo
+  local repo="${SANDBOX}/example-project" rc=0
+
+  create_older_full_install "${repo}" '| Role | Agent | Model | Writes | Never |
+|---|---|---|---|---|
+| Senior architect | Ana | human | x | y |
+
+- a bullet after the belt table
+
+| Path | Who writes | What |
+|---|---|---|
+| docs/ | everyone | the homes table |'
+
+  seed --update "${repo}" </dev/null > "${SANDBOX}/output" 2> "${SANDBOX}/error" || rc=$?
+
+  [[ "${rc}" == 1 ]] \
+    && grep -Fq '| Senior architect | Ana | human | x | y |' "${SANDBOX}/output" \
+    && ! grep -Fq '| Path | Who writes | What |' "${SANDBOX}/output" \
+    && ! grep -Fq 'the homes table' "${SANDBOX}/output" \
+    && grep -Fq 'holds an older full install' "${SANDBOX}/error"
+}
+
 test_update_refuses_a_standalone_install() {
   new_repo
   local repo="${SANDBOX}/example-project" rc=0
@@ -2027,6 +2050,7 @@ readonly TESTS=(
   test_update_of_a_current_install_changes_nothing
   test_update_commits_only_its_own_paths
   test_update_refuses_an_older_full_install_and_prints_its_belt
+  test_update_prints_only_the_belt_table_of_an_older_install
   test_update_refuses_a_standalone_install
   test_update_refuses_a_project_without_a_full_install
   test_update_refuses_a_block_with_broken_marks

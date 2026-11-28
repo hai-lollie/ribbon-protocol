@@ -1399,10 +1399,14 @@ old_install_belt_rows() {
     $0 == end_mark { inside = 0; next }
     !inside { next }
     {
+      if (done) { next }
       n++
       line[n] = $0
-      if ($0 ~ /^\| Role \| Agent \| Model/) { header = n }
-      else if (header && $0 ~ /^\|/) { last = n }
+      if (!header) {
+        if ($0 ~ /^\| Role \| Agent \| Model/) { header = n; last = n }
+        next
+      }
+      if ($0 ~ /^\|/) { last = n } else { done = 1 }
     }
     END {
       if (header && last >= header) {
