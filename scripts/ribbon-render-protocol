@@ -26,11 +26,28 @@ class RenderFailure(Exception):
 
 
 def message_path(path_as_written):
-    """A path for a one-line message: control characters become \\xNN."""
-    return "".join(
-        "\\x%02x" % ord(char) if ord(char) < 0x20 or ord(char) == 0x7F
-        else char
-        for char in path_as_written)
+    """A path for a one-line message: control characters and undecodable bytes become \\xNN."""
+    parts = []
+    for char in path_as_written:
+        code = ord(char)
+        if 0xDC80 <= code <= 0xDCFF:
+            parts.append("\\x%02x" % (code - 0xDC00))
+        elif code < 0x20 or code == 0x7F:
+            parts.append("\\x%02x" % code)
+        else:
+            parts.append(char)
+    return "".join(parts)
+
+
+def list_refusal(path):
+    """The message when one UTF-8 line cannot carry this canonical path, else None."""
+    try:
+        path.encode("utf-8")
+    except UnicodeEncodeError:
+        return "cannot list template: %s" % message_path(path)
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in path):
+        return "cannot list template: %s" % message_path(path)
+    return None
 
 
 def resolve_piece(path_as_written, protocol_root, read_pieces):
@@ -71,6 +88,20 @@ def replace_placeholders(line, values, path_as_written, lineno):
     return "".join(parts)
 
 
+def lf_lines(text):
+    """Cut text into lines at LF only: each line keeps its LF, a bare CR stays inside."""
+    lines = []
+    start = 0
+    while True:
+        end = text.find("\n", start)
+        if end < 0:
+            if start < len(text):
+                lines.append(text[start:])
+            return lines
+        lines.append(text[start:end + 1])
+        start = end + 1
+
+
 def render_piece(path_as_written, protocol_root, values, read_pieces, pieces):
     """Render one template to text; record every file read, in reading order."""
     real = resolve_piece(path_as_written, protocol_root, read_pieces)
@@ -82,7 +113,7 @@ def render_piece(path_as_written, protocol_root, values, read_pieces, pieces):
         raise RenderFailure(
             "cannot read template: %s" % message_path(path_as_written))
     rendered = []
-    for lineno, line in enumerate(text.splitlines(keepends=True), start=1):
+    for lineno, line in enumerate(lf_lines(text), start=1):
         body = line[:-1] if line.endswith("\n") else line
         include_body = body[:-1] if body.endswith("\r") else body
         include = INCLUDE_LINE.fullmatch(include_body)
@@ -146,6 +177,11 @@ def main(argv):
     try:
         rendered = render_piece(args.template, protocol_root, values,
                                 read_pieces, pieces)
+        if args.list_mode:
+            for path in pieces:
+                refusal = list_refusal(path)
+                if refusal is not None:
+                    raise RenderFailure(refusal)
     except RenderFailure as failure:
         sys.stderr.write("ribbon-render-protocol: %s\n" % failure.message)
         return 1

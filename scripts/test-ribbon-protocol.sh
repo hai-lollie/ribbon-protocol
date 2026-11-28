@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Tests for scripts/ribbon-render-protocol: one function per test, run in
 # order by main. Each test builds its own sandbox protocol directory under
-# mktemp -d and cleanup removes it. The expected outputs come from card
-# p1-01 of the protocol-pieces plan, never from the command itself.
+# mktemp -d and cleanup removes it. The expected outputs come from cards
+# p1-01 and p1-04 of the protocol-pieces plan, never from the command itself.
+# The suite runs as an unprivileged user: test_unreadable_piece_fails_with_one_line
+# needs a read denial, and passes as not applicable when the runner can read a
+# mode-000 fixture anyway (root).
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +19,7 @@ readonly USAGE
 PASS=0
 FAIL=0
 SANDBOX=''
+ABSOLUTE_DIR=''
 P=''
 OUT=''
 ERR=''
@@ -43,6 +47,7 @@ record() {
 #######################################
 cleanup() {
   [[ -n "${SANDBOX}" ]] && rm -rf "${SANDBOX}"
+  [[ -n "${ABSOLUTE_DIR}" ]] && rm -rf "${ABSOLUTE_DIR}"
 }
 trap cleanup EXIT
 
@@ -277,6 +282,10 @@ test_unreadable_piece_fails_with_one_line() {
   printf '<!-- ribbon:include b.md -->\n' > "${P}/a.md"
   printf 'middle\n' > "${P}/b.md"
   chmod 000 "${P}/b.md"
+  if [[ -r "${P}/b.md" ]]; then
+    printf 'not applicable: this process can read a mode-000 file (running as root)\n' >&2
+    return 0
+  fi
   expect_render_failure \
     'ribbon-render-protocol: cannot read template: b.md' a.md
 }
@@ -305,10 +314,11 @@ test_absolute_template_path_fails() {
 
 test_absolute_include_path_fails() {
   new_sandbox
-  printf '<!-- ribbon:include %s -->\n' "${P}/b.md" > "${P}/a.md"
-  printf 'middle\n' > "${P}/b.md"
+  ABSOLUTE_DIR="$(mktemp -d /tmp/ribbon-absolute.XXXXXX)"
+  printf 'middle\n' > "${ABSOLUTE_DIR}/b.md"
+  printf '<!-- ribbon:include %s -->\n' "${ABSOLUTE_DIR}/b.md" > "${P}/a.md"
   expect_render_failure \
-    "ribbon-render-protocol: template path is not relative: ${P}/b.md" a.md
+    "ribbon-render-protocol: template path is not relative: ${ABSOLUTE_DIR}/b.md" a.md
 }
 
 test_list_names_canonical_relative_paths() {
@@ -322,6 +332,34 @@ test_list_names_canonical_relative_paths() {
   expect_render 'a.md
 c.md
 sub/d.md' --list a.md
+}
+
+test_bare_cr_inside_an_include_line_is_malformed() {
+  new_sandbox
+  printf '<!-- ribbon:include b.md -->\rnext\n' > "${P}/a.md"
+  printf 'middle\n' > "${P}/b.md"
+  expect_render_failure \
+    'ribbon-render-protocol: malformed include in a.md, line 1' a.md
+}
+
+test_bare_cr_inside_a_text_line_passes_through() {
+  new_sandbox
+  printf 'one\rtwo\n' > "${P}/a.md"
+  run a.md
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  printf 'one\rtwo\n' | cmp -s - "${OUT}"
+}
+
+test_list_refuses_a_canonical_path_that_one_line_cannot_carry() {
+  new_sandbox
+  local name=$'new\nline.md'
+  printf '<!-- ribbon:include link.md -->\n' > "${P}/a.md"
+  printf 'piece\n' > "${P}/${name}"
+  ln -s "${name}" "${P}/link.md"
+  expect_render_failure \
+    'ribbon-render-protocol: cannot list template: new\x0aline.md' --list a.md || return 1
+  expect_render 'piece' a.md
 }
 
 test_sibling_directory_with_the_same_prefix_is_outside() {
@@ -476,6 +514,9 @@ TESTS=(
   test_absolute_template_path_fails
   test_absolute_include_path_fails
   test_list_names_canonical_relative_paths
+  test_bare_cr_inside_an_include_line_is_malformed
+  test_bare_cr_inside_a_text_line_passes_through
+  test_list_refuses_a_canonical_path_that_one_line_cannot_carry
   test_sibling_directory_with_the_same_prefix_is_outside
   test_piece_without_final_newline_keeps_the_next_line
   test_list_names_every_file_in_reading_order
