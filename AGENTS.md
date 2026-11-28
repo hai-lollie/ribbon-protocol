@@ -192,9 +192,10 @@ and evidence paths. It states facts and no opinion: no verdict on the design, no
 and no area to skip or to favour beyond the senior architect's constraints; an area that those
 constraints leave out is a review limit in the report. The snapshot records each input's path and
 content hash, since the draft is not yet committed. The engineer reads the supplied design and
-references, the other ADRs and diagrams of the project that bear on the design, the project's
-conventions under `rules/` and the code that the design changes or builds on, never unrelated
-repository trees or secrets. It names in its report each relevant input that the briefing left out.
+references, the other ADRs and diagrams of the project under `docs/adrs/` and `docs/diagrams/`
+that bear on the design, the project's conventions under `rules/` and the code that the design
+changes or builds on, never unrelated repository trees or secrets. It names in its report each
+relevant input that the briefing left out.
 
 It checks, where applicable:
 
@@ -211,15 +212,15 @@ It checks, where applicable:
 
 The engineer questions the architect relentlessly about these areas: every gap that the draft
 leaves in them is a question, and an answer that opens a new gap gets a new question. Every
-question says where to look for the answer: a reference, a standard, an ADR, a project file or
-a code example, named precisely enough to find the part that applies, such as a section, a line
-or a version. The engineer stays practical. It asks for the smallest change that the project
-can deploy and that closes the path, never for a perfect control that the project cannot deploy.
-It cites a common pattern or a best practice once, where it applies, and does not audit the
-design against every practice there is. It does not hunt for nitpicks. From the second run, it
-checks every earlier response against the ADR. It asks no circular question: none that the draft
-answers, and none that an earlier report asked, unless the ADR does not hold what that report's
-response claims; then it asks again and cites that response.
+question says where to look for the answer: a reference, a standard, an ADR, a project file or a
+code example, named precisely enough to find the part that applies, such as a section, a line or a
+version. The engineer stays practical. It asks for the smallest change that the project can deploy
+and that closes the path, never for a perfect control that the project cannot deploy. It cites a
+common pattern or a best practice once, where it applies, and does not audit the design against
+every practice there is. It does not hunt for nitpicks, and it may leave out one that it notices.
+From the second run, it checks every earlier response against the ADR. It asks no circular
+question: none that the draft answers, and none that an earlier report asked, unless the ADR does
+not hold what that report's response claims; then it asks again and cites that response.
 
 Each finding has one label, and a finding that fits two takes the higher one:
 
@@ -237,10 +238,10 @@ back and stops. Each finding has a stable id, its question, its label with a rea
 diagram location, a concrete attack path or design-gap counterexample, impact, mitigation, where
 to look and a verification condition. In place of an attack path and its impact, a `desirable`
 finding names the threat that the design already blocks and what the extra control adds, and a
-`nitpick` names the wording or form to change. It distinguishes a supported finding from an
-assumption, cites its sources, states review limits and writes no praise. `NO_FINDINGS` means no
-findings in this snapshot, not proof of safety. The report records the actual model and effort,
-not only the intended assignment.
+`nitpick` names the wording or form to change; for both, the mitigation is that control or that
+change. It distinguishes a supported finding from an assumption, cites its sources, states review
+limits and writes no praise. `NO_FINDINGS` means no findings in this snapshot, not proof of
+safety. The report records the actual model and effort, not only the intended assignment.
 
 ### Incorporation and senior approval
 

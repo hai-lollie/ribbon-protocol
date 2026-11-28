@@ -229,8 +229,9 @@ interactive agent in a new tab in the current Herdr workspace, never as a hidden
 architect uses the installed Herdr and harness procedure for agent, model and effort selection. It
 verifies the first assistant message's recorded agent, provider, model and effort before allowing
 work; a mismatch stops the assignment. A reviewer receives read-only production access and write
-access only to its review and permitted evidence. A security engineer has read-only access to the
-named design inputs and references, and write access only to its security report and permitted evidence.
+access only to its review and permitted evidence. A security engineer has read-only access to what
+the core protocol's "Review and report" lets it read, and write access only to its security report
+and permitted evidence.
 
 The tab label is:
 
