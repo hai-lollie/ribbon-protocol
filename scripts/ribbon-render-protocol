@@ -59,6 +59,9 @@ def list_refusal(path):
 def resolve_piece(path_as_written, protocol_root, read_pieces):
     """Resolve one template path and check relativity, containment,
     existence and uniqueness."""
+    if "\x00" in path_as_written:
+        raise RenderFailure(
+            "no such template: %s" % message_path(path_as_written))
     if os.path.isabs(path_as_written):
         raise RenderFailure(
             "template path is not relative: %s" % message_path(path_as_written))
