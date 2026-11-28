@@ -2,7 +2,10 @@
 # Tests for scripts/ribbon-render-protocol: one function per test, run in
 # order by main. Each test builds its own sandbox protocol directory under
 # mktemp -d and cleanup removes it. The expected outputs come from cards
-# p1-01 and p2-01 of the protocol-pieces plan, never from the command itself.
+# p1-01, p1-04 and p2-01 of the protocol-pieces plan, never from the command itself.
+# The suite runs as an unprivileged user: test_unreadable_piece_fails_with_one_line
+# needs a read denial, and passes as not applicable when the runner can read a
+# mode-000 fixture anyway (root).
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +19,7 @@ readonly USAGE
 PASS=0
 FAIL=0
 SANDBOX=''
+ABSOLUTE_DIR=''
 P=''
 OUT=''
 ERR=''
@@ -43,6 +47,7 @@ record() {
 #######################################
 cleanup() {
   [[ -n "${SANDBOX}" ]] && rm -rf "${SANDBOX}"
+  [[ -n "${ABSOLUTE_DIR}" ]] && rm -rf "${ABSOLUTE_DIR}"
 }
 trap cleanup EXIT
 
@@ -277,6 +282,10 @@ test_unreadable_piece_fails_with_one_line() {
   printf '<!-- ribbon:include b.md -->\n' > "${P}/a.md"
   printf 'middle\n' > "${P}/b.md"
   chmod 000 "${P}/b.md"
+  if [[ -r "${P}/b.md" ]]; then
+    printf 'not applicable: this process can read a mode-000 file (running as root)\n' >&2
+    return 0
+  fi
   expect_render_failure \
     'ribbon-render-protocol: cannot read template: b.md' a.md
 }
@@ -305,10 +314,19 @@ test_absolute_template_path_fails() {
 
 test_absolute_include_path_fails() {
   new_sandbox
-  printf '<!-- ribbon:include %s -->\n' "${P}/b.md" > "${P}/a.md"
-  printf 'middle\n' > "${P}/b.md"
+  ABSOLUTE_DIR="$(mktemp -d /tmp/ribbon-absolute.XXXXXX)" || return 1
+  [[ -d "${ABSOLUTE_DIR}" ]] || return 1
+  printf 'middle\n' > "${ABSOLUTE_DIR}/b.md"
+  printf '<!-- ribbon:include %s -->\n' "${ABSOLUTE_DIR}/b.md" > "${P}/a.md"
   expect_render_failure \
-    "ribbon-render-protocol: template path is not relative: ${P}/b.md" a.md
+    "ribbon-render-protocol: template path is not relative: ${ABSOLUTE_DIR}/b.md" a.md
+}
+
+test_nul_byte_in_an_include_path_fails_with_one_line() {
+  new_sandbox
+  printf '<!-- ribbon:include b\0c.md -->\n' > "${P}/a.md"
+  expect_render_failure \
+    'ribbon-render-protocol: no such template: b\x00c.md' a.md
 }
 
 test_list_names_canonical_relative_paths() {
@@ -322,6 +340,119 @@ test_list_names_canonical_relative_paths() {
   expect_render 'a.md
 c.md
 sub/d.md' --list a.md
+}
+
+test_bare_cr_inside_an_include_line_is_malformed() {
+  new_sandbox
+  printf '<!-- ribbon:include b.md -->\rnext\n' > "${P}/a.md"
+  printf 'middle\n' > "${P}/b.md"
+  expect_render_failure \
+    'ribbon-render-protocol: malformed include in a.md, line 1' a.md
+}
+
+test_bare_cr_inside_a_text_line_passes_through() {
+  new_sandbox
+  printf 'one\rtwo\n' > "${P}/a.md"
+  run a.md
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  printf 'one\rtwo\n' | cmp -s - "${OUT}"
+}
+
+test_include_line_ending_in_a_bare_cr_at_the_end_of_the_file_is_malformed() {
+  new_sandbox
+  printf '<!-- ribbon:include b.md -->\r' > "${P}/a.md"
+  printf 'middle\n' > "${P}/b.md"
+  expect_render_failure \
+    'ribbon-render-protocol: malformed include in a.md, line 1' a.md
+}
+
+test_list_refuses_a_canonical_path_that_one_line_cannot_carry() {
+  new_sandbox
+  local name=$'new\nline.md'
+  printf '<!-- ribbon:include link.md -->\n' > "${P}/a.md"
+  printf 'piece\n' > "${P}/${name}"
+  ln -s "${name}" "${P}/link.md"
+  expect_render_failure \
+    'ribbon-render-protocol: cannot list template: new\x0aline.md' --list a.md || return 1
+  expect_render 'piece' a.md
+}
+
+test_kept_regions_of_a_crlf_old_block_keep_their_bodies() {
+  new_sandbox
+  printf '<!-- ribbon:belt:start -->\r\n| Seat |\r\n|---|---|\r\n| Senior | Ana |\r\n<!-- ribbon:belt:end -->\r\n<!-- ribbon:gate:start -->\r\nThe gate: make test\r\n<!-- ribbon:gate:end -->\r\n' \
+    > "${SANDBOX}/OLD"
+  printf '<!-- ribbon:belt:start -->\ntemplate belt\n<!-- ribbon:belt:end -->\n<!-- ribbon:gate:start -->\ntemplate gate\n<!-- ribbon:gate:end -->\n' \
+    > "${P}/a.md"
+
+  run --keep-from "${SANDBOX}/OLD" a.md
+
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  printf '<!-- ribbon:belt:start -->\n| Seat |\r\n|---|---|\r\n| Senior | Ana |\r\n<!-- ribbon:belt:end -->\n<!-- ribbon:gate:start -->\nThe gate: make test\r\n<!-- ribbon:gate:end -->\n' \
+    | cmp -s - "${OUT}"
+}
+
+test_a_bare_cr_before_a_mark_is_no_line_break() {
+  new_sandbox
+  printf 'not-a-mark\r<!-- ribbon:belt:start -->\n' > "${SANDBOX}/OLD"
+  printf '<!-- ribbon:belt:start -->\ntemplate body\n<!-- ribbon:belt:end -->\n' \
+    > "${P}/a.md"
+  expect_render '<!-- ribbon:belt:start -->
+template body
+<!-- ribbon:belt:end -->' --keep-from "${SANDBOX}/OLD" a.md
+}
+
+test_kept_regions_nested_in_the_old_block_fail() {
+  new_sandbox
+  printf '<!-- ribbon:belt:start -->\n<!-- ribbon:gate:start -->\ninner\n<!-- ribbon:gate:end -->\n<!-- ribbon:belt:end -->\n' \
+    > "${SANDBOX}/OLD"
+  printf '<!-- ribbon:belt:start -->\ntemplate belt\n<!-- ribbon:belt:end -->\n<!-- ribbon:gate:start -->\ntemplate gate\n<!-- ribbon:gate:end -->\n' \
+    > "${P}/a.md"
+
+  run --keep-from "${SANDBOX}/OLD" a.md
+
+  [[ ${RC} -eq 1 ]] || return 1
+  [[ ! -s ${OUT} ]] || return 1
+  [[ $(wc -l < "${ERR}") -eq 1 ]] || return 1
+  grep -Eq '^ribbon-render-protocol: malformed region (gate|belt) in ' "${ERR}"
+}
+
+test_seat_files_refuse_a_tab_in_a_path() {
+  new_sandbox
+  printf 'x\n' > "${P}/a.md"
+  printf 'x\n' > "${P}/problem"$'\t'"name.md"
+  expect_render_failure \
+    'ribbon-render-protocol: cannot list template: problem\x09name.md' --seat-files a.md
+}
+
+test_seat_files_fail_on_an_unreadable_directory() {
+  new_sandbox
+  printf 'x\n' > "${P}/a.md"
+  mkdir -p "${P}/locked"
+  printf 'piece\n' > "${P}/locked/seat.md"
+  chmod 000 "${P}/locked"
+
+  run --seat-files a.md
+  chmod 0755 "${P}/locked"
+
+  [[ ${RC} -eq 1 ]] || return 1
+  [[ ! -s ${OUT} ]] || return 1
+  [[ $(wc -l < "${ERR}") -eq 1 ]] || return 1
+  [[ $(<"${ERR}") == "ribbon-render-protocol: cannot read the protocol directory: ${P}/locked" ]]
+}
+
+test_keep_from_messages_stay_on_one_line() {
+  new_sandbox
+  local old="${P}/old"$'\n'"missing"
+  printf 'x\n' > "${P}/a.md"
+
+  run --keep-from "${old}" a.md
+
+  [[ ${RC} -eq 1 ]] || return 1
+  [[ ! -s ${OUT} ]] || return 1
+  [[ $(wc -l < "${ERR}") -eq 1 ]] || return 1
+  [[ $(<"${ERR}") == "ribbon-render-protocol: cannot read ${P}/old\x0amissing" ]]
 }
 
 test_sibling_directory_with_the_same_prefix_is_outside() {
@@ -590,8 +721,8 @@ test_whole_rendering_reads_every_piece_but_the_install_ones() {
     set -o pipefail
     find . -type f -name '*.md' ! -path './README.md' ! -name '*-structure.md' \
       ! -name 'seats.md' ! -path './handlers/*' -print | sed 's|^\./||'
-    printf 'whole-structure.md\n'
   ) > "${SANDBOX}/expected" || return 1
+  printf 'whole-structure.md\n' >> "${SANDBOX}/expected"
   LC_ALL=C sort "${SANDBOX}/expected" > "${SANDBOX}/expected.sorted"
   cmp -s "${SANDBOX}/read.sorted" "${SANDBOX}/expected.sorted"
 }
@@ -619,7 +750,18 @@ TESTS=(
   test_control_characters_in_a_path_stay_on_one_line
   test_absolute_template_path_fails
   test_absolute_include_path_fails
+  test_nul_byte_in_an_include_path_fails_with_one_line
   test_list_names_canonical_relative_paths
+  test_bare_cr_inside_an_include_line_is_malformed
+  test_bare_cr_inside_a_text_line_passes_through
+  test_include_line_ending_in_a_bare_cr_at_the_end_of_the_file_is_malformed
+  test_list_refuses_a_canonical_path_that_one_line_cannot_carry
+  test_kept_regions_of_a_crlf_old_block_keep_their_bodies
+  test_a_bare_cr_before_a_mark_is_no_line_break
+  test_kept_regions_nested_in_the_old_block_fail
+  test_seat_files_refuse_a_tab_in_a_path
+  test_seat_files_fail_on_an_unreadable_directory
+  test_keep_from_messages_stay_on_one_line
   test_sibling_directory_with_the_same_prefix_is_outside
   test_piece_without_final_newline_keeps_the_next_line
   test_list_names_every_file_in_reading_order

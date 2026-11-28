@@ -11,11 +11,11 @@ structure file and the pieces that it includes into one text:
 - `handlers/herdr_template.md` renders `herdr-config.md`, the optional Herdr overlay.
 
 Edit a piece, never a rendering. Then render again, from the repository root, through a
-temporary file, so that a failed rendering leaves the old one in place:
+fresh temporary file, so that a failed rendering leaves the old one in place:
 
-    scripts/ribbon-render-protocol whole-structure.md > /tmp/AGENTS.md && cp /tmp/AGENTS.md AGENTS.md
-    scripts/ribbon-render-protocol handlers/herdr_template.md > /tmp/herdr-config.md \
-      && cp /tmp/herdr-config.md herdr-config.md
+    tmp="$(mktemp)" && scripts/ribbon-render-protocol whole-structure.md > "$tmp" && cp "$tmp" AGENTS.md
+    tmp="$(mktemp)" && scripts/ribbon-render-protocol handlers/herdr_template.md > "$tmp" \
+      && cp "$tmp" herdr-config.md
 
 `scripts/test-ribbon-protocol.sh` fails when a rendering differs from its pieces.
 
