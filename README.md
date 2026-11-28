@@ -113,10 +113,11 @@ ribbon-protocol/
 │   ├── ribbon-new-project                     unpacks or updates a per-project standalone instance
 │   ├── ribbon-seed-project                    the full install into a project repository
 │   ├── standalone-post-checkout               the post-checkout hook template the installer copies into git projects
+│   ├── ribbon-link-worktree                   makes the worktree links when no hook does
 │   ├── test-ribbon-bash-versions.sh           both installers under real bash 3.2 and 4.4 (opt-in, needs podman)
 │   ├── test-ribbon-new-project.sh             the standalone installer's test suite
 │   ├── test-ribbon-seed-project.sh            the full installer's test suite
-│   └── test-ribbon-worktree-links.sh          the worktree-link hook's test suite
+│   └── test-ribbon-worktree-links.sh          the worktree-link hook and command's test suite
 ├── VERSION                                    "ribbon N"
 ├── Ribbon-Protocol-Multi-LLM-FieldGuide.pdf   the reference guide, October 2026, working edition 1.0
 └── docs/                                      copied into every project
@@ -260,8 +261,37 @@ your machine: add it to the project's `.gitignore`.
 Every `git worktree` you add gets symlinks to this machine's untracked Ribbon files
 (`AGENTS.local.md`, `herdr-config.md`, `CLAUDE.md`, `CLAUDE.local.md`) through a managed
 `post-checkout` hook the installer places in the project's `.git/hooks`; `--update` refreshes
-a hook it owns, while a hook without its mark or a custom `core.hooksPath` is left alone.
-The linked files belong in the project's `.gitignore`.
+a hook it owns. The linked files belong in the project's `.gitignore`.
+
+The hook needs the hooks to be the repository's own. When Ribbon's hook is not in place after a
+run, the installer writes nothing into a hook that is not its own, says why, and prints the
+command to run after each `git worktree add <path>`, before an agent starts in the new worktree:
+
+    ~/ribbon-protocol/scripts/ribbon-link-worktree <path>
+
+It makes the same links as the hook and changes nothing that exists. Linux and macOS run the
+same commands.
+
+The command is not printed when git itself cannot say where its hooks live, as after
+`git config core.hooksPath ""`: the summary then says that it could not resolve the hooks
+location. The command still works there, by hand.
+
+Ribbon's hook is not in place when a tool manages the hooks of every repository on the machine,
+such as a data-loss-prevention tool that sets `core.hooksPath` (the summary also names the file
+that sets it); when the repository sets its own `core.hooksPath`; when the hooks directory cannot
+be written and Ribbon's hook is not in it; when a `post-checkout` hook belongs to another
+tool; or when Ribbon's hook is there but cannot run. A Ribbon hook that is in place and can run
+stays in place when the installer cannot refresh it.
+
+When the installer knows this before any write, it also appends a marked worktree block to
+`AGENTS.local.md` once. Where `AGENTS.md` has no pointer yet, the pointer it writes there also
+tells an agent where to read the local files in a linked worktree; an existing pointer stays as
+it is. If `AGENTS.local.md` is a link to a Claude file, if both are links to one file, or if a
+hard link makes them one file, the block is skipped and the summary says so. A Claude file that
+is a link to a regular `AGENTS.local.md`, the direction shown below, does not skip the
+block. The same happens when writing the block would change a file under `docs/` or `rules/`.
+Once the hook is in place again, `--update` says that the block can go; the installer never
+rewrites the file.
 
 This project uses `AGENTS.md`. If you use Claude Code, connect its instruction
 files yourself once per project — either as symlinks in this direction:
