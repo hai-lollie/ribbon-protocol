@@ -724,10 +724,13 @@ test_command_exits_with_the_hook_file_status() {
 
 test_command_ignores_cdpath() {
   new_sandbox
-  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
   printf '# claude\n' > "${PROJ}/CLAUDE.md"
   WT="${SANDBOX}/wt"
-  gitc worktree add -q -b cdpath "${WT}" || return 1
+  worktree_add_managed cdpath "${WT}" || return 1
+  # No hook is in place, so only the command can link the worktree.
+  [[ ! -e "${WT}/AGENTS.local.md" ]] || return 1
   mkdir -p "${SANDBOX}/elsewhere"
   git -C "${SANDBOX}/elsewhere" init -q
   printf '# elsewhere AGENTS\n' > "${SANDBOX}/elsewhere/AGENTS.md"
@@ -743,17 +746,20 @@ test_command_ignores_cdpath() {
     "${SCRIPT_DIR}/ribbon-link-worktree" wt) && rc=0 || rc=$?
   [[ ${rc} -eq 0 ]] || return 1
   [[ "${out}" = "${WT}: worktree links ensured" ]] || return 1
-  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md || return 1
   [[ ! -e "${SANDBOX}/elsewhere/wt/AGENTS.local.md" \
     && ! -L "${SANDBOX}/elsewhere/wt/AGENTS.local.md" ]]
 }
 
 test_command_started_by_a_relative_path_ignores_cdpath() {
   new_sandbox
-  install example-project "${PROJ}" >/dev/null 2>&1 || return 1
+  managed_hooks
+  install_with_managed_hooks example-project "${PROJ}" >/dev/null 2>&1 || return 1
   printf '# claude\n' > "${PROJ}/CLAUDE.md"
   WT="${SANDBOX}/wt"
-  gitc worktree add -q -b relative "${WT}" || return 1
+  worktree_add_managed relative "${WT}" || return 1
+  # No hook is in place, so only the command can link the worktree.
+  [[ ! -e "${WT}/AGENTS.local.md" ]] || return 1
   local out rc
   out=$(cd "${SCRIPT_DIR}/.." && CDPATH=. sh scripts/ribbon-link-worktree "${WT}") \
     && rc=0 || rc=$?
