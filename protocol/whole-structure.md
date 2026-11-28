@@ -2,8 +2,9 @@
 
 # Ribbon Protocol, ribbon 1
 
-A project copies this file into its root `AGENTS.md` and replaces every `TODO(belt)`. The
-long-form guide is `docs/field-guide.md`, the PDF as text; the schemas and the templates
+This file is the whole protocol in one file, rendered from the pieces under `protocol/`. A full
+install renders its own block into the project's `AGENTS.md` and each seat's files under
+`.ribbon/protocol/`; a standalone install points its agents at this file. The long-form guide is `docs/field-guide.md`, the PDF as text; the schemas and the templates
 live under `docs/`. The optional Herdr overlay is `herdr-config.md`, copied beside this file.
 An architect inside Herdr reads it before any Herdr execution; its rules govern orchestration
 only. A Claude-based project's `CLAUDE.md` includes it with `@herdr-config.md`.

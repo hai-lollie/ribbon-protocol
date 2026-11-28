@@ -3,8 +3,11 @@
 
 One template of the protocol directory is rendered by replacing each include
 line with the rendered piece and each placeholder with the value of its
---set NAME=VALUE. On a failure the command writes nothing on stdout and one
-line on stderr. See card p1-01 of the protocol-pieces plan for the contract.
+--set NAME=VALUE. A region, a pair of mark lines around a body, can take the
+body of the same region in an old block (--keep-from), and --seat-files
+lists the pieces that an install copies on their own. On a failure the
+command writes nothing on stdout and one line on stderr. See cards p1-01
+and p2-01 of the protocol-pieces plan for the contract.
 """
 
 import argparse
@@ -15,6 +18,9 @@ import sys
 INCLUDE_LINE = re.compile(r"<!-- ribbon:include ([^ ]+) -->")
 PLACEHOLDER = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")
 PLACEHOLDER_NAME = re.compile(r"[A-Z][A-Z0-9_]*")
+REGION_MARK = re.compile(r"<!-- ribbon:([a-z][a-z0-9-]*):(start|end) -->")
+TEMPLATE_SUFFIX = "_template.md"
+STRUCTURE_SUFFIX = "-structure.md"
 
 
 class RenderFailure(Exception):
@@ -37,6 +43,15 @@ def resolve_piece(path_as_written, protocol_root, read_pieces):
         raise RenderFailure("included twice: %s" % path_as_written)
     read_pieces.add(real)
     return real
+
+
+def read_old_block(path_as_written):
+    """Read the --keep-from file as UTF-8; a read or decode failure names it as written."""
+    try:
+        with open(path_as_written, "r", encoding="utf-8", newline="") as old_file:
+            return old_file.read()
+    except (OSError, UnicodeDecodeError):
+        raise RenderFailure("cannot read %s" % path_as_written)
 
 
 def replace_placeholders(line, values, path_as_written, lineno):
@@ -83,6 +98,122 @@ def render_piece(path_as_written, protocol_root, values, read_pieces, pieces):
     return "".join(rendered)
 
 
+def mark_of(line):
+    """Return (NAME, start or end) when the line is exactly a region mark, else None."""
+    body = line[:-1] if line.endswith("\n") else line
+    match = REGION_MARK.fullmatch(body)
+    if match is None:
+        return None
+    return match.group(1), match.group(2)
+
+
+def scan_regions(lines, where):
+    """Check every region mark of a text; return (NAME, start line, end line) per region.
+
+    Each NAME has at most one start and one end, the start comes first, and no
+    other region's mark lies between them.
+    """
+    regions = []
+    closed = set()
+    open_name = None
+    open_start = 0
+    for index, line in enumerate(lines):
+        mark = mark_of(line)
+        if mark is None:
+            continue
+        name, kind = mark
+        if open_name is not None:
+            if name == open_name and kind == "end":
+                regions.append((name, open_start, index))
+                closed.add(name)
+                open_name = None
+            else:
+                raise RenderFailure(
+                    "malformed region %s in %s" % (open_name, where))
+        elif name in closed:
+            raise RenderFailure("malformed region %s in %s" % (name, where))
+        elif kind == "start":
+            open_name = name
+            open_start = index
+        else:
+            raise RenderFailure("malformed region %s in %s" % (name, where))
+    if open_name is not None:
+        raise RenderFailure("malformed region %s in %s" % (open_name, where))
+    return regions
+
+
+def kept_body(old_lines, name, path_as_written):
+    """Return the body lines of NAME in the old block, or None when it has no mark of NAME."""
+    starts = []
+    ends = []
+    for index, line in enumerate(old_lines):
+        mark = mark_of(line)
+        if mark == (name, "start"):
+            starts.append(index)
+        elif mark == (name, "end"):
+            ends.append(index)
+    if not starts and not ends:
+        return None
+    if len(starts) == 1 and len(ends) == 1 and starts[0] < ends[0]:
+        return old_lines[starts[0] + 1:ends[0]]
+    raise RenderFailure("malformed region %s in %s" % (name, path_as_written))
+
+
+def kept_bodies(lines, regions, old_text, path_as_written):
+    """Replace each region's body with the old block's body of the same NAME, byte for byte."""
+    old_lines = old_text.splitlines(keepends=True)
+    result = []
+    position = 0
+    for name, start, end in regions:
+        result.extend(lines[position:start + 1])
+        body = kept_body(old_lines, name, path_as_written)
+        result.extend(lines[start + 1:end] if body is None else body)
+        position = end
+    result.extend(lines[position:])
+    return "".join(result)
+
+
+def installed_path(path):
+    """The path that an install writes for a piece: a final _template.md becomes .md."""
+    if path.endswith(TEMPLATE_SUFFIX):
+        return path[:-len(TEMPLATE_SUFFIX)] + ".md"
+    return path
+
+
+def seat_files(protocol_root, read_pieces):
+    """Return (path, installed path) for every .md piece the rendering does not read.
+
+    The path is relative to the protocol directory with '/' separators, sorted
+    in byte order. README.md and the structure files are not seat files.
+    """
+    found = []
+    installed = set()
+    for directory, _, names in os.walk(protocol_root):
+        for name in names:
+            if not name.endswith(".md"):
+                continue
+            if name == "README.md" or name.endswith(STRUCTURE_SUFFIX):
+                continue
+            path = os.path.join(directory, name)
+            if not os.path.isfile(path):
+                continue
+            real = os.path.realpath(path)
+            if real in read_pieces:
+                continue
+            if real != protocol_root and not real.startswith(protocol_root + os.sep):
+                raise RenderFailure(
+                    "template outside the protocol directory: %s"
+                    % os.path.relpath(path, protocol_root).replace(os.sep, "/"))
+            relative = os.path.relpath(path, protocol_root).replace(os.sep, "/")
+            target = installed_path(relative)
+            if target in installed:
+                raise RenderFailure("two pieces install as %s" % target)
+            installed.add(target)
+            found.append((relative, target))
+    found.sort(key=lambda pair: pair[0].encode("utf-8"))
+    return found
+
+
 def parse_sets(parser, set_options):
     """Turn each --set NAME=VALUE into a value; the last one wins."""
     values = {}
@@ -106,14 +237,21 @@ def main(argv):
     parser = argparse.ArgumentParser(
         prog="ribbon-render-protocol",
         usage="ribbon-render-protocol [-h] [--protocol DIR] "
-              "[--set NAME=VALUE] [--list] TEMPLATE")
+              "[--set NAME=VALUE] [--keep-from FILE] "
+              "[--list | --seat-files] TEMPLATE")
     parser.add_argument("--protocol", metavar="DIR",
                         help="the protocol directory (default: beside the command)")
     parser.add_argument("--set", dest="sets", metavar="NAME=VALUE",
                         action="append", default=[],
                         help="the value of one placeholder (repeatable)")
-    parser.add_argument("--list", dest="list_mode", action="store_true",
-                        help="print the files the rendering reads, in reading order")
+    parser.add_argument("--keep-from", dest="keep_from", metavar="FILE",
+                        help="take each region's body from this old block instead")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--list", dest="list_mode", action="store_true",
+                       help="print the files the rendering reads, in reading order")
+    modes.add_argument("--seat-files", dest="seat_mode", action="store_true",
+                       help="print the pieces the rendering does not read, with "
+                            "their installed paths")
     parser.add_argument("template", metavar="TEMPLATE",
                         help="a path relative to the protocol directory")
     args = parser.parse_args(argv)
@@ -125,14 +263,25 @@ def main(argv):
     try:
         rendered = render_piece(args.template, protocol_root, values,
                                 read_pieces, pieces)
+        if not args.list_mode and not args.seat_mode:
+            lines = rendered.splitlines(keepends=True)
+            regions = scan_regions(lines, "the rendering")
+            if args.keep_from is not None:
+                old_text = read_old_block(args.keep_from)
+                rendered = kept_bodies(lines, regions, old_text,
+                                       args.keep_from)
+        if args.seat_mode:
+            output = "".join(
+                "%s\t%s\n" % pair
+                for pair in seat_files(protocol_root, read_pieces))
+        elif args.list_mode:
+            output = "".join(path + "\n" for path in pieces)
+        else:
+            output = rendered
     except RenderFailure as failure:
         sys.stderr.write("ribbon-render-protocol: %s\n" % failure.message)
         return 1
-    if args.list_mode:
-        sys.stdout.buffer.write(
-            "".join(path + "\n" for path in pieces).encode("utf-8"))
-    else:
-        sys.stdout.buffer.write(rendered.encode("utf-8"))
+    sys.stdout.buffer.write(output.encode("utf-8"))
     return 0
 
 

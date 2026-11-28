@@ -33,7 +33,7 @@ With neither, it stops and asks the senior architect; it never silently lowers t
 Each run makes a new selection and starts a fresh session; no session of an earlier run continues.
 
 When Herdr is installed, the architect launches the engineer in a new tab in the current workspace,
-without taking focus, under `herdr-config.md`. If Herdr is installed but the session is not
+without taking focus, under the Herdr overlay. If Herdr is installed but the session is not
 Herdr-managed, the architect stops and asks how to proceed. Only when Herdr is absent from the
 system may it use a report-writing subagent instead. This narrow fallback permits only the assigned
 security report and evidence, not hidden coding or design authorship. Both routes enforce the same

@@ -4,6 +4,8 @@ Each rule of the Ribbon Protocol lives in one file here. `scripts/ribbon-render-
 structure file and the pieces that it includes into one text:
 
 - `whole-structure.md` renders the root `AGENTS.md`, the whole protocol in one file;
+- `project-structure.md` renders the block of a full install, with
+  `--set PROTOCOL_DIR=.ribbon/protocol`; `--seat-files` names the seat files that it installs;
 - `handlers/herdr_template.md` renders `herdr-config.md`, the optional Herdr overlay.
 
 Edit a piece, never a rendering. Then render again, from the repository root:
@@ -15,7 +17,8 @@ Edit a piece, never a rendering. Then render again, from the repository root:
 
 | Piece | Holds |
 |---|---|
-| `belt.md` | the principle, the seven roles of the belt and the routing rules |
+| `belt.md` | the principle, the seven roles of the belt, the roster, the gate and the routing rules |
+| `seats.md` | which seat reads which installed file |
 | `homes.md` | the homes: who writes where |
 | `guidance/memory.md` | who may write memory |
 | `guidance/file-removal.md` | who may remove files |

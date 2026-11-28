@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Tests for scripts/ribbon-render-protocol: one function per test, run in
 # order by main. Each test builds its own sandbox protocol directory under
-# mktemp -d and cleanup removes it. The expected outputs come from card
-# p1-01 of the protocol-pieces plan, never from the command itself.
+# mktemp -d and cleanup removes it. The expected outputs come from cards
+# p1-01 and p2-01 of the protocol-pieces plan, never from the command itself.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDER="${SCRIPT_DIR}/ribbon-render-protocol"
 readonly SCRIPT_DIR RENDER
 
-# The usage line of card p1-01, command_rules.
-USAGE='usage: ribbon-render-protocol [-h] [--protocol DIR] [--set NAME=VALUE] [--list] TEMPLATE'
+# The usage line of card p2-01, command_rules 9 to 13 on top of p1-01's.
+USAGE='usage: ribbon-render-protocol [-h] [--protocol DIR] [--set NAME=VALUE] [--keep-from FILE] [--list | --seat-files] TEMPLATE'
 readonly USAGE
 
 PASS=0
@@ -287,10 +287,111 @@ test_invalid_placeholder_name_is_a_usage_error() {
   grep -q 'lower' "${ERR}"
 }
 
+test_kept_region_takes_its_body_from_the_old_file() {
+  new_sandbox
+  printf '<!-- ribbon:belt:start -->\ntemplate body\n<!-- ribbon:belt:end -->\n' \
+    > "${P}/a.md"
+  printf '<!-- ribbon:belt:start -->\nmy roster\nand a second line\n<!-- ribbon:belt:end -->\n' \
+    > "${SANDBOX}/OLD"
+  expect_render '<!-- ribbon:belt:start -->
+my roster
+and a second line
+<!-- ribbon:belt:end -->' --keep-from "${SANDBOX}/OLD" a.md
+}
+
+test_kept_region_missing_from_the_old_file_keeps_the_template_body() {
+  new_sandbox
+  printf '<!-- ribbon:belt:start -->\ntemplate body\n<!-- ribbon:belt:end -->\n' \
+    > "${P}/a.md"
+  printf 'the old file has no marks\n' > "${SANDBOX}/OLD"
+  expect_render '<!-- ribbon:belt:start -->
+template body
+<!-- ribbon:belt:end -->' --keep-from "${SANDBOX}/OLD" a.md
+}
+
+test_two_kept_regions_keep_their_own_bodies() {
+  new_sandbox
+  printf '<!-- ribbon:belt:start -->\ntemplate belt\n<!-- ribbon:belt:end -->\n' \
+    > "${P}/a.md"
+  printf '<!-- ribbon:gate:start -->\ntemplate gate\n<!-- ribbon:gate:end -->\n' \
+    >> "${P}/a.md"
+  printf '<!-- ribbon:gate:start -->\nmy gate\n<!-- ribbon:gate:end -->\n' \
+    > "${SANDBOX}/OLD"
+  printf '<!-- ribbon:belt:start -->\nmy belt\n<!-- ribbon:belt:end -->\n' \
+    >> "${SANDBOX}/OLD"
+  expect_render '<!-- ribbon:belt:start -->
+my belt
+<!-- ribbon:belt:end -->
+<!-- ribbon:gate:start -->
+my gate
+<!-- ribbon:gate:end -->' --keep-from "${SANDBOX}/OLD" a.md
+}
+
+test_kept_body_is_inserted_verbatim() {
+  new_sandbox
+  printf '<!-- ribbon:belt:start -->\ntemplate body\n<!-- ribbon:belt:end -->\n' \
+    > "${P}/a.md"
+  printf '<!-- ribbon:belt:start -->\n{{NOPE}}\n<!-- ribbon:include x.md -->\n<!-- ribbon:belt:end -->\n' \
+    > "${SANDBOX}/OLD"
+  expect_render '<!-- ribbon:belt:start -->
+{{NOPE}}
+<!-- ribbon:include x.md -->
+<!-- ribbon:belt:end -->' --keep-from "${SANDBOX}/OLD" a.md
+}
+
+test_malformed_region_in_the_old_file_fails() {
+  new_sandbox
+  printf '<!-- ribbon:belt:start -->\ntemplate body\n<!-- ribbon:belt:end -->\n' \
+    > "${P}/a.md"
+  printf '<!-- ribbon:belt:start -->\nfirst body\n<!-- ribbon:belt:start -->\n' \
+    > "${SANDBOX}/OLD"
+  printf 'second body\n<!-- ribbon:belt:end -->\n' >> "${SANDBOX}/OLD"
+  expect_render_failure \
+    "ribbon-render-protocol: malformed region belt in ${SANDBOX}/OLD" \
+    --keep-from "${SANDBOX}/OLD" a.md
+}
+
+test_malformed_region_in_the_rendering_fails() {
+  new_sandbox
+  printf '<!-- ribbon:belt:start -->\nbody without an end mark\n' > "${P}/a.md"
+  expect_render_failure \
+    'ribbon-render-protocol: malformed region belt in the rendering' a.md
+}
+
+test_seat_files_are_the_pieces_the_template_does_not_read() {
+  new_sandbox
+  printf '<!-- ribbon:include b.md -->\n' > "${P}/a.md"
+  printf 'b\n' > "${P}/b.md"
+  printf 'c\n' > "${P}/c_template.md"
+  mkdir -p "${P}/sub"
+  printf 'd\n' > "${P}/sub/d.md"
+  printf 'readme\n' > "${P}/README.md"
+  printf 'readme\n' > "${P}/sub/README.md"
+  printf 'x\n' > "${P}/x-structure.md"
+  expect_render $'c_template.md\tc.md\nsub/d.md\tsub/d.md' --seat-files a.md
+}
+
+test_two_pieces_with_one_installed_path_fail() {
+  new_sandbox
+  printf 'a\n' > "${P}/a.md"
+  printf 'c\n' > "${P}/c.md"
+  printf 'c template\n' > "${P}/c_template.md"
+  expect_render_failure \
+    'ribbon-render-protocol: two pieces install as c.md' --seat-files a.md
+}
+
+test_seat_files_and_list_together_are_a_usage_error() {
+  new_sandbox
+  printf 'a\n' > "${P}/a.md"
+  run --seat-files --list a.md
+  [[ ${RC} -eq 2 ]] || return 1
+  [[ ! -s ${OUT} ]]
+}
+
 #######################################
 # Run the command against the repository's own protocol directory (no
 # --protocol: the default beside the command), capturing stdout, stderr and
-# the exit code. Used by the three repository-guard tests.
+# the exit code. Used by the repository-guard tests.
 # Globals:
 #   OUT, ERR, RC (RC set)
 #######################################
@@ -315,26 +416,49 @@ test_herdr_config_is_the_handler_rendering() {
   cmp -s "${SCRIPT_DIR}/../herdr-config.md" "${OUT}"
 }
 
-test_every_piece_is_read_by_one_rendering() {
+test_project_block_has_one_roster_and_one_gate() {
+  new_sandbox
+  run_repo --set PROTOCOL_DIR=.ribbon/protocol project-structure.md
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  local mark
+  for mark in '<!-- ribbon:belt:start -->' '<!-- ribbon:belt:end -->' \
+              '<!-- ribbon:gate:start -->' '<!-- ribbon:gate:end -->'; do
+    [[ $(grep -cF -- "${mark}" "${OUT}") -eq 1 ]] || return 1
+  done
+}
+
+test_every_seat_pointer_names_a_seat_file() {
+  new_sandbox
+  run_repo --set PROTOCOL_DIR=.ribbon/protocol project-structure.md
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  # The backticks are Markdown here, not command substitution.
+  # shellcheck disable=SC2016
+  grep -o '`\.ribbon/protocol/[^`]*`' "${OUT}" \
+    | sed 's/^`//; s/`$//' \
+    | grep -v '^\.ribbon/protocol/$' | LC_ALL=C sort -u > "${SANDBOX}/pointers"
+  run_repo --set PROTOCOL_DIR=.ribbon/protocol --seat-files project-structure.md
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  cut -f 2 "${OUT}" | sed 's#^#.ribbon/protocol/#' | LC_ALL=C sort -u \
+    > "${SANDBOX}/installed"
+  cmp -s "${SANDBOX}/pointers" "${SANDBOX}/installed"
+}
+
+test_whole_rendering_reads_every_piece_but_the_install_ones() {
   new_sandbox
   run_repo --list whole-structure.md
   [[ ${RC} -eq 0 ]] || return 1
   [[ ! -s ${ERR} ]] || return 1
-  cp "${OUT}" "${SANDBOX}/whole.list"
-  run_repo --list handlers/herdr_template.md
-  [[ ${RC} -eq 0 ]] || return 1
-  [[ ! -s ${ERR} ]] || return 1
-  cp "${OUT}" "${SANDBOX}/herdr.list"
-  LC_ALL=C sort "${SANDBOX}/whole.list" > "${SANDBOX}/whole.sorted"
-  LC_ALL=C sort "${SANDBOX}/herdr.list" > "${SANDBOX}/herdr.sorted"
-  LC_ALL=C sort "${SANDBOX}/whole.sorted" "${SANDBOX}/herdr.sorted" \
-    > "${SANDBOX}/union"
+  LC_ALL=C sort "${OUT}" > "${SANDBOX}/read.sorted"
   (
     cd "${SCRIPT_DIR}/../protocol" || exit 1
-    find . -name '*.md' ! -name 'README.md' -printf '%P\n' | LC_ALL=C sort
-  ) > "${SANDBOX}/on-disk"
-  cmp -s "${SANDBOX}/union" "${SANDBOX}/on-disk" || return 1
-  [[ -z $(LC_ALL=C comm -12 "${SANDBOX}/whole.sorted" "${SANDBOX}/herdr.sorted") ]]
+    find . -name '*.md' ! -name 'README.md' ! -name '*-structure.md' \
+      ! -name 'seats.md' ! -path './handlers/*' -printf '%P\n'
+    printf 'whole-structure.md\n'
+  ) | LC_ALL=C sort > "${SANDBOX}/expected.sorted"
+  cmp -s "${SANDBOX}/read.sorted" "${SANDBOX}/expected.sorted"
 }
 
 TESTS=(
@@ -358,9 +482,20 @@ TESTS=(
   test_help_prints_usage
   test_missing_template_argument_prints_usage
   test_invalid_placeholder_name_is_a_usage_error
+  test_kept_region_takes_its_body_from_the_old_file
+  test_kept_region_missing_from_the_old_file_keeps_the_template_body
+  test_two_kept_regions_keep_their_own_bodies
+  test_kept_body_is_inserted_verbatim
+  test_malformed_region_in_the_old_file_fails
+  test_malformed_region_in_the_rendering_fails
+  test_seat_files_are_the_pieces_the_template_does_not_read
+  test_two_pieces_with_one_installed_path_fail
+  test_seat_files_and_list_together_are_a_usage_error
   test_root_agents_md_is_the_whole_rendering
   test_herdr_config_is_the_handler_rendering
-  test_every_piece_is_read_by_one_rendering
+  test_project_block_has_one_roster_and_one_gate
+  test_every_seat_pointer_names_a_seat_file
+  test_whole_rendering_reads_every_piece_but_the_install_ones
 )
 
 main() {

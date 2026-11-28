@@ -1,13 +1,11 @@
 # Herdr orchestration overlay
 
-This file is the Ribbon Protocol's optional Herdr overlay. The root `AGENTS.md` remains the
+This file is the Ribbon Protocol's optional Herdr overlay. The core protocol remains the
 protocol for plans, cards, evidence, reviews and the five proofs of done. This overlay governs
 execution when the LLM architect runs inside a Herdr-managed pane. It never weakens the security
 policy, the senior architect's authority or the independent review.
 
-A project copies this file beside its root `AGENTS.md`. A Claude-based project's `CLAUDE.md`
-includes it with `@herdr-config.md`. An OpenCode architect reads it whenever the detection below
-succeeds.
+The architect reads it whenever the detection below succeeds.
 
 ## Detection and scope
 
@@ -190,8 +188,7 @@ for a security review and the architect's assignment journal for other work.
 ## Exclusive file ownership and parallel cards
 
 Every coder and reviewer works in its own worktree on its own branch, sequential work included,
-and only the architect changes the local branches (`AGENTS.md`, "Who changes a branch, and
-where"). The rules below decide only whether two such assignments may run at the same time.
+and only the architect changes the local branches ("Who changes a branch, and where"). The rules below decide only whether two such assignments may run at the same time.
 
 The architect may run independent cards in parallel only when their repository writes are
 provably disjoint and each coder has an isolated worktree, index and card branch. A file has
