@@ -1,6 +1,6 @@
 # <plan-id> done
 
-The coder's answer to "Done, and when the loop stops" (root `AGENTS.md`), written at the
+The coder's answer to "Done, and when the loop stops" (the implementation flow), written at the
 plan's last card, before the review. Each row names a command, its exit code and the file
 under `docs/llm-context/evidence/<plan-id>-done/` that holds its output; a row the coder
 cannot prove says so, and the plan is then not ready for review.

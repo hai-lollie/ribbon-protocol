@@ -26,7 +26,7 @@ review or a journal. What a card needs from one, the architect copies into the c
   dated, under the first.
 - **A security report belongs to a reviewed draft snapshot.** The engineer records the input paths
   and content hashes, exact verified model and effort, labelled findings, each a question with where
-  to look and the fields that AGENTS.md asks for its label, and limits. It returns to the architect
+  to look and the fields that "Review and report" (the ADR flow) asks for its label, and limits. It returns to the architect
   and stops. Only the architect appends `## Architect response`, with a disposition for every
   finding, its experiment cards and the count; the engineer's sections remain intact. Up to the
   third run, a security-relevant design change gets the next run and a new report revision, not a

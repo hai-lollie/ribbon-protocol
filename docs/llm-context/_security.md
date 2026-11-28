@@ -59,7 +59,7 @@ inputs or model verification are missing; it does not complete the checkpoint or
 ## Findings
 
 Repeat this subsection for each finding, with stable ids across runs, for example by continuing
-the numbering. Each finding is a question to the architect, as AGENTS.md, "Review and report", asks.
+the numbering. Each finding is a question to the architect, as "Review and report" (the ADR flow) asks.
 With no findings, write `None in the reviewed snapshot` and retain the coverage and limits above.
 
 ### <adr-id>-sec-01: <the question to the architect>
@@ -90,8 +90,8 @@ Engineer stopped: <timestamp; no further edits or commit>
 ## Architect response
 
 Architect-only append after the engineer stops. Account for every finding without rewriting it.
-The architect answers every question itself, as AGENTS.md, "Incorporation and senior approval",
-asks. Solve findings in the current ADR or justified focused, reciprocally linked ADRs. New
+The architect answers every question itself, as "Incorporation and senior approval" (the ADR
+flow) asks. Solve findings in the current ADR or justified focused, reciprocally linked ADRs. New
 technical ADRs pass the same security checkpoint inside the same three runs and go to senior
 review with the design.
 

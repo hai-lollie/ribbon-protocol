@@ -27,7 +27,7 @@ fourth cycle.
 
 ## Done
 
-The five of "Done, and when the loop stops" in the root `AGENTS.md`, each with its
+The five of "Done, and when the loop stops" (the implementation flow), each with its
 evidence and whose run or judgment it is; the reviewer runs the boot itself.
 
 | Holds | By | Evidence |
