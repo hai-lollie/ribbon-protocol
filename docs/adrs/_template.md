@@ -86,7 +86,7 @@ No open questions found. 👀
 
 - <Title>, <author or standard>: <link>
 - <a changelog entry or a contract section, by id>
-- <the security report: ../llm-context/NNNN-security-r1.md; link the final reviewed revision>
+- <the security reports: ../llm-context/NNNN-security-r1.md and each later run's revision>
 - <a related security ADR, when justified, with a link back from that ADR>
 
 ## Date and edits
@@ -98,8 +98,9 @@ No open questions found. 👀
 
 Edits: 0.
 
-Before committing this ADR for senior-architect review: obtain the security report, incorporate
-applicable suggestions and append every finding's disposition in the report's Architect response.
-The final security-relevant design must be covered by the report; substantive security changes
-need a new security pass. Commit the ADRs, diagrams and reports together, then ask for approval.
+Before committing this ADR for senior-architect review: obtain the security report, answer every
+question, and append every finding's disposition and the count in the report's Architect response.
+The final security-relevant design must be covered by the reports; substantive security changes
+need the next run, at most three, and after the third the architect names what no run covered.
+Commit the ADRs, diagrams and reports together, then ask for approval.
 Replace the example edit rows and count above with the actual history.

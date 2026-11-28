@@ -10,7 +10,7 @@ review or a journal. What a card needs from one, the architect copies into the c
 
 | File | Who writes | When | Template |
 |---|---|---|---|
-| `<adr-id>-security-r<N>.md` | the security engineer; the architect appends its response | before the reconciled ADR's commit and senior review; a new revision after security-relevant design changes | `_security.md` |
+| `<adr-id>-security-r<N>.md` | the security engineer; the architect appends its response | before the reconciled ADR's commit and senior review; a new revision, the next run, after security-relevant design changes; at most three runs for one design | `_security.md` |
 | `<task-id>-report.md` | the coder | every card: the preflight block before any edit, the completion block before the commit | `_report.md` |
 | `<task-id>-<slug>.md` | the coder | only on a block, a misleading card or a question | `_note.md` |
 | `<plan-id>-handoff.md` | the coder | at the end of every session, rewritten, five lines | `_handoff.md` |
@@ -25,13 +25,15 @@ review or a journal. What a card needs from one, the architect copies into the c
   edited afterwards. A card run twice (a revised card) gets a second report section,
   dated, under the first.
 - **A security report belongs to a reviewed draft snapshot.** The engineer records the input
-  paths and content hashes, exact verified model and effort, findings with attack paths or design-gap
-  counterexamples, mitigations, verification conditions and limits. It returns to the architect and
-  stops. Only the architect appends `## Architect response`, with a disposition for every finding;
-  the engineer's sections remain intact. A security-relevant design change gets a new report
-  revision, not a rewritten finding. The architect incorporates accepted rules in the ADR and
-  future card contracts; coders never read the security report. Herdr authors are visible in a new
-  tab; the report-writing subagent exception applies only when Herdr is absent from the system.
+  paths and content hashes, exact verified model and effort, labelled findings, each a question with
+  where to look, an attack path or design-gap counterexample, a mitigation and a verification
+  condition, and limits. It returns to the architect and stops. Only the architect appends
+  `## Architect response`, with a disposition for every finding, its experiment cards and the
+  count; the engineer's sections remain intact. A security-relevant design change gets the next run
+  and a new report revision, not a rewritten finding. The architect incorporates accepted rules in
+  the ADR and future card contracts; coders never read the security report. Herdr authors are
+  visible in a new tab for each run; the report-writing subagent exception applies only when Herdr
+  is absent from the system.
 - **A note is answered by a revised card**, committed on the story's contract branch and merged
   into the main branch, and by one line under
   `## Answer` naming the revision and the decision-log entry, or "no change" and why.
