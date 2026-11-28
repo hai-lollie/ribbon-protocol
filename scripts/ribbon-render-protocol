@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""Render a protocol template and the pieces it includes.
+
+One template of the protocol directory is rendered by replacing each include
+line with the rendered piece and each placeholder with the value of its
+--set NAME=VALUE. On a failure the command writes nothing on stdout and one
+line on stderr. See card p1-01 of the protocol-pieces plan for the contract.
+"""
+
+import argparse
+import os
+import re
+import sys
+
+INCLUDE_LINE = re.compile(r"<!-- ribbon:include ([^ ]+) -->")
+PLACEHOLDER = re.compile(r"\{\{([A-Z][A-Z0-9_]*)\}\}")
+PLACEHOLDER_NAME = re.compile(r"[A-Z][A-Z0-9_]*")
+
+
+class RenderFailure(Exception):
+    """A rendering error: one line on stderr, exit 1."""
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
+
+
+def message_path(path_as_written):
+    """A path for a one-line message: control characters and undecodable bytes become \\xNN."""
+    parts = []
+    for char in path_as_written:
+        code = ord(char)
+        if 0xDC80 <= code <= 0xDCFF:
+            parts.append("\\x%02x" % (code - 0xDC00))
+        elif code < 0x20 or code == 0x7F:
+            parts.append("\\x%02x" % code)
+        else:
+            parts.append(char)
+    return "".join(parts)
+
+
+def list_refusal(path):
+    """The message when one UTF-8 line cannot carry this canonical path, else None."""
+    try:
+        path.encode("utf-8")
+    except UnicodeEncodeError:
+        return "cannot list template: %s" % message_path(path)
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in path):
+        return "cannot list template: %s" % message_path(path)
+    return None
+
+
+def resolve_piece(path_as_written, protocol_root, read_pieces):
+    """Resolve one template path and check relativity, containment,
+    existence and uniqueness."""
+    if "\x00" in path_as_written:
+        raise RenderFailure(
+            "no such template: %s" % message_path(path_as_written))
+    if os.path.isabs(path_as_written):
+        raise RenderFailure(
+            "template path is not relative: %s" % message_path(path_as_written))
+    real = os.path.realpath(os.path.join(protocol_root, path_as_written))
+    if real != protocol_root and not real.startswith(protocol_root + os.sep):
+        raise RenderFailure(
+            "template outside the protocol directory: %s"
+            % message_path(path_as_written))
+    if not os.path.isfile(real):
+        raise RenderFailure(
+            "no such template: %s" % message_path(path_as_written))
+    if real in read_pieces:
+        raise RenderFailure(
+            "included twice: %s" % message_path(path_as_written))
+    read_pieces.add(real)
+    return real
+
+
+def replace_placeholders(line, values, path_as_written, lineno):
+    """Replace each {{NAME}} with its value, inserted literally."""
+    parts = []
+    pos = 0
+    for match in PLACEHOLDER.finditer(line):
+        name = match.group(1)
+        if name not in values:
+            raise RenderFailure(
+                "no value for {{%s}} in %s, line %d"
+                % (name, message_path(path_as_written), lineno))
+        parts.append(line[pos:match.start()])
+        parts.append(values[name])
+        pos = match.end()
+    parts.append(line[pos:])
+    return "".join(parts)
+
+
+def lf_lines(text):
+    """Cut text into lines at LF only: each line keeps its LF, a bare CR stays inside."""
+    lines = []
+    start = 0
+    while True:
+        end = text.find("\n", start)
+        if end < 0:
+            if start < len(text):
+                lines.append(text[start:])
+            return lines
+        lines.append(text[start:end + 1])
+        start = end + 1
+
+
+def render_piece(path_as_written, protocol_root, values, read_pieces, pieces):
+    """Render one template to text; record every file read, in reading order."""
+    real = resolve_piece(path_as_written, protocol_root, read_pieces)
+    pieces.append(os.path.relpath(real, protocol_root))
+    try:
+        with open(real, "r", encoding="utf-8", newline="") as piece_file:
+            text = piece_file.read()
+    except (OSError, UnicodeDecodeError):
+        raise RenderFailure(
+            "cannot read template: %s" % message_path(path_as_written))
+    rendered = []
+    for lineno, line in enumerate(lf_lines(text), start=1):
+        body = line[:-1] if line.endswith("\n") else line
+        include_body = body[:-1] if line.endswith("\r\n") else body
+        include = INCLUDE_LINE.fullmatch(include_body)
+        if include is not None:
+            piece_text = render_piece(
+                include.group(1), protocol_root, values, read_pieces, pieces)
+            rendered.append(piece_text)
+            if not piece_text.endswith("\n"):
+                rendered.append("\n")
+        elif "ribbon:include" in body:
+            raise RenderFailure(
+                "malformed include in %s, line %d"
+                % (message_path(path_as_written), lineno))
+        else:
+            rendered.append(
+                replace_placeholders(body, values, path_as_written, lineno))
+            if line.endswith("\n"):
+                rendered.append("\n")
+    return "".join(rendered)
+
+
+def parse_sets(parser, set_options):
+    """Turn each --set NAME=VALUE into a value; the last one wins."""
+    values = {}
+    for option in set_options:
+        name, sep, value = option.partition("=")
+        if not sep:
+            parser.error("--set expects NAME=VALUE: %s" % option)
+        if not PLACEHOLDER_NAME.fullmatch(name):
+            parser.error("invalid placeholder name in --set: %s" % name)
+        values[name] = value
+    return values
+
+
+def default_protocol_directory():
+    """The protocol directory beside the directory that holds the command."""
+    command_path = os.path.realpath(sys.argv[0])
+    return os.path.join(os.path.dirname(command_path), os.pardir, "protocol")
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(
+        prog="ribbon-render-protocol",
+        usage="ribbon-render-protocol [-h] [--protocol DIR] "
+              "[--set NAME=VALUE] [--list] TEMPLATE")
+    parser.add_argument("--protocol", metavar="DIR",
+                        help="the protocol directory (default: beside the command)")
+    parser.add_argument("--set", dest="sets", metavar="NAME=VALUE",
+                        action="append", default=[],
+                        help="the value of one placeholder (repeatable)")
+    parser.add_argument("--list", dest="list_mode", action="store_true",
+                        help="print the files the rendering reads, in reading order")
+    parser.add_argument("template", metavar="TEMPLATE",
+                        help="a path relative to the protocol directory")
+    args = parser.parse_args(argv)
+
+    values = parse_sets(parser, args.sets)
+    protocol_root = os.path.realpath(args.protocol or default_protocol_directory())
+    read_pieces = set()
+    pieces = []
+    try:
+        rendered = render_piece(args.template, protocol_root, values,
+                                read_pieces, pieces)
+        if args.list_mode:
+            for path in pieces:
+                refusal = list_refusal(path)
+                if refusal is not None:
+                    raise RenderFailure(refusal)
+    except RenderFailure as failure:
+        sys.stderr.write("ribbon-render-protocol: %s\n" % failure.message)
+        return 1
+    if args.list_mode:
+        sys.stdout.buffer.write(
+            "".join(path + "\n" for path in pieces).encode("utf-8"))
+    else:
+        sys.stdout.buffer.write(rendered.encode("utf-8"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

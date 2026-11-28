@@ -1,0 +1,144 @@
+## Done, and when the loop stops
+
+A review finds something every round, so the loop converges by a rule, never by a round
+that finds nothing; the deliverable is a working product, not a perfect one. A plan is
+done when five things hold on its head, each proven by a command, its exit code and its
+output on disk, never by a sentence:
+
+1. the gate is green locally and on the trusted verifier;
+2. the application boots by its documented entry point, the one a person runs (a binary,
+   a `main`, a service command), answers its smoke check and stops, on a clean checkout;
+   a suite that starts the system in-process does not count as the boot;
+3. every test of the plan's acceptance file passes under its canonical name;
+4. coverage meets the plan's line;
+5. no open finding is `SEMANTIC` or `SCOPE` against production code: the behaviour, the
+   contract, the public interfaces.
+
+Every other open finding, the strength of a test, a test's lifecycle, a record, the
+process, goes under `debt` in the plan: the finding id, one line, the next owner. A
+`CHANGES` verdict whose findings are all debt reads as `APPROVE` with debt, and the
+senior architect merges on it. A plan gets at most three review cycles, the first review
+and at most two over its repair cards; what the third leaves is debt or the senior architect's
+disposition, never a fourth review. Recorded non-blocking debt may open the next plan on the same
+code. A successor may not repeat the same blocking findings or acceptance scope as a disguised
+fourth cycle; unresolved blocking work needs the senior architect's disposition. Acceptance
+criteria, executable behavior, the gate and the configured linters and validators define good
+enough; style-only polishing does not justify another cycle.
+
+The coder reads the five too, and answers them first. At the plan's last card it runs
+the boot itself by the entry point a person runs, keeps the command, its output and its
+exit code under `docs/llm-context/evidence/<plan-id>-done/`, and writes
+`docs/llm-context/<plan-id>-done.md` from `_done.md`: the five, each with its evidence,
+and "the reviewer's" for the fifth. A plan whose coder cannot write the five is not ready
+for review; a coder who can is done, and asks for nothing more.
+
+The limits, by seat. The coder claims the five with evidence and stops. The reviewer
+verifies the coder's five, reports every finding it can prove, classifies each, runs the
+boot itself and writes the five under "Done" in the review, each with its evidence; it
+never asks for a repair of a finding that breaks none of the five. The architect cuts a
+repair card only for a finding that breaks one of the five, lists the rest under `debt`,
+and never opens a fourth review. The senior architect decides what the third review leaves and
+merges on debt; only recorded non-blocking debt may start a new plan on the same code.
+
+## The loop, steps 3 to 5: the build
+
+3. **Contract.** The architect cuts the design into one plan (one deliverable, one
+   branch) and its cards (one green commit each), in dependency order, never while an
+   ADR they rest on is unaccepted or has a pending open question; the senior architect validates
+   the plan. The design and contract steps happen on the story's contract branch, merged into
+   `main` at validation ("The branches").
+4. **Execute.** One coder runs the plan, card by card, inside each card's scope, and
+   leaves evidence on disk after every card. Under the Herdr overlay, several visible coders
+   may execute independent cards in parallel only with exclusive file ownership.
+5. **Verify.** The gate runs outside the coder's control; the reviewer reads the commit
+   range against the plan and the cards; the senior architect reads verdicts, not diffs.
+   The plan is done by the five of "Done, and when the loop stops" above, never by a
+   round that finds nothing.
+
+## The decision budget
+
+The architect decides semantics, failure modes, public interfaces, invariants and
+compatibility; the coder decides local naming, formatting, minor decomposition and
+mechanics inside those bounds. If the coder would have to invent a domain policy, design
+an abstraction, decide the correctness criteria, or read a tree to classify its files,
+the task is still a planning task: keep it. A card that moves, splits or reshapes many
+files lists every file and its destination under `moves`, and the coder moves them. A
+card never sends the coder to a report, a note or a journal: what it needs from one, the
+architect copies into `context.verified`.
+
+## A plan and its cards
+
+A plan is a story: one deliverable, one branch, one coder by default, one architect, one
+reviewer, and under `decisions` the decision-log entries that bind it, which the coder reads and
+no other. Only the Herdr overlay may assign several coders, under its exclusive-ownership rule.
+A card is the smallest change that ends in a green commit. At session start the coder loads its
+assigned rows of the plan's `tasks` verbatim into its todo tool, in order, and marks each card as
+it goes; outside Herdr, its assignment is the whole plan. It never adds an item, since a step the
+plan does not list is a question. `<plan-id>.acceptance.yaml` names every acceptance test before
+any code (the name, the input, the expected output, the card that implements it); the coder implements
+it name for name, and the reviewer checks against it. The schemas, every field explained,
+are `docs/tasks/README.md` and the two `_template` files.
+
+A session is as many cards as the coder's window holds with the card still in context;
+the senior architect names that number per coder, one at 256K tokens or less. The
+handoff bridges sessions in five lines, rewritten each session: the next session reloads
+the plan and its card, not the history, which is in git.
+
+A story larger than one review is cut into phases, each a plan with its own branch,
+review and handoff: a phase stays `proposed` until the plan under `after` is `done`, and
+merging is optional at every APPROVE, since every phase is a deliverable on its own,
+green and whole, its `title`, `story` and `success` the pull request's title and body.
+Every card carries `size`, the architect's estimate of its inserted lines under one unit
+(`git diff -M -I'^\(ns ' --shortstat`, no markdown, no `docs/llm-context`); a phase is
+400 to 900 lines, 400 the target, under 400 joined, over 900 split and recut until each
+half is a story. The rules are `docs/tasks/README.md`, "The phases of a story".
+
+## The coder's seven steps, per card
+
+A coder reads its plan, its cards, and what they name: the root `AGENTS.md` once per
+session, the five-line handoff, the decision-log entries under the plan's `decisions`,
+each card's `read_first` — which may name `rules/<theme>.md` coding-rule themes —
+and nothing else before the first edit; and never a report, a
+note, a review or a journal. What the architect left undecided is a note for the
+architect, not a guess; what the card's rules and the file answer together is the
+coder's decision, written in the report.
+
+1. **Preflight, read only.** Read `context.read_first` in order and nothing else before
+   the first edit (a line names a file, with a section or a line range when it is long);
+   check every precondition and every line of `context.verified` against the files; run
+   the baseline; write the preflight block, `READY` with the evidence or `BLOCKED` with
+   the missing facts. Never fill in a precondition. Commit the block alone,
+   `<task-id>: preflight READY` or `BLOCKED`, before the first edit: git proves the
+   order, and a block written after the edits proves nothing.
+2. **Authorize.** Proceed only on `READY`, the preflight commit in the log.
+3. **Implement.** The smallest change inside `scope.writable`, as the project's rules ask
+   (test first where they say so), reading what the change touches. Source is edited
+   with the tools the root `AGENTS.md` names per language, one file at a time, never with
+   a text-munging script; when a required tool fails, the coder stops and says where
+   (step 5), and does not fall back to another writer (TODO(belt)). A probe is a command
+   or an evaluation, never a file written into the tree.
+4. **Verify.** The targeted command, the gate, then the whole suite: everything green
+   stays green. A new test comes from the acceptance file or the behaviour rows, never
+   from the implementation's output. Every command's output goes to a file the report
+   names; the coder reads its last lines and greps the words the gate forbids. Output is
+   evidence on disk, never context.
+5. **Repair, or stop the line.** A mechanical failure gets a focused repair, at most
+   `repair_budget` times. The coder stops, writes a note, and makes no edit when: a
+   precondition cannot be verified; correctness needs an edit outside `scope.writable`,
+   a protected path or a forbidden change; the contract is silent on a shape, a policy
+   or a failure mode the card must answer; a semantic failure (an ambiguous behaviour, a
+   fixture against the contract, a missing API) appears, or persists after one repair,
+   or the budget is spent; a file, an API or a signature the card names does not exist and
+   its absence changes the meaning; a required tool fails. A doubt the card's rules and
+   the file answer together (a home a layer table gives, a schema for an argument that
+   exists) is the coder's: decided, written under `decisions` in the report with the rule
+   it followed, reviewed there. `BLOCKED` is progress; an invented answer is not. Only the
+   architect or the senior architect revises a card. The sole exception to "no edit" is the
+   Herdr overlay's single mechanical application of the architect's complete solution after the
+   repair budget is spent; every other stop line still applies.
+6. **Report.** The completion block of `_report.md`: changed files, verified invariants,
+   each check with its command, exit code and artifact, the repair count, the failure
+   class, the risks, the next owner, and `PASS`, `BLOCKED` or `ESCALATED`.
+7. **Commit and continue.** One code commit per card after its preflight commit, the
+   task id first in the message, the report inside it; then the next card, and at the end
+   of the session the handoff; at the plan's last card, the boot and `<plan-id>-done.md`.

@@ -115,17 +115,20 @@ ribbon-protocol/
 ├── LICENSE                                    Apache License 2.0
 ├── ribbon-protocol-flow.png                    overview image embedded above
 ├── agent-handler.svg                           handler and agents: one pane, one mind
-├── AGENTS.md                                  the protocol: done and when the loop stops, the belt, the loop, the decision
-│                                              budget, security design review, the homes, the plan and its cards, the seven steps, the reviewer's brief. Copied into every project
-├── herdr-config.md                            the optional Herdr orchestration overlay, copied beside AGENTS.md
+├── AGENTS.md                                  the protocol in one file, generated from protocol/: the belt, memory, file removal,
+│                                              security, the homes, the two flows, the gate, the branches and each seat's part. Copied into every project
+├── protocol/                                  the protocol pieces, one file per rule, and README.md: what each holds and how to render it
+├── herdr-config.md                            the optional Herdr orchestration overlay, generated from protocol/, copied beside AGENTS.md
 ├── AGENTS.standalone.md                       the source of the AGENTS.local.md block written by the standalone installer
 ├── rules/                                     coding conventions, one theme per file, seeded into projects
 ├── scripts/                                   the standalone installer and its tests
 │   ├── ribbon-new-project                     unpacks or updates a per-project standalone instance
+│   ├── ribbon-render-protocol                 renders a structure file of protocol/ and the pieces that it includes
 │   ├── ribbon-seed-project                    the full install into a project repository
 │   ├── standalone-post-checkout               the post-checkout hook template the installer copies into git projects
 │   ├── test-ribbon-bash-versions.sh           both installers under real bash 3.2 and 4.4 (opt-in, needs podman)
 │   ├── test-ribbon-new-project.sh             the standalone installer's test suite
+│   ├── test-ribbon-protocol.sh                the renderer's and the pieces' test suite
 │   ├── test-ribbon-seed-project.sh            the full installer's test suite
 │   └── test-ribbon-worktree-links.sh          the worktree-link hook's test suite
 ├── VERSION                                    "ribbon N"
