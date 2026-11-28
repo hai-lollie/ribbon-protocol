@@ -400,7 +400,8 @@ in the plan at validation (a process entry, a socket bind, a line no test may re
 the plan's own invariants); an exclusion found later is a regroup by the architect, never
 a lowered number. The reviewer never edits code, never regenerates a fixture, never
 reviews a plan it architected. The reviewer runs the boot itself and writes the five of
-"Done, and when the loop stops" in the review, each with its evidence. `CHANGES` means
+"Done, and when the loop stops" in the review, each with its evidence and whose run it is:
+its own, the coder's, the architect's or the trusted verifier's. `CHANGES` means
 the architect cuts repair cards with the next numbers for the findings that break one of
 the five, and lists the rest under `debt`; a `CHANGES` whose findings are all debt reads
 as `APPROVE` with debt. The review names its cycle, the previous review and the repair range;
