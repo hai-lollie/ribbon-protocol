@@ -91,6 +91,23 @@ expect_render_failure() {
 }
 
 #######################################
+# Assert a rendering failure against the current capture files, without
+# running the command: the Verify half of expect_render_failure, for tests
+# whose variants each need their own deletable command line.
+# Arguments:
+#   Expected stderr line.
+# Globals:
+#   OUT, ERR, RC
+#######################################
+assert_render_failure() {
+  local expected="$1"
+  [[ ${RC} -eq 1 ]] || return 1
+  [[ ! -s ${OUT} ]] || return 1
+  [[ $(wc -l < "${ERR}") -eq 1 ]] || return 1
+  [[ $(<"${ERR}") == "${expected}" ]]
+}
+
+#######################################
 # Assert a successful render: exit 0, stderr empty, stdout byte-equal to the
 # expected text given as "$1" (a trailing newline is added).
 # Arguments:
@@ -216,11 +233,104 @@ test_symlink_out_of_the_protocol_directory_fails() {
 test_malformed_include_fails() {
   new_sandbox
   printf 'one\ntwo\n <!-- ribbon:include b.md -->\n' > "${P}/a.md"
-  expect_render_failure \
-    'ribbon-render-protocol: malformed include in a.md, line 3' a.md || return 1
+  run a.md
+  assert_render_failure \
+    'ribbon-render-protocol: malformed include in a.md, line 3' || return 1
   printf 'one\ntwo\n<!-- ribbon:include b.md --> trailing\n' > "${P}/a.md"
+  OUT="${SANDBOX}/out.second"
+  ERR="${SANDBOX}/err.second"
+  RC=0
+  run a.md
+  assert_render_failure \
+    'ribbon-render-protocol: malformed include in a.md, line 3'
+}
+
+test_include_line_with_a_crlf_ending_is_replaced_by_the_piece() {
+  new_sandbox
+  printf 'top\r\n<!-- ribbon:include b.md -->\r\nend\r\n' > "${P}/a.md"
+  printf 'middle\n' > "${P}/b.md"
+  run a.md
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  printf 'top\r\nmiddle\nend\r\n' | cmp -s - "${OUT}"
+}
+
+test_include_line_with_text_before_its_crlf_is_malformed() {
+  new_sandbox
+  printf '<!-- ribbon:include b.md --> \r\n' > "${P}/a.md"
   expect_render_failure \
-    'ribbon-render-protocol: malformed include in a.md, line 3' a.md
+    'ribbon-render-protocol: malformed include in a.md, line 1' a.md
+}
+
+test_include_line_at_the_end_of_a_file_without_newline_is_replaced() {
+  new_sandbox
+  printf 'top\n<!-- ribbon:include b.md -->' > "${P}/a.md"
+  printf 'middle\n' > "${P}/b.md"
+  run a.md
+  [[ ${RC} -eq 0 ]] || return 1
+  [[ ! -s ${ERR} ]] || return 1
+  printf 'top\nmiddle\n' | cmp -s - "${OUT}"
+}
+
+test_unreadable_piece_fails_with_one_line() {
+  new_sandbox
+  printf '<!-- ribbon:include b.md -->\n' > "${P}/a.md"
+  printf 'middle\n' > "${P}/b.md"
+  chmod 000 "${P}/b.md"
+  expect_render_failure \
+    'ribbon-render-protocol: cannot read template: b.md' a.md
+}
+
+test_piece_that_is_not_utf8_fails_with_one_line() {
+  new_sandbox
+  printf '<!-- ribbon:include b.md -->\n' > "${P}/a.md"
+  printf 'middle\n\377\n' > "${P}/b.md"
+  expect_render_failure \
+    'ribbon-render-protocol: cannot read template: b.md' a.md
+}
+
+test_control_characters_in_a_path_stay_on_one_line() {
+  new_sandbox
+  expect_render_failure \
+    'ribbon-render-protocol: no such template: a\x0ab.md' $'a\nb.md'
+}
+
+test_absolute_template_path_fails() {
+  new_sandbox
+  printf 'alpha\n' > "${P}/a.md"
+  expect_render_failure \
+    "ribbon-render-protocol: template path is not relative: ${P}/a.md" \
+    "${P}/a.md"
+}
+
+test_absolute_include_path_fails() {
+  new_sandbox
+  printf '<!-- ribbon:include %s -->\n' "${P}/b.md" > "${P}/a.md"
+  printf 'middle\n' > "${P}/b.md"
+  expect_render_failure \
+    "ribbon-render-protocol: template path is not relative: ${P}/b.md" a.md
+}
+
+test_list_names_canonical_relative_paths() {
+  new_sandbox
+  mkdir -p "${P}/sub"
+  printf '<!-- ribbon:include ./sub/../c.md -->\n<!-- ribbon:include link.md -->\n' \
+    > "${P}/a.md"
+  printf 'C\n' > "${P}/c.md"
+  printf 'D\n' > "${P}/sub/d.md"
+  ln -s "${P}/sub/d.md" "${P}/link.md"
+  expect_render 'a.md
+c.md
+sub/d.md' --list a.md
+}
+
+test_sibling_directory_with_the_same_prefix_is_outside() {
+  new_sandbox
+  mkdir -p "${SANDBOX}/protocol-evil"
+  printf 'evil\n' > "${SANDBOX}/protocol-evil/x.md"
+  expect_render_failure \
+    'ribbon-render-protocol: template outside the protocol directory: ../protocol-evil/x.md' \
+    ../protocol-evil/x.md
 }
 
 test_piece_without_final_newline_keeps_the_next_line() {
@@ -264,6 +374,9 @@ test_help_prints_usage() {
   [[ ${RC} -eq 0 ]] || return 1
   [[ ! -s ${ERR} ]] || return 1
   [[ $(head -n 1 "${OUT}") == "${USAGE}" ]] || return 1
+  OUT="${SANDBOX}/out.second"
+  ERR="${SANDBOX}/err.second"
+  RC=0
   run --help
   [[ ${RC} -eq 0 ]] || return 1
   [[ ! -s ${ERR} ]] || return 1
@@ -331,8 +444,10 @@ test_every_piece_is_read_by_one_rendering() {
     > "${SANDBOX}/union"
   (
     cd "${SCRIPT_DIR}/../protocol" || exit 1
-    find . -name '*.md' ! -name 'README.md' -printf '%P\n' | LC_ALL=C sort
-  ) > "${SANDBOX}/on-disk"
+    set -o pipefail
+    find . -type f -name '*.md' ! -path './README.md' -print \
+      | sed 's|^\./||' | LC_ALL=C sort
+  ) > "${SANDBOX}/on-disk" || return 1
   cmp -s "${SANDBOX}/union" "${SANDBOX}/on-disk" || return 1
   [[ -z $(LC_ALL=C comm -12 "${SANDBOX}/whole.sorted" "${SANDBOX}/herdr.sorted") ]]
 }
@@ -352,6 +467,16 @@ TESTS=(
   test_template_outside_the_protocol_directory_fails
   test_symlink_out_of_the_protocol_directory_fails
   test_malformed_include_fails
+  test_include_line_with_a_crlf_ending_is_replaced_by_the_piece
+  test_include_line_with_text_before_its_crlf_is_malformed
+  test_include_line_at_the_end_of_a_file_without_newline_is_replaced
+  test_unreadable_piece_fails_with_one_line
+  test_piece_that_is_not_utf8_fails_with_one_line
+  test_control_characters_in_a_path_stay_on_one_line
+  test_absolute_template_path_fails
+  test_absolute_include_path_fails
+  test_list_names_canonical_relative_paths
+  test_sibling_directory_with_the_same_prefix_is_outside
   test_piece_without_final_newline_keeps_the_next_line
   test_list_names_every_file_in_reading_order
   test_default_protocol_directory_is_beside_the_scripts
