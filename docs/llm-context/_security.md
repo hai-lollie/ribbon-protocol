@@ -1,8 +1,8 @@
 # <adr-id> security design review, r<N>
 
-ADR: <path and title; list related ADRs in this review>
-Report revision: <N, starting at 1>
-Previous report: <path, or none>
+ADR: <path and title; list the other ADRs of this design in this review>
+Run and report revision: <N, from 1 to 3; the third run is the last>
+Earlier reports read: <each path with its architect response, or none: first run>
 Security engineer: <agent and fresh session id>
 Actual provider/model/effort: <from the verified harness record, not a footer or alias>
 First assistant message verification: <session/message id and evidence path>
@@ -15,11 +15,11 @@ After handback, preserve the engineer's sections; only the architect appends the
 
 ## Assignment and boundaries
 
-- Selection: <eligible approved Sol 6.1+ and Kimi K3.1+ models; coin-flip result, or why only one qualified>
+- Selection: <eligible approved Sol 6.1+ and Kimi K3.1+ models; this run's coin-flip result, or why only one qualified>
 - Effort: <Sol xhigh, or high if unavailable; Kimi high>
-- Launch: <Herdr workspace/tab/pane and agent ids; subagent only if Herdr is absent from the system>
+- Launch: <Herdr workspace/tab/pane and agent ids, a new tab and session for this run; subagent only if Herdr is absent from the system>
 - Briefing and selection evidence: <delivery id and evidence paths>
-- Read access: <named ADRs, diagrams, constraints and references; no unrelated trees or secrets>
+- Read access: <named ADRs, diagrams, constraints and references; the project's `rules/` and the code that the design changes or builds on; no unrelated trees or secrets>
 - Write access: <this report and the exact evidence allowlist>
 - Permission enforcement: <mechanism, or prompt-only limitation and compensating controls>
 - Baseline and post-review scope comparison: <evidence paths; the architect records the result in its response>
@@ -34,7 +34,7 @@ Do not substitute a branch name or an earlier commit for these draft identities.
 |---|---|---|
 | <ADR or diagram path> | <hash> | <sections> |
 
-Constraints and references reviewed: <paths, sections and source links>
+Constraints and references reviewed: <paths, sections and source links; the language, framework and `rules/` files read>
 
 ## Coverage and limits
 
@@ -49,26 +49,30 @@ invent deployment facts or treat an absent control as implemented.
 | Untrusted input, injection, dependencies and supply-chain assumptions | <evidence> |
 | Abuse, DoS/DDoS, payload/work/concurrency limits, timeouts, queues and deployment controls | <evidence> |
 | Sensitive-data lifecycle, audit, safe errors and recovery | <evidence> |
+| Anti-patterns of the language, framework and `rules/`, in the design and the code it builds on | <evidence> |
 
 Unverified assumptions, unavailable inputs and review limits: <explicit list, or none>
 `NO_FINDINGS` means no findings in this snapshot, not proof of safety. Use `BLOCKED` when required
-inputs or model verification are missing; it does not complete the checkpoint.
+inputs or model verification are missing; it does not complete the checkpoint or count as a run.
 
 ## Findings
 
-Repeat this subsection for each finding, with stable ids across revisions. With no findings,
-write `None in the reviewed snapshot` and retain the coverage and limits above.
+Repeat this subsection for each finding, with stable ids across runs: a later run continues the
+numbering. Each finding is a question to the architect, as AGENTS.md, "Review and report", asks.
+With no findings, write `None in the reviewed snapshot` and retain the coverage and limits above.
 
-### <adr-id>-sec-01: <specific exposure or design gap>
+### <adr-id>-sec-01: <the question to the architect, in one sentence>
 
-- Severity and reason: <critical | high | medium | low; impact and prerequisites, not a label alone>
+- Label and reason: <critical | security incident | best-practice violation | desirable | nitpick; why this label>
 - Location: <ADR section or diagram participant/message>
-- Evidence and sources: <design excerpt or concrete omission, relevant standard/documentation links>
 - Attack path or counterexample: <actor, access/preconditions, action and violated boundary or invariant>
 - Impact: <asset, unauthorized capability, availability loss or design consequence>
-- Mitigation: <specific design change; distinguish required controls from optional hardening>
+- Mitigation: <the smallest change that the project can deploy and that closes the path>
+- Where to look: <references, standards, ADRs, project files or code examples that answer the question>
 - Verification condition: <observable acceptance condition that can enter a plan/card>
-- Assumptions or open question: <what must be confirmed, or none>
+- Evidence and sources: <design excerpt or concrete omission; a common pattern or a best practice is cited once>
+- Earlier run: <the earlier finding and response that this question follows up, and what the ADR lacks; or none>
+- Assumptions: <what must be confirmed, or none>
 
 ## Learnings
 
@@ -79,21 +83,39 @@ Leave persistent memory unchanged.
 ## Handback
 
 Report returned to architect: <message id and timestamp>
-Unresolved questions: <ids and questions, or none>
+Unresolved questions about the assignment: <ids and questions, or none>
 Engineer stopped: <timestamp; no further edits or commit>
 
 ## Architect response
 
 Architect-only append after the engineer stops. Account for every finding without rewriting it.
-Incorporate applicable suggestions into the current ADR or justified focused, reciprocally linked
-ADRs. New technical ADRs pass the same security checkpoint and go to senior review with the design.
+The architect answers every question itself, as AGENTS.md, "Incorporation and senior approval",
+asks. Solve findings in the current ADR or justified focused, reciprocally linked ADRs. New
+technical ADRs pass the same security checkpoint inside the same three runs and go to senior
+review with the design.
 
-| Finding | Disposition | Reason | ADR section or linked ADR | Remaining action and owner |
-|---|---|---|---|---|
-| <adr-id>-sec-01 | <incorporated/adapted/deferred/rejected; choose one> | <reason> | <link and section> | <action and owner, or none> |
+| Finding | Label | Disposition | Solved | Reason | ADR section or linked ADR | Experiment cards | Remaining action and owner |
+|---|---|---|---|---|---|---|---|
+| <adr-id>-sec-01 | <label> | <incorporated/adapted/deferred/rejected; choose one> | <yes: the ADR holds the change that closes the path, or the evidence that the path does not exist, and the verification condition; or no> | <reason> | <link and section> | <ids, or none> | <action and owner, or none; deferred: the named later ADR or plan> |
+
+Count: <solved critical and security incident findings, of their total: every one>;
+<solved findings other than nitpicks, of their total: at least 51 percent>
 
 - Actual model verification and report-only scope check: <commands/records, results and evidence paths>
-- Final design coverage: <this snapshot still covers the security-relevant design, or link the new report revision>
-- Serious unresolved risks: <explicit ADR open questions, impact, alternatives and senior-architect decision; never silent acceptance>
-- Senior-review bundle: <reconciled ADRs, diagrams, reports and response; commit on the contract branch before asking for review>
+- Final design coverage: <this run covers the security-relevant design; or the next run; after the third run, what no run covered>
+- Unsolved critical or security incident findings: <the ADR open questions for the senior architect, with impact and alternatives; or none>
+- Senior-review bundle: <reconciled ADRs, diagrams, reports and responses; commit on the contract branch before asking for review>
 - Follow-through: <accepted mitigations and verification conditions to carry into acceptance criteria and card contracts>
+
+### Experiment card <adr-id>-experiment-01
+
+Repeat for each experiment, numbered across runs. The architect writes the first four lines
+before the run, runs it itself only under `/tmp` or `~/tmp`, and changes nothing in the project.
+
+- Finding: <adr-id>-sec-NN
+- Change it tries: <the change>
+- Confirms when: <the observable result, written before the run>
+- Refutes when: <the observable result, written before the run>
+- Scratch root and command: <the `/tmp` or `~/tmp` folder; the exact command>
+- Exit code and output: <the exit code; the output's evidence path>
+- Result: <confirms | refutes | inconclusive; what the output shows; not production evidence>
