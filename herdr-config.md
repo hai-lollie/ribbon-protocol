@@ -29,10 +29,10 @@ the project working directory. Background work preserves the senior architect's 
 ## Validation before execution
 
 Before senior-architect ADR review, the architect runs the core protocol's security design
-checkpoint. The security engineer runs in its own visible Herdr tab, reviews the uncommitted draft,
-writes only its report and permitted evidence, returns to the architect and stops. The architect
-then incorporates the findings in the current ADR or justified linked ADRs, records every
-disposition and commits the reconciled design before asking for senior-architect approval.
+checkpoint. Each run's security engineer runs in a new visible Herdr tab, reviews the uncommitted
+draft, writes only its report and permitted evidence, returns to the architect and stops.
+The architect then incorporates the findings in the current ADR or justified linked ADRs, records
+every disposition and commits the reconciled design before asking for senior-architect approval.
 This assignment needs no validated implementation plan; it authorizes no coder or production edit.
 
 The architect finishes the plan, its acceptance file and every card before implementation execution. The plan
@@ -229,8 +229,9 @@ interactive agent in a new tab in the current Herdr workspace, never as a hidden
 architect uses the installed Herdr and harness procedure for agent, model and effort selection. It
 verifies the first assistant message's recorded agent, provider, model and effort before allowing
 work; a mismatch stops the assignment. A reviewer receives read-only production access and write
-access only to its review and permitted evidence. A security engineer has read-only access to the
-named design inputs and references, and write access only to its security report and permitted evidence.
+access only to its review and permitted evidence. A security engineer has read-only access to what
+the core protocol's "Review and report" lets it read, every file of the briefing's list of ADRs and
+diagrams included, and write access only to its security report and permitted evidence.
 
 The tab label is:
 
@@ -255,6 +256,9 @@ A security engineer uses the ADR id and security-report revision:
 ```text
 Kodo-chan@0001/security-r1
 ```
+
+Each run gets a new tab and a new session, `security-r2` and `security-r3` included; a run never
+reuses an earlier run's tab or session.
 
 The architect gives the pane the same label when the harness supports pane names. The Herdr
 runtime name is separate and follows Herdr's naming rules. Tabs are created without taking focus,
@@ -290,12 +294,12 @@ The architect records the briefing's delivery identifier and the assigned accept
 the orchestration report. A reviewer briefing instead names the plan, cards, commit range, review
 cycle and review destination, and explicitly forbids production edits.
 
-A security briefing instead contains the ADR paths, diagrams, constraints, snapshot hashes, report
-revision and destination, evidence allowlist, core security checklist, selected provider/model/effort
-and selection record. It includes permission and model-verification requirements, the monitoring
-and question procedure, and an explicit ban on design/code edits, commits, live attacks and remote
-mutations. Completion means an on-disk report, a return message to the architect and no further work;
-it does not mean approval of the ADR. The architect verifies the first message before substantive work.
+A security briefing instead contains what the core protocol's "Review and report" names for the
+briefing, the core security checklist and the selection record. It includes permission and
+model-verification requirements, the monitoring and question procedure, and an explicit ban on
+design/code edits, commits, live attacks and remote mutations. Completion means an on-disk report,
+a return message to the architect and no further work; it does not mean approval of the ADR. The
+architect verifies the first message before substantive work.
 
 The coder performs the core protocol's read-only preflight and commits `READY` before its first
 edit. `BLOCKED` stops that card without an invented answer.
@@ -319,6 +323,10 @@ before sending input; it never blindly repeats a prompt or presses a key.
 For a security engineer, completion also requires the report's reviewed snapshot, findings or
 explicit `NO_FINDINGS`, review limits, verified model record and report-only scope comparison.
 The architect then owns incorporation and the response; the engineer never commits the draft.
+The architect answers the report's questions itself, under the core protocol's "Incorporation and
+senior approval"; they are not questions for the senior architect. An escalated finding goes to
+her as an open question of the ADR, with the design, and not through the question tool: it has no
+timeout and no default.
 
 The architect may answer a technical question when it can establish the answer from the contract,
 verified repository facts, documentation, internet references or a disposable spike. It records

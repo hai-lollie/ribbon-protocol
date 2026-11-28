@@ -31,7 +31,7 @@ authorship and the later implementation-review assignment.
 |---|---|---|
 | Senior architect, a person | brings the problem, the constraints, what success looks like, when to stop; validates ADRs and plans | decisions |
 | Architect | resolves semantics and risk; writes one ADR per design problem; cuts a plan into cards with contracts and dependency order | ADRs, plans, cards |
-| Security engineer | challenges the draft ADR's security, attack surface and design gaps; returns concrete findings and mitigations to the architect | a security report, not ADR approval |
+| Security engineer | questions the draft ADR's security, attack surface and design gaps; returns labelled findings to the architect, each a question with where to look | a security report, not ADR approval |
 | Independent reviewer | reads the commit range against the plan and the cards; writes findings with counterexamples | a review with verdicts |
 | General coder | implements one plan, card by card, inside each card's scope; leaves evidence after every card | patches, reports |
 | Entry-level coder | small mechanical patches inside an allowlist | small patches, reports |
@@ -48,32 +48,43 @@ ownership and local-only AFK work when the architect runs inside Herdr.
 
 ## Security before ADR approval
 
-The architect finishes the draft technical ADR and diagrams, then launches a security engineer
-before committing the design for senior-architect review. It makes an equal-chance coin flip
-between eligible **OpenAI GPT Sol 6.1+** and **Moonshot Kimi K3.1+** models. Sol uses xhigh, or high
-when xhigh is unavailable; Kimi requires high effort. If only one family is available and approved, use it
-and record why; if neither qualifies, stop and ask. An alias does not establish a model version.
+The architect finishes the draft technical ADR and diagrams, then launches a fresh security engineer
+for each run, at most three, before committing the design for senior-architect review. Each run
+makes an equal-chance coin flip between eligible **OpenAI GPT Sol 6.1+** and **Moonshot Kimi K3.1+**
+models. Sol uses xhigh, or high when xhigh is unavailable; Kimi requires high effort. If only one
+family is available and approved, use it and record why; if neither qualifies, stop and ask. An
+alias does not establish a model version.
 
 The engineer checks trust boundaries, authentication and authorization, unnecessary exposure,
-secrets and token/key lifecycle, secure entropy, abuse and DoS/DDoS controls, and software-design
-gaps. It writes `docs/llm-context/<adr-id>-security-r<N>.md`, with concrete attack paths or
-counterexamples, mitigations and verification conditions, then reports back and stops. It neither
-edits the ADR nor commits it. This is design review, not permission to run attacks or load tests.
+secrets and token/key lifecycle, secure entropy, abuse and DoS/DDoS controls, software-design
+gaps, and the anti-patterns of the project's language, framework and `rules/`. Every finding is
+a question to the architect that says where to look for the answer, with one label, `critical`,
+`security incident`, `best-practice violation`, `desirable` or `nitpick`, and the fields that
+`AGENTS.md` asks for that label, such as an attack path, the smallest deployable mitigation and a
+verification condition. It stays
+practical, cites a best practice once and asks no circular question. It writes
+`docs/llm-context/<adr-id>-security-r<N>.md`, then reports back and stops. It neither edits the
+ADR nor commits it. This is design review, not permission to run attacks or load tests.
 
-The architect incorporates applicable suggestions and records a disposition for every finding.
-It decides whether to revise the current ADR or, when the extent of the changes justifies a
-separate design decision, create a focused ADR linked from the original, with a link back.
-That ADR passes the same security checkpoint. The architect commits the reconciled ADRs,
-diagrams, report and response on the contract branch, then asks the senior architect to review
-the design together. Serious unresolved risks require her explicit decision. Security-relevant
-design changes get a new security pass before another approval request.
+The architect answers every question itself, without asking the senior architect what it means or
+where to look: it follows the pointers, searches, and tries a proposed change with its own
+experiment card under `/tmp` or `~/tmp`. It records a disposition for every finding and has the
+final say on what to solve: each response solves every `critical` and `security incident` finding
+that it can and at least 51 percent of the findings other than nitpicks and escalated ones. It
+decides whether to revise the current ADR or, when the extent of the changes justifies a separate
+design decision, create a focused ADR linked from the original, with a link back. That ADR passes
+the same security checkpoint, within the same three runs. The architect commits the reconciled
+ADRs, diagrams, reports and responses on the contract branch, then asks the senior architect to
+review the design together. A `critical` or `security incident` finding that the architect cannot
+solve is escalated: it requires her decision. Security-relevant design changes get the next run
+before another approval request; the third run is the last.
 
-Use a **new Herdr tab** whenever Herdr is installed. The report-writing subagent fallback applies
-**only when Herdr is absent from the system**. Installed Herdr outside a managed session means
-stop and ask, not an invisible fallback. Both routes restrict writes to the report and evidence.
-The full checkpoint is in [AGENTS.md](AGENTS.md#security-design-review), and the report template is
-[`_security.md`](docs/llm-context/_security.md). It does not replace human approval or consume the
-plan's three implementation-review cycles.
+Use a **new Herdr tab** for every run whenever Herdr is installed. The report-writing subagent
+fallback applies **only when Herdr is absent from the system**. Installed Herdr outside a managed
+session means stop and ask, not an invisible fallback. Both routes restrict writes to the report
+and evidence. The full checkpoint is in [AGENTS.md](AGENTS.md#security-design-review), and the
+report template is [`_security.md`](docs/llm-context/_security.md). It does not replace human
+approval or consume the plan's three implementation-review cycles.
 
 ## Works best with an agent handler
 
@@ -302,7 +313,8 @@ alone, and `--update` keeps your rows exactly as written.
   cute names to their partners in crime, and the protocol does not need them.
 - **Trusted verifier:** the exact command or commands your gate runs, in order.
 - **Security engineer:** retain the Sol 6.1+/Kimi K3.1+ eligibility and effort rules; the architect
-  selects a fresh agent for each review and records the actual provider/model/effort.
+  selects a fresh agent for each run, at most three per design, and records the actual
+  provider/model/effort.
 - Keep the rule that the architect and the reviewer are different models.
 
 Two example belts:
