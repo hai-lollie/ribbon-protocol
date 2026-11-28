@@ -21,8 +21,8 @@ one instruction per line, exact, no adjectives.
 ## A plan
 
 One deliverable, one branch, one coder by default, one architect, one reviewer: a whole story,
-or one phase of a story too large for one review (see "The phases of a story"). Only the root
-`herdr-config.md` overlay may assign several coders, with exclusive file ownership recorded in the
+or one phase of a story too large for one review (see "The phases of a story"). Only the Herdr
+overlay may assign several coders, with exclusive file ownership recorded in the
 orchestration report. Copy `_template.plan.yaml`. Beside it, `<story-id>.acceptance.yaml` names
 every acceptance test of the story before any code exists: a test name, the input and the expected
 output, in plain English, each tagged with the card that implements it. Copy

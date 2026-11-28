@@ -15,6 +15,7 @@ out_of_scope:
   - "<what this card must not touch, even when it looks easy>"
 context:
   read_first:
+    - <the coder's seat files first, as the project's AGENTS.md names them under "Your seat's files">
     - <path, in reading order; the section or the line range when the file is long>
   reference_pattern: <a file that already does it the right way>
   verified:

@@ -42,9 +42,10 @@ possible, and may swap roles between plans. The loop is Architect, Security revi
 Verify, and it stops by the five of "Done, and when the loop stops": a plan is done when
 the gate, the boot, the acceptance file, coverage and the absence of open semantic
 findings hold on its head; the rest is debt, and three review cycles are the most. The
-whole core protocol is `AGENTS.md`; read it first. The optional `herdr-config.md` overlay adds
-visible coder, security-engineer and reviewer orchestration, research-only helpers, exclusive file
-ownership and local-only AFK work when the architect runs inside Herdr.
+whole protocol is `AGENTS.md`, rendered from the pieces under `protocol/`; read it first. An
+install gives each seat only its own files. The optional Herdr overlay adds visible coder,
+security-engineer and reviewer orchestration, research-only helpers, exclusive file ownership
+and local-only AFK work when the architect runs inside Herdr.
 
 ## Security before ADR approval
 
@@ -98,9 +99,9 @@ no shared window, no pre-loaded conversation leaking from one mind into another.
 ![herdr drives one pane per agent: architect, security engineer, coder and reviewer each keep their own context and model, so no conversation leaks between them; away from the machine, Tailscale reaches the handler and Moshi follows from a phone (third parties, not affiliated).](agent-handler.svg)
 
 Any handler that isolates sessions works (herdr, orca, and similar). We recommend
-**herdr** for its simplicity, and this repository ships its overlay ready: copy
-`herdr-config.md` beside a project's `AGENTS.md` and the orchestration rules come
-with it.
+**herdr** for its simplicity, and this repository ships its overlay ready: every install
+writes it as the architect's seat file, `handlers/herdr.md`, which the architect reads
+only inside Herdr.
 
 Away from the machine, two third-party tools improve the flow. They are not
 affiliated with this project. **Tailscale** reaches the handler from anywhere, and
@@ -115,13 +116,12 @@ ribbon-protocol/
 ├── LICENSE                                    Apache License 2.0
 ├── ribbon-protocol-flow.png                    overview image embedded above
 ├── agent-handler.svg                           handler and agents: one pane, one mind
-├── AGENTS.md                                  the protocol in one file, generated from protocol/: the belt, memory, file removal,
-│                                              security, the homes, the two flows, the gate, the branches and each seat's part. Copied into every project
-├── protocol/                                  the protocol pieces, one file per rule, and README.md: what each holds and how to render it
-├── herdr-config.md                            the optional Herdr orchestration overlay, generated from protocol/, copied beside AGENTS.md
-├── AGENTS.standalone.md                       the source of the AGENTS.local.md block written by the standalone installer
+├── AGENTS.md                                  the whole protocol in one file, rendered from protocol/: the belt, memory, file removal,
+│                                              security, the homes, the two flows, the gate, the branches and each seat's part
+├── protocol/                                  the protocol pieces, one file per rule: an install renders its block and seat files from
+│                                              them; README.md says what each holds and how to render it
 ├── rules/                                     coding conventions, one theme per file, seeded into projects
-├── scripts/                                   the standalone installer and its tests
+├── scripts/                                   the installers, the renderer and their tests
 │   ├── ribbon-new-project                     unpacks or updates a per-project standalone instance
 │   ├── ribbon-render-protocol                 renders a structure file of protocol/ and the pieces that it includes
 │   ├── ribbon-seed-project                    the full install into a project repository
@@ -185,13 +185,15 @@ including when the link's target is not there yet. An existing
 The separate `docs/.ribbon-full-install` record identifies the full install whether
 or not the project already had a README. That record must not be ignored by Git.
 
-The script also appends the protocol to the project's `AGENTS.md` (creating one when
-none exists), copies `herdr-config.md` beside it, and in a Git repository commits
-the installer-written files as one
-`Seed the Ribbon Protocol, ribbon N` commit. It refuses to re-seed; a seeded project
-merges later template changes by hand (see "Versioning"), and one that predates
-`rules/` gets a rules-only amendment instead of a refusal. Point `--ribbon-home` at
-the template when it does not live at `~/ribbon-protocol`.
+The script also appends a marked block to the project's `AGENTS.md` (creating one when
+none exists): the rules that bind every seat, rendered from `protocol/`. It writes each
+seat's own files under `.ribbon/protocol/` and names them in the block, so every agent
+reads only its seat's rules. In a Git repository it commits the installer-written files
+as one `Seed the Ribbon Protocol, ribbon N` commit. It refuses to re-seed, a project with
+a standalone install, and an `AGENTS.md` that already holds a Ribbon block; a project
+that predates `rules/` gets a rules-only amendment instead. When a new `ribbon N`
+appears, `--update` renders the block and the seat files again (see "Versioning").
+Point `--ribbon-home` at the template when it does not live at `~/ribbon-protocol`.
 
 Neither installer creates or edits `CLAUDE.md` or `CLAUDE.local.md`. After a successful
 install or update, the installer warns when both files in a pair exist but the Claude
@@ -202,8 +204,8 @@ stops before writing project or instance files.
 Then fill the belt (next section). Tell your architect to read `AGENTS.md`, the
 Ribbon `docs/README.md` if the installer supplied one, and `docs/field-guide.md`.
 When `docs/README.md` is project-owned, the protocol's "The homes" section in
-`AGENTS.md` still lists Ribbon's paths. An architect inside Herdr also reads
-`herdr-config.md` before execution.
+`AGENTS.md` still lists Ribbon's paths. An architect inside Herdr also reads its seat file
+`.ribbon/protocol/handlers/herdr.md` before execution, as the block says.
 
 ## Uninstall a full installation
 
@@ -218,6 +220,11 @@ The second command shows the plan and asks `[y/N]`. For a non-interactive
 removal, add `--yes`; `--yes` alone does not turn a preview into a removal.
 No uninstall command stages or commits changes. If a permission error occurs,
 the command stops and reports the affected path and any paths already processed.
+
+The uninstall also removes the seat files under `.ribbon/protocol/` and the directories
+it empties. A filled roster and gate do not stop it from removing the block; any other
+edit inside the block keeps the block in place, named in the report. It removes an older
+(ribbon 1) full install as well, which is the way to ribbon 2: uninstall, then seed.
 It never elevates privileges or recursively deletes directories.
 
 New full seeds write an ownership receipt at `docs/.ribbon-full-install-receipt`.
@@ -261,18 +268,18 @@ mkdir -p ~/ribbon-projects
 
 Both scripts print their full usage with `-h`.
 
-It unpacks `~/ribbon-projects/my-project/` holding `docs/tasks/` and `docs/llm-context/`
-seeded from this template, records the seed version, and links the instance to the
-project repo. Into the project it writes four small things: `AGENTS.local.md` — a
-marked block telling every agent where each file lives and that ADRs and diagrams are
-written into the project repository; a one-line pointer in `AGENTS.md` so agents find
-that block; `herdr-config.md` beside `AGENTS.md`; and `rules/` — coding conventions
+It unpacks `~/ribbon-projects/my-project/` holding `docs/tasks/`, `docs/llm-context/` and
+each seat's files under `.ribbon/protocol/`, seeded from this template, records the seed
+version, and links the instance to the project repo. Into the project it writes three
+small things: `AGENTS.local.md` — a marked block with the rules that bind every seat,
+where each file lives, and which seat files each seat reads; a one-line pointer in
+`AGENTS.md` so agents find that block; and `rules/` — coding conventions
 seeded from this project (`testing.md` is universal; add per-language themes as
 decisions), committed with the project like code. `AGENTS.local.md` is personal to
 your machine: add it to the project's `.gitignore`.
 
 Every `git worktree` you add gets symlinks to this machine's untracked Ribbon files
-(`AGENTS.local.md`, `herdr-config.md`, `CLAUDE.md`, `CLAUDE.local.md`) through a managed
+(`AGENTS.local.md`, `CLAUDE.md`, `CLAUDE.local.md`) through a managed
 `post-checkout` hook the installer places in the project's `.git/hooks`; `--update` refreshes
 a hook it owns, while a hook without its mark or a custom `core.hooksPath` is left alone.
 The linked files belong in the project's `.gitignore`.
@@ -284,31 +291,43 @@ files yourself once per project — either as symlinks in this direction:
     ln -s AGENTS.local.md CLAUDE.local.md
 
 or as imports: add `@AGENTS.md` to `CLAUDE.md` and, if you use a local file,
-`@AGENTS.local.md` to `CLAUDE.local.md`. Put each import on its own line. If you use
-the Herdr overlay with Claude Code, also add `@herdr-config.md` in the Claude
-instructions. The installers do not make these changes for you.
+`@AGENTS.local.md` to `CLAUDE.local.md`. Put each import on its own line. Never import a
+seat file: an `@` import loads eagerly, and each seat should read only its own. The
+installers do not make these changes for you.
 
 `--projects` has no default: pass wherever your instances should live. `--force`
 rebuilds an existing instance; when a new `ribbon N` appears, `--update` refreshes an
-instance's template and schema files and seed version. Both modes append a missing
-standalone block or pointer but leave existing instructions byte-for-byte intact,
-including the filled-in belt. If you relocate an instance or template checkout,
-update the paths in `AGENTS.local.md` by hand. Before writing, an update refuses
+instance's template and schema files and seed version. Both modes render the standalone
+block and the seat files again: only the roster and the gate between their marks keep
+what you wrote, and any other edit inside the block is replaced. Text outside the block
+never changes, and an older (ribbon 1) block is refused: uninstall it, then install. If
+you relocate an instance or the template checkout, run `--update` from the new place. Before writing, an update refuses
 linked instance directories or refresh targets, and planned writes that would
 also change project docs, rules, or instruction files through links. Before
-`--force` deletes the old instance, it rejects broken overlay destinations and
-symlinks in project docs, rules, instructions, or the overlay that depend on the
-instance. `--update` never touches live plans, cards or reports. These operations affect the separate
+`--force` deletes the old instance, it rejects symlinks in project docs, rules or
+instructions that depend on the instance. `--update` never touches live plans, cards or reports. These operations affect the separate
 managed instance; they never replace or delete existing project `docs/` or
 `rules/` entries. Instances are personal and unversioned.
 
+To take a standalone install out of a project, preview first:
+
+```sh
+~/ribbon-protocol/scripts/ribbon-new-project --uninstall --projects ~/ribbon-projects my-project
+~/ribbon-protocol/scripts/ribbon-new-project --uninstall --remove-ribbon --projects ~/ribbon-projects my-project
+```
+
+The second command removes the standalone block, the pointer line and Ribbon's own
+hook after a `[y/N]` (or with `--yes`). It leaves the instance, with its plans and
+reports, and any `herdr-config.md`, and names them. It removes an older (ribbon 1)
+install too, which is the way to ribbon 2: uninstall, then install.
+
 ## Fill the belt 🎗️
 
-Full install: open your project's `AGENTS.md`, find the table under **The belt** inside
-the marked protocol block, and replace every `TODO(belt)`. Standalone: the table lives
-in your project's `AGENTS.local.md`, between the `ribbon:belt` marks inside the marked
-standalone block — replace every `TODO(belt)` there, leave the shared `AGENTS.md`
-alone, and `--update` keeps your rows exactly as written.
+Full install: open your project's `AGENTS.md` and find, inside the marked protocol block,
+the roster between the `ribbon:belt` marks and the gate between the `ribbon:gate` marks;
+replace every `TODO(belt)` there. Standalone: the same roster and gate live in your
+project's `AGENTS.local.md`; leave the shared `AGENTS.md` alone. In both, `--update`
+keeps the roster and the gate exactly as written and replaces the rest of the block.
 
 - **Senior architect:** a person's name. This role is never an LLM.
 - **Architect, Independent reviewer, General coder, Entry-level coder:** the agent's
@@ -368,19 +387,19 @@ existing ones. Bring later template revisions into project rules by hand.
 stamp in `docs/README.md`. A standalone installation records its version in the
 standalone instance's `docs/README.md`, not the project's. When a new
 `ribbon N` appears, a standalone instance refreshes with `scripts/ribbon-new-project
---update <name> --projects DIR` — template and schema files and seed version, never
-existing agent instructions, live plans, cards or reports. A full-installed project
-merges by hand: diff your `docs/` against the template's and copy what changed,
-update the Ribbon instructions in `AGENTS.md` without disturbing the project's own
-instructions, and copy `herdr-config.md` beside it. Preserve the project's own
-Claude instructions.
+--update <name> --projects DIR`, and a full install with `scripts/ribbon-seed-project
+--update <project>`. Both render the block and the seat files again and keep the roster
+and the gate; neither touches live plans, cards or reports, nor text outside the block.
+A full install's `--update` commits its change. Neither switches a project between the
+two modes, and neither changes a ribbon 1 install: uninstall it, then install. A
+full-installed project still merges later `docs/` template changes by hand.
 
 ## The reference guide
 
 `Ribbon-Protocol-Multi-LLM-FieldGuide.pdf` at the root is the historical reference edition.
 `docs/field-guide.md` is its text, page for page, so a model can read it without PDF tooling.
 Neither includes later protocol amendments such as the security-engineer checkpoint; current
-`AGENTS.md`, schemas and templates govern, with `herdr-config.md` governing Herdr orchestration.
+`AGENTS.md`, schemas and templates govern, with the Herdr overlay governing Herdr orchestration.
 The guide is a reusable engineering framework, not a claim that any model will follow every
 instruction. Verify current model capabilities, pricing and provider terms when you
 implement routing. Organisational security policy always overrides personal workflows.

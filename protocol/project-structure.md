@@ -1,4 +1,4 @@
-# Ribbon Protocol, ribbon 1
+# Ribbon Protocol, ribbon 2
 
 This project wears the Ribbon Protocol in a full install: its working files are committed with the
 project, so every collaborator and agent reads the same plans, cards, ADRs and evidence. The

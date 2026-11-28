@@ -69,7 +69,7 @@ branches one at a time and records the checks after each integration.
 | <task-id> | <mechanism and configuration identity, or `prompt-only` and why the harness cannot enforce it> | <approved paths> | <worktree, stage, local commit only> | `/tmp`, `~/tmp` | <evidence> | <`git diff --name-only <prev>..<commit>` and the untracked paths: every path inside the approved set, or the stop> |
 
 A prompt-only restriction is not enforcement, so it carries the compensating controls of
-`herdr-config.md`: the briefing names the boundary, and every card's changed and untracked paths
+the Herdr overlay: the briefing names the boundary, and every card's changed and untracked paths
 are checked against its approved set before the card is accepted. A path outside it stops the card.
 A reviewer has no production write permission; its diff check expects the review file and its
 evidence only. In the mechanism column, record any gap in preventing file removal separately

@@ -672,14 +672,6 @@ test_root_agents_md_is_the_whole_rendering() {
   cmp -s "${SCRIPT_DIR}/../AGENTS.md" "${OUT}"
 }
 
-test_herdr_config_is_the_handler_rendering() {
-  new_sandbox
-  run_repo handlers/herdr_template.md
-  [[ ${RC} -eq 0 ]] || return 1
-  [[ ! -s ${ERR} ]] || return 1
-  cmp -s "${SCRIPT_DIR}/../herdr-config.md" "${OUT}"
-}
-
 test_project_block_has_one_roster_and_one_gate() {
   new_sandbox
   run_repo --set PROTOCOL_DIR=.ribbon/protocol project-structure.md
@@ -781,7 +773,6 @@ TESTS=(
   test_two_pieces_with_one_installed_path_fail
   test_seat_files_and_list_together_are_a_usage_error
   test_root_agents_md_is_the_whole_rendering
-  test_herdr_config_is_the_handler_rendering
   test_project_block_has_one_roster_and_one_gate
   test_every_seat_pointer_names_a_seat_file
   test_whole_rendering_reads_every_piece_but_the_install_ones

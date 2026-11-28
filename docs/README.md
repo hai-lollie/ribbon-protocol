@@ -25,4 +25,4 @@ A plan names the entries that bind it under `decisions`, and the coder reads tho
 
 `field-guide.md` is the long-form guide, the reference PDF as text. An architect new to
 the protocol reads the root `AGENTS.md`, this file, and then the field guide. An architect inside
-Herdr also reads the root `herdr-config.md` before execution. That is the full context.
+Herdr also reads its seat file, the Herdr overlay, before execution. That is the full context.

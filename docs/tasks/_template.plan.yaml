@@ -1,5 +1,5 @@
 # <plan-id>.plan.yaml. One deliverable, one branch: a story, or one phase of it (<story-id>-pN).
-# One coder by default; herdr-config.md may assign visible parallel coders with exclusive file ownership.
+# One coder by default; the Herdr overlay may assign visible parallel coders with exclusive file ownership.
 # The architect writes it. The senior architect validates it. The coder never edits it.
 schema_version: 2                        # 2 since the phases rule: size on every card and tasks row
 plan_id: <plan-id>                       # lowercase kebab-case, the same spelling everywhere
@@ -31,7 +31,7 @@ constraints:
   - "<what holds across every card>"
 stop_line:
   - "a card needs an edit outside its scope"
-  - "two focused repairs failed on one card; only herdr-config.md's single mechanical application may follow"
+  - "two focused repairs failed on one card; only the Herdr overlay's single mechanical application may follow"
 tasks:                                   # execution order; assigned rows loaded verbatim into each coder's todo tool
   - {id: <story-id>-01, title: "<the smallest change that ends in a green commit>", size: <lines>, status: todo}
   - {id: <story-id>-02, title: "<...>", size: <lines>, status: todo}

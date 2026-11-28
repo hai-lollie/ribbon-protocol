@@ -8,14 +8,11 @@ structure file and the pieces that it includes into one text:
   `--set PROTOCOL_DIR=.ribbon/protocol`; `--seat-files` names the seat files that it installs;
 - `standalone-structure.md` renders the block of a standalone install in `AGENTS.local.md`,
   with `--set PROTOCOL_DIR=<instance>/.ribbon/protocol` and the instance's other paths;
-- `handlers/herdr_template.md` renders `herdr-config.md`, the optional Herdr overlay.
 
 Edit a piece, never a rendering. Then render again, from the repository root, through a
 fresh temporary file, so that a failed rendering leaves the old one in place:
 
     tmp="$(mktemp)" && scripts/ribbon-render-protocol whole-structure.md > "$tmp" && cp "$tmp" AGENTS.md
-    tmp="$(mktemp)" && scripts/ribbon-render-protocol handlers/herdr_template.md > "$tmp" \
-      && cp "$tmp" herdr-config.md
 
 `scripts/test-ribbon-protocol.sh` fails when a rendering differs from its pieces.
 
