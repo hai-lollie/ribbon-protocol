@@ -1388,8 +1388,10 @@ update_mode() {
 }
 
 #######################################
-# Print the old block's belt table rows: from the line that starts
-# '| Role | Agent | Model' to the last line that starts '|' after it.
+# Print the old block's belt table rows: the belt table's contiguous
+# rows, from the line that starts '| Role | Agent | Model' through the
+# run of lines that start '|' after it, stopping at the first line that
+# does not.
 # Globals:
 #   PROJECT_REPO, START_MARK, END_MARK
 #######################################
@@ -1718,10 +1720,12 @@ prepare_update_removals() {
 #######################################
 # Every --update destination: each directory of its path below the
 # project is a real directory (not a link), and the leaf, when it exists,
-# is a regular file, not a link, with one hard link. Runs after V4's
-# checks, so their messages fire first where they apply.
+# is a regular file, not a link, with one hard link. Every retired seat
+# joins the parent-chain check. Runs after V4's checks, so their messages
+# fire first where they apply.
 # Globals:
-#   PROJECT_REPO, SEAT_FILES, SEED_RECORD, INSTALL_RECEIPT
+#   PROJECT_REPO, SEAT_FILES, SEED_RECORD, INSTALL_RECEIPT,
+#   REMOVED_SEAT_PATHS
 #######################################
 validate_update_destinations() {
   local rel path current component
@@ -1743,23 +1747,69 @@ validate_update_destinations() {
       fi
     fi
   done
+  for rel in "${REMOVED_SEAT_PATHS[@]}"; do
+    current="${PROJECT_REPO}"
+    IFS='/' read -ra parts <<< "${rel}"
+    for component in "${parts[@]:0:${#parts[@]}-1}"; do
+      current="${current}/${component}"
+      if [[ -L "${current}" ]] || { [[ -e "${current}" ]] && [[ ! -d "${current}" ]]; }; then
+        die "unsafe destination: ${rel}"
+      fi
+    done
+  done
+}
+
+#######################################
+# Write a file through an exclusively created temporary file (os.open
+# with O_CREAT|O_EXCL, a random name) in the destination's directory,
+# then os.replace; the new file keeps the mode of the file it replaces,
+# or 0644 for a new one.
+# Arguments:
+#   The source file, the target path.
+#######################################
+write_update_file() {
+  python3 - "$1" "$2" <<'PY'
+import os
+import secrets
+import stat
+import sys
+
+source, target = sys.argv[1:3]
+with open(source, "rb") as stream:
+    data = stream.read()
+try:
+    mode = stat.S_IMODE(os.stat(target).st_mode)
+except FileNotFoundError:
+    mode = 0o644
+directory = os.path.dirname(target) or "."
+temporary = os.path.join(directory, ".ribbon-update-" + secrets.token_hex(12))
+fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+try:
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(data)
+        os.fchmod(stream.fileno(), mode)
+    os.replace(temporary, target)
+    temporary = None
+finally:
+    if temporary is not None:
+        os.unlink(temporary)
+PY
 }
 
 #######################################
 # Write each seat file whose rendering differs from the file on disk,
-# through a temporary file in the same directory and a rename.
+# through an exclusively created temporary file in the same directory
+# and os.replace, never through a staging name.
 # Globals:
 #   PROJECT_REPO, SEAT_FILES, SEAT_RENDERS, UPDATED_PATHS,
 #   UPDATED_SEATS, UPDATE_CHANGED (set)
 #######################################
 write_update_seat_files() {
-  local rel index=0 target
+  local rel index=0
   for rel in "${SEAT_FILES[@]}"; do
     if ! cmp -s "${SEAT_RENDERS[$index]}" "${PROJECT_REPO}/${rel}" 2>/dev/null; then
       mkdir -p "${PROJECT_REPO}/${rel%/*}"
-      target="${PROJECT_REPO}/${rel}"
-      cp "${SEAT_RENDERS[$index]}" "${target}.ribbon-new"
-      mv -f "${target}.ribbon-new" "${target}"
+      write_update_file "${SEAT_RENDERS[$index]}" "${PROJECT_REPO}/${rel}"
       UPDATED_PATHS+=("${rel}")
       UPDATED_SEATS=$((UPDATED_SEATS + 1))
       UPDATE_CHANGED=1
@@ -1870,14 +1920,12 @@ build_update_receipt() {
 
 write_update_records() {
   if ! cmp -s "${RENDER_DIR}/record.new" "${PROJECT_REPO}/${SEED_RECORD}" 2>/dev/null; then
-    cp "${RENDER_DIR}/record.new" "${PROJECT_REPO}/${SEED_RECORD}.ribbon-new"
-    mv -f "${PROJECT_REPO}/${SEED_RECORD}.ribbon-new" "${PROJECT_REPO}/${SEED_RECORD}"
+    write_update_file "${RENDER_DIR}/record.new" "${PROJECT_REPO}/${SEED_RECORD}"
     UPDATED_PATHS+=("${SEED_RECORD}")
     UPDATE_CHANGED=1
   fi
   if ! cmp -s "${RENDER_DIR}/receipt.new" "${PROJECT_REPO}/${INSTALL_RECEIPT}" 2>/dev/null; then
-    cp "${RENDER_DIR}/receipt.new" "${PROJECT_REPO}/${INSTALL_RECEIPT}.ribbon-new"
-    mv -f "${PROJECT_REPO}/${INSTALL_RECEIPT}.ribbon-new" "${PROJECT_REPO}/${INSTALL_RECEIPT}"
+    write_update_file "${RENDER_DIR}/receipt.new" "${PROJECT_REPO}/${INSTALL_RECEIPT}"
     UPDATED_PATHS+=("${INSTALL_RECEIPT}")
     UPDATE_CHANGED=1
   fi
