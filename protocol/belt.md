@@ -19,8 +19,8 @@ LLMs, named by a nickname or by a vendor and a model id, except the trusted veri
 | Entry-level coder | small patches inside the allowlist | a correctness decision |
 | Trusted verifier | machine PASS or FAIL | trust a sentence |
 
-The security engineer is a fresh agent selected by the architect for each run: OpenAI GPT Sol
-6.1+ or Moonshot Kimi K3.1+; Kimi at high effort. The project fills in the other seats in the
+The security engineer is a fresh agent that the architect selects for each run, as "Selection
+and launch" says. The project fills in the other seats in the
 roster below, and the gate: the trusted verifier's exact commands, in order. An update keeps the
 roster and the gate as written, between their marks.
 
