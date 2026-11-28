@@ -186,17 +186,18 @@ credential access, configuration change or remote mutation is authorized by a de
 
 ### Review and report
 
-The briefing names the draft ADRs, diagrams and relevant constraints; the project's language,
-framework and `rules/`; the reviewed snapshot; the run number and, from the second run, every
-earlier report with its response; the exact provider, model and effort; and the permitted report
-and evidence paths. It states facts and no opinion: no verdict on the design, no expected finding,
-and no area to skip or to favour beyond the senior architect's constraints; an area that those
-constraints leave out is a review limit in the report. The snapshot records each input's path and
-content hash, since the draft is not yet committed. The engineer reads the supplied design and
-references, the other ADRs and diagrams of the project under `docs/adrs/` and `docs/diagrams/`
-that bear on the design, the project's conventions under `rules/` and the code that the design
-changes or builds on, never unrelated repository trees or secrets. It names in its report each
-relevant input that the briefing left out.
+The briefing names the draft ADRs, diagrams and relevant constraints; the full list of files under
+the project's `docs/adrs/` and `docs/diagrams/`; the project's language, framework and `rules/`;
+the reviewed snapshot; the run number and, from the second run, every earlier report with its
+response; the exact provider, model and effort; and the permitted report and evidence paths. It
+states facts and no opinion: no verdict on the design, no expected finding, and no area to skip or
+to favour beyond the senior architect's constraints; an area that those constraints leave out is a
+review limit in the report. The snapshot records each input's path and content hash, since the
+draft is not yet committed. The engineer reads the supplied design and references, the other ADRs
+and diagrams of the project under `docs/adrs/` and `docs/diagrams/` that bear on the design, the
+project's conventions under `rules/` and the code that the design changes or builds on, never
+unrelated repository trees or secrets. It names in its report each relevant input that the
+briefing left out.
 
 It checks, where applicable:
 
