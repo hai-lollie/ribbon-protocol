@@ -18,9 +18,11 @@
 # into each new worktree. Only the final artifacts (docs/adrs,
 # docs/diagrams) are ever written into the project repository.
 #
-# --update refreshes template and schema files and the seed version in an
-# existing instance. Project agent instructions are only appended when
-# missing; live plans, cards and reports are never touched.
+# --update renders the standalone block of AGENTS.local.md again, keeping
+# only the roster and the gate between their marks, rewrites the seat files
+# under <instance>/.ribbon/protocol/, and refreshes template and schema
+# files and the seed version in an existing instance. Live plans, cards and
+# reports are never touched.
 
 # macOS ships bash 3.2 as /bin/bash. Before 4.4, `set -u` treats an empty
 # array as unbound, and this script expands empty arrays on purpose.
@@ -34,28 +36,49 @@ set -euo pipefail
 
 readonly START_MARK='<!-- ribbon:standalone:start -->'
 readonly END_MARK='<!-- ribbon:standalone:end -->'
+readonly POINTER_LINE='Ribbon Protocol (standalone): this machine'"'"'s working files live outside this repository; read AGENTS.local.md for where each file lives.'
 
 # State set by parse_args and consumed by the pipeline below.
 FORCE=0
 UPDATE=0
+UNINSTALL=0
+REMOVE_RIBBON=0
 PROJECTS_DIR=''
 RIBBON_HOME=''
 PROJECT_NAME=''
 PROJECT_REPO=''
 INSTANCE=''
-HERDR_NOTE=''
-HERDR_COPY_NEEDED=0
 IMPORT_NOTE=''
 IMPORT_RULES=()
 ASSUME_YES=0
 NEEDS_REBUILD=0
 WORKTREE_NOTE=''
 WORKTREE_HOOK=''
-LOCAL_BLOCK=''
+BLOCK_MODE=''
+LOCAL_BLOCK_TARGET=''
+OLD_BLOCK_FILE=''
+BELT_ROWS_FILE=''
+BLOCK_RENDERING_FILE=''
+SEAT_LIST_FILE=''
+SEAT_RENDER_DIR=''
+RENDER_ERROR_FILE=''
+RENDER_WORK_DIR=''
+SEAT_SWEEP_FILE=''
+PROTOCOL_SET_ARGS=()
 AGENTS_POINTER_NEEDED=0
 SELECTED_RULES=()
 EXISTING_PROJECT_DOCS_AND_RULES=()
 GNU_REALPATH=''
+
+#######################################
+# Remove the render work dir when the run ends.
+# Globals:
+#   RENDER_WORK_DIR
+#######################################
+cleanup_work_dir() {
+  [[ -z "${RENDER_WORK_DIR}" ]] || rm -rf "${RENDER_WORK_DIR}"
+}
+trap cleanup_work_dir EXIT
 
 #######################################
 # Validate every --import-rules file before any mutating step, so a typo
@@ -97,10 +120,14 @@ Usage:
       [--ribbon-home DIR] [--import-rules F]... <project-name> <project-repo-path>
   scripts/ribbon-new-project --update [--yes] --projects DIR \
       [--ribbon-home DIR] [--import-rules F]... <project-name> [project-repo-path]
+  scripts/ribbon-new-project --uninstall [--remove-ribbon] [--yes] --projects DIR \
+      <project-name> [project-repo-path]
 
 Unpacks a standalone Ribbon instance for one project (default mode), or
-refreshes an existing instance (--update): template files and seed version.
-Existing agent instructions, live plans, cards and reports are not rewritten.
+refreshes an existing instance (--update): template files and seed version, and the
+block and the seat files rendered again, keeping only the roster and the gate. Live
+plans, cards and reports are not rewritten. --uninstall removes the block, the
+pointer line and Ribbon's own hook from the project; it keeps the instance.
 
 Options:
   --projects DIR     Where per-project instances live. Required; the script
@@ -119,7 +146,9 @@ Options:
                      anything is written. Default in a terminal: a
                      multi-select picker offers the files. Non-interactive
                      runs skip with a note and never hang.
-  --yes              Skip the terminal confirmation prompt.
+  --uninstall        Preview what an uninstall would remove; no writes by default.
+  --remove-ribbon    Apply the uninstall plan after confirmation; requires --uninstall.
+  --yes              Skip the confirmation; required for a removal without a terminal.
   -h, --help         Show this help and exit.
 
 Examples:
@@ -155,6 +184,8 @@ parse_args() {
       --ribbon-home) shift; ribbon_home_override="${1:-}"; shift ;;
       --force) FORCE=1; shift ;;
       --update) UPDATE=1; shift ;;
+      --uninstall) UNINSTALL=1; shift ;;
+      --remove-ribbon) REMOVE_RIBBON=1; shift ;;
       --yes) ASSUME_YES=1; shift ;;
       --import-rules)
         shift
@@ -184,8 +215,17 @@ parse_args() {
 validate_flags() {
   [[ -n "${PROJECTS_DIR}" ]] \
     || die "--projects DIR is required (no environment default)"
+  validate_path_characters 'the projects directory' "${PROJECTS_DIR}"
   if (( FORCE == 1 && UPDATE == 1 )); then
     die "--force and --update do not combine"
+  fi
+  if (( REMOVE_RIBBON == 1 && UNINSTALL == 0 )); then
+    die "--remove-ribbon requires --uninstall"
+  fi
+  if (( UNINSTALL == 1 )); then
+    (( UPDATE == 0 )) || die "--update cannot be used with --uninstall"
+    (( FORCE == 0 )) || die "--force cannot be used with --uninstall"
+    [[ "${#IMPORT_RULES[@]}" -eq 0 ]] || die "--import-rules cannot be used with --uninstall"
   fi
   [[ -n "${PROJECT_NAME}" ]] || { usage; die "missing <project-name>"; }
   [[ "${PROJECT_NAME}" =~ ^[a-z0-9][a-z0-9-]*$ ]] \
@@ -193,20 +233,66 @@ validate_flags() {
 }
 
 #######################################
+# Refuse a path whose canonical form holds a character below U+0020 or
+# U+007F. The canonical form is computed and checked inside python, so
+# no command substitution can trim a byte before the check.
+# Arguments:
+#   What the path is, the path.
+#######################################
+validate_canonical_path() {
+  python3 - "$1" "$2" <<'PY'
+import os
+import sys
+
+what, path = sys.argv[1:3]
+resolved = os.path.realpath(path)
+if any(ord(char) < 0x20 or ord(char) == 0x7F or char == "`" for char in resolved):
+    escaped = "".join(
+        "\\x%02x" % ord(char) if ord(char) < 0x20 or ord(char) == 0x7F else char
+        for char in resolved)
+    sys.exit(f"ribbon-new-project: unsupported character in {what}: {escaped}")
+PY
+}
+
+#######################################
 # Validate that the projects directory exists and allows writing and
-# traversing with the current user's permissions.
+# traversing with the current user's permissions, and make it absolute,
+# so every path the block names resolves from the project.
 # Globals:
-#   PROJECTS_DIR
+#   PROJECTS_DIR (set)
 #######################################
 validate_projects_dir() {
   [[ -d "${PROJECTS_DIR}" ]] \
     || die "--projects dir does not exist: ${PROJECTS_DIR}"$'\n'"create it yourself and re-run, e.g.: mkdir -p '${PROJECTS_DIR}'"
   [[ -w "${PROJECTS_DIR}" && -x "${PROJECTS_DIR}" ]] \
     || die "--projects dir is not writable with your permissions: ${PROJECTS_DIR}"
+  validate_canonical_path 'the projects directory' "${PROJECTS_DIR}"
+  PROJECTS_DIR="$(canonical_path "${PROJECTS_DIR}")"
 }
 
 path_present() {
   [[ -e "$1" || -L "$1" ]]
+}
+
+#######################################
+# Refuse a path that holds a character below U+0020, U+007F or a
+# backtick: the Markdown and pointer formats cannot carry it, and a
+# canonicalization could trim it into another pathname.
+# Arguments:
+#   What the path is ('the projects directory', 'the project repo path'),
+#   the path.
+#######################################
+validate_path_characters() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+
+what, path = sys.argv[1:3]
+if any(ord(char) < 0x20 or ord(char) == 0x7F or char == "`" for char in path):
+    escaped = "".join(
+        "\\x%02x" % ord(char) if ord(char) < 0x20 or ord(char) == 0x7F else char
+        for char in path)
+    sys.exit(f"ribbon-new-project: unsupported character in {what}: {escaped}")
+PY
 }
 
 validate_project_rules_directory() {
@@ -350,6 +436,66 @@ rebuild_instance() {
 }
 
 #######################################
+# Add one destination to validate_write_destinations' planned list, as a
+# visit_instance_template_refreshes visitor (bash dynamic scoping:
+# planned is the caller's local).
+# Arguments:
+#   The destination, the template (unused).
+#######################################
+plan_write_destination() {
+  planned+=("$1")
+}
+
+#######################################
+# Before the first write, every destination of the run can be written:
+# the file write_block actually replaces (LOCAL_BLOCK_TARGET once
+# validate_instruction_link_safety has resolved a worktree's link,
+# otherwise the project's AGENTS.local.md), the pointer when it is added,
+# every seat file, the instance's docs/README.md and project-repo, on
+# --update every refreshed template file, the instance's
+# docs/llm-context/history when unpack_docs would create it, and each
+# missing rule seed: the directory of each new file and each rewritten
+# file is writable and searchable, and each rewritten file is writable.
+# Globals:
+#   PROJECT_REPO, PROJECTS_DIR, INSTANCE, RIBBON_HOME, SEAT_LIST_FILE,
+#   AGENTS_POINTER_NEEDED, SELECTED_RULES, LOCAL_BLOCK_TARGET, UPDATE
+#######################################
+validate_write_destinations() {
+  local path directory rel template
+  local -a planned=("${LOCAL_BLOCK_TARGET:-${PROJECT_REPO}/AGENTS.local.md}")
+  (( AGENTS_POINTER_NEEDED == 1 )) && planned+=("${PROJECT_REPO}/AGENTS.md")
+  local installed
+  while IFS=$'\t' read -r rel installed; do
+    planned+=("${INSTANCE}/.ribbon/protocol/${installed}")
+  done < "${SEAT_LIST_FILE}"
+  planned+=("${INSTANCE}/docs/README.md" "${INSTANCE}/project-repo")
+  if (( UPDATE == 1 )); then
+    visit_instance_template_refreshes plan_write_destination
+  fi
+  [[ -d "${INSTANCE}/docs/llm-context/history" ]] \
+    || planned+=("${INSTANCE}/docs/llm-context/history")
+  for template in "${RIBBON_HOME}/rules"/*.md; do
+    [[ -e "${template}" ]] || continue
+    path_present "${PROJECT_REPO}/rules/${template##*/}" && continue
+    planned+=("${PROJECT_REPO}/rules/${template##*/}")
+  done
+  for rel in "${SELECTED_RULES[@]}"; do
+    path_present "${PROJECT_REPO}/rules/${rel}" && continue
+    planned+=("${PROJECT_REPO}/rules/${rel}")
+  done
+  for path in "${planned[@]}"; do
+    directory="${path%/*}"
+    while [[ ! -d "${directory}" ]]; do
+      directory="${directory%/*}"
+    done
+    [[ -w "${directory}" && -x "${directory}" ]] || die "not writable: ${directory}"
+    if path_present "${path}"; then
+      [[ -w "${path}" ]] || die "not writable: ${path}"
+    fi
+  done
+}
+
+#######################################
 # Creating or rebuilding the instance must not change what project
 # instruction links resolve to.
 #######################################
@@ -435,6 +581,10 @@ validate_instance_refresh_destination() {
     die "unsafe instance file: ${destination}"
   fi
   validate_refresh_destination "${destination}"
+  if [[ -f "${destination}" ]] \
+    && [[ -n "$(find "${destination}" -maxdepth 0 -links +1 -print -quit)" ]]; then
+    die "unsafe instance file: ${destination}"
+  fi
 }
 
 validate_update_instruction_aliases() {
@@ -447,72 +597,253 @@ validate_update_instruction_aliases() {
   validate_instance_refresh_destination "${INSTANCE}/docs/README.md"
   validate_instance_refresh_destination "${INSTANCE}/project-repo"
   visit_instance_template_refreshes validate_instance_refresh_destination
+  validate_seat_files
 }
 
 #######################################
-# Validate the existing standalone block before any rebuild. Render the
-# append only when the block is absent; never reserialize the existing file.
+# Refuse a project that holds a full install, by its block mark or by its
+# receipt, before any write.
+# Globals:
+#   PROJECT_REPO
+#######################################
+refuse_full_install() {
+  if grep -qE '^<!-- ribbon:full-install:start -->'$'\r''?$' "${PROJECT_REPO}/AGENTS.md" \
+      || [[ -e "${PROJECT_REPO}/docs/.ribbon-full-install" ]]; then
+    die "${PROJECT_REPO} has a full install; uninstall it, then install"
+  fi
+}
+
+#######################################
+# Validate the existing standalone block before any rebuild and classify
+# it: no block (append), a ribbon 2 block with a ribbon:gate region
+# (replace, keeping the roster and the gate), or an older block (refuse).
+# The old block and the older block's belt table rows go to work files.
+# Globals:
+#   PROJECT_REPO, RENDER_WORK_DIR, BLOCK_MODE (set), OLD_BLOCK_FILE,
+#   BELT_ROWS_FILE
 #######################################
 prepare_local_block() {
   local local_md="${PROJECT_REPO}/AGENTS.local.md"
   if [[ -e "${local_md}" || -L "${local_md}" ]]; then
     [[ -f "${local_md}" ]] || die "not a regular file: ${local_md}"
   fi
-  LOCAL_BLOCK="$(python3 - "${RIBBON_HOME}/AGENTS.standalone.md" "${local_md}" \
-    "${RIBBON_HOME}" "${PROJECTS_DIR}" "${INSTANCE}" "${PROJECT_NAME}" "${PROJECT_REPO}" \
-    "${START_MARK}" "${END_MARK}" <<'PY'
-import os
-from pathlib import Path
+  BLOCK_MODE=append
+  local state
+  state="$(python3 - "${local_md}" "${OLD_BLOCK_FILE}" "${BELT_ROWS_FILE}" <<'PY'
 import sys
 
-template, agents, ribbon_home, projects_dir, instance, name, repo, start, end = sys.argv[1:]
-start, end = start.encode(), end.encode()
-belt_start, belt_end = b"<!-- ribbon:belt:start -->", b"<!-- ribbon:belt:end -->"
+local_md, old_block_file, belt_rows_file = sys.argv[1:4]
+start = b"<!-- ribbon:standalone:start -->"
+end = b"<!-- ribbon:standalone:end -->"
+belt_start = b"<!-- ribbon:belt:start -->"
+belt_end = b"<!-- ribbon:belt:end -->"
+gate_start = b"<!-- ribbon:gate:start -->"
+gate_end = b"<!-- ribbon:gate:end -->"
 
 def refuse(reason):
     sys.exit(f"ribbon-new-project: {reason}")
 
-def valid_belt(body, allow_legacy=False):
-    marks = body.count(belt_start), body.count(belt_end)
-    return (allow_legacy and marks == (0, 0)) or (
-        marks == (1, 1)
-        and b"\n" in body[body.index(belt_start):body.index(belt_end)]
-    )
+def mark_lines(data, mark):
+    """The indices of the lines that are exactly mark, ending in LF, in
+    CR LF, or at the end of the file; a mark's text inside a line is no
+    mark, and a trailing CR counts only before an LF."""
+    lines = data.split(b"\n")
+    found = []
+    for index, line in enumerate(lines):
+        if line == mark or (index < len(lines) - 1 and line == mark + b"\r"):
+            found.append(index)
+    return found, lines
 
 try:
-    content = Path(agents).read_bytes()
+    with open(local_md, "rb") as stream:
+        content = stream.read()
 except FileNotFoundError:
     content = b""
 except OSError as error:
     refuse(str(error))
 
-if start in content or end in content:
-    _, _, block_and_tail = content.partition(start)
-    body, end_after_start, _ = block_and_tail.partition(end)
-    if (content.count(start), content.count(end)) != (1, 1) \
-            or not end_after_start or not valid_belt(body, allow_legacy=True):
-        refuse("AGENTS.local.md has unclosed, duplicated or out-of-order Ribbon markers; fix it before re-running")
+starts, lines = mark_lines(content, start)
+ends, _ = mark_lines(content, end)
+if not starts and not ends:
+    print("none")
+    sys.exit(0)
+if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
+    refuse("AGENTS.local.md has unclosed, duplicated or out-of-order Ribbon markers; fix it before re-running")
+
+body = b"\n".join(lines[starts[0] + 1:ends[0]])
+marks = body.count(belt_start), body.count(belt_end)
+if marks != (0, 0) and not (
+        marks == (1, 1)
+        and b"\n" in body[body.index(belt_start):body.index(belt_end)]):
+    refuse("AGENTS.local.md has unclosed, duplicated or out-of-order Ribbon markers; fix it before re-running")
+
+def has_gate_region(text):
+    start_at = None
+    for index, raw in enumerate(text.split(b"\n")):
+        line = raw[:-1] if raw.endswith(b"\r") else raw
+        if line == gate_start and start_at is None:
+            start_at = index
+        elif line == gate_end and start_at is not None:
+            return True
+    return False
+
+if not has_gate_region(body):
+    rows = []
+    in_table = False
+    for line in body.split(b"\n"):
+        if line.startswith(b"| Role | Agent | Model"):
+            in_table = True
+        if not in_table:
+            continue
+        if not line.startswith(b"|"):
+            break
+        rows.append(line)
+    with open(belt_rows_file, "wb") as stream:
+        for row in rows:
+            stream.write(row + b"\n")
+    print("older")
     sys.exit(0)
 
-try:
-    block = Path(template).read_bytes()
-except OSError as error:
-    refuse(str(error))
-if not valid_belt(block):
-    refuse(f"the belt marks in the template {template} are missing, duplicated or out of order")
-for placeholder, value in [
-    (b"{{RIBBON_HOME}}", ribbon_home),
-    (b"{{RIBBON_PROJECTS}}", projects_dir),
-    (b"{{INSTANCE}}", instance),
-    (b"{{PROJECT_NAME}}", name),
-    (b"{{PROJECT_REPO}}", repo),
-]:
-    block = block.replace(placeholder, os.fsencode(value))
-
-separator = (b"\n" if content.endswith(b"\n") else b"\n\n") if content else b""
-sys.stdout.buffer.write(separator + start + b"\n" + block.rstrip() + b"\n" + end)
+block = b"\n".join(lines[starts[0]:ends[0] + 1]) + b"\n"
+with open(old_block_file, "wb") as stream:
+    stream.write(block)
+print("replace")
 PY
 )"
+  if [[ "${state}" == older ]]; then
+    cat "${BELT_ROWS_FILE}"
+    die "AGENTS.local.md holds an older standalone block; uninstall it (ribbon-new-project --uninstall), then install"
+  fi
+  if [[ "${state}" == replace ]]; then
+    BLOCK_MODE=replace
+  fi
+}
+
+#######################################
+# Run the template's renderer once; a failure stops the run before any
+# write, with the renderer's stderr line in the message.
+# Arguments:
+#   Output file, then the renderer's arguments after the --set values.
+# Globals:
+#   RIBBON_HOME, PROTOCOL_SET_ARGS, RENDER_ERROR_FILE
+#######################################
+run_renderer() {
+  local output="$1"
+  shift
+  if ! "${RIBBON_HOME}/scripts/ribbon-render-protocol" \
+      --protocol "${RIBBON_HOME}/protocol" "${PROTOCOL_SET_ARGS[@]}" "$@" \
+      > "${output}" 2> "${RENDER_ERROR_FILE}"; then
+    die "cannot render the protocol: $(cat "${RENDER_ERROR_FILE}")"
+  fi
+}
+
+#######################################
+# Render the block and every seat file before any write: the block with
+# --keep-from the old block when one is replaced, the seat list, then each
+# seat file into the render work dir.
+# Globals:
+#   RIBBON_HOME, RIBBON_PROJECTS, INSTANCE, PROJECT_NAME, PROJECT_REPO,
+#   PROTOCOL_SET_ARGS (set), BLOCK_MODE, OLD_BLOCK_FILE,
+#   BLOCK_RENDERING_FILE, SEAT_LIST_FILE, SEAT_RENDER_DIR
+#######################################
+render_the_protocol() {
+  PROTOCOL_SET_ARGS=(
+    --set "RIBBON_HOME=${RIBBON_HOME}"
+    --set "RIBBON_PROJECTS=${PROJECTS_DIR}"
+    --set "INSTANCE=${INSTANCE}"
+    --set "PROJECT_NAME=${PROJECT_NAME}"
+    --set "PROJECT_REPO=${PROJECT_REPO}"
+    --set "PROTOCOL_DIR=${INSTANCE}/.ribbon/protocol"
+  )
+  local -a keep=()
+  if [[ "${BLOCK_MODE}" == replace ]]; then
+    keep=(--keep-from "${OLD_BLOCK_FILE}")
+  fi
+  run_renderer "${BLOCK_RENDERING_FILE}" "${keep[@]}" standalone-structure.md
+  run_renderer "${SEAT_LIST_FILE}" --seat-files standalone-structure.md
+  local path installed
+  while IFS=$'\t' read -r path installed; do
+    if [[ "${installed}" == */* ]]; then
+      mkdir -p "${SEAT_RENDER_DIR}/${installed%/*}"
+    fi
+    run_renderer "${SEAT_RENDER_DIR}/${installed}" "${path}"
+  done < "${SEAT_LIST_FILE}"
+}
+
+#######################################
+# Every '<instance>/.ribbon/protocol/<x>' path that the rendered block
+# names between backticks must be a seat file of the run.
+# Globals:
+#   INSTANCE, BLOCK_RENDERING_FILE, SEAT_LIST_FILE
+#######################################
+validate_block_seat_pointers() {
+  python3 - "${BLOCK_RENDERING_FILE}" "${SEAT_LIST_FILE}" \
+    "${INSTANCE}/.ribbon/protocol/" <<'PY'
+import re
+import sys
+
+block_file, seat_list, prefix = sys.argv[1:4]
+installed = set()
+for line in open(seat_list, encoding="utf-8"):
+    installed.add(line.rstrip("\n").split("\t")[1])
+text = open(block_file, encoding="utf-8").read()
+for match in re.finditer(r"`([^`]*)`", text):
+    name = match.group(1)
+    if not name.startswith(prefix):
+        continue
+    seat = name[len(prefix):]
+    if seat and seat not in installed:
+        sys.exit("ribbon-new-project: the block names a seat file that the "
+                 "template does not have: %s" % seat)
+PY
+}
+
+#######################################
+# A seat file is written only when every directory of its path below the
+# instance is a real directory (not a link) and the leaf, when it exists,
+# is a regular file with one hard link.
+# Globals:
+#   INSTANCE, SEAT_LIST_FILE
+#######################################
+validate_seat_files() {
+  python3 - "${INSTANCE}" "${SEAT_LIST_FILE}" <<'PY'
+import os
+import stat
+import sys
+
+instance, seat_list = sys.argv[1:3]
+for line in open(seat_list, encoding="utf-8"):
+    installed = line.rstrip("\n").split("\t")[1]
+    parts = installed.split("/")
+    current = instance
+    for component in [".ribbon", "protocol"] + parts[:-1]:
+        current = os.path.join(current, component)
+        if os.path.islink(current) or (
+                os.path.exists(current) and not os.path.isdir(current)):
+            sys.exit(f"ribbon-new-project: unsafe seat file: {current}")
+    target = os.path.join(current, parts[-1])
+    if os.path.lexists(target):
+        info = os.lstat(target)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            sys.exit(f"ribbon-new-project: unsafe seat file: {target}")
+PY
+}
+
+#######################################
+# Enumerate the seat tree for the stray sweep into a work file, checking
+# find's status, before any write. On install and --force the tree is
+# new, so the inventory stays empty.
+# Globals:
+#   UPDATE, INSTANCE, SEAT_SWEEP_FILE
+#######################################
+prepare_seat_sweep() {
+  (( UPDATE == 1 )) || return 0
+  if [[ -d "${INSTANCE}/.ribbon/protocol" ]]; then
+    if ! find "${INSTANCE}/.ribbon/protocol" \( -type f -o -type l \) -print0 \
+        > "${SEAT_SWEEP_FILE}"; then
+      die "cannot list ${INSTANCE}/.ribbon/protocol; nothing changed"
+    fi
+  fi
 }
 
 #######################################
@@ -531,9 +862,93 @@ validate_agents_destination() {
   done
 }
 
+#######################################
+# For each of AGENTS.local.md and AGENTS.md that the run will write (the
+# block appended or replaced; the pointer appended), and only for those:
+# the file may be a link only to a file of the same name (a worktree's
+# link to the main checkout's file); one that aliases the overlay, the
+# other AGENTS file or a Claude file, or that has more than one hard
+# link, is refused before any write. Runs after the existing alias and
+# refresh-destination checks, so their messages fire first where they
+# apply.
+# Globals:
+#   PROJECT_REPO, AGENTS_POINTER_NEEDED
+#######################################
+#######################################
+# For each of AGENTS.local.md and AGENTS.md that the run will write (the
+# block appended or replaced; the pointer appended), and only for those:
+# the whole link chain is followed; every link in it names a file of the
+# same basename, and the final target is a regular file with one hard
+# link, of that name, and not one of the other instruction files;
+# otherwise G6's refusal. The resolved target of AGENTS.local.md becomes
+# LOCAL_BLOCK_TARGET, so the write goes to the final target and a
+# worktree's link stays a link. Runs after the existing alias and
+# refresh-destination checks, so their messages fire first where they
+# apply.
+# Globals:
+#   PROJECT_REPO, AGENTS_POINTER_NEEDED, LOCAL_BLOCK_TARGET (set)
+#######################################
+validate_instruction_link_safety() {
+  local name
+  for name in AGENTS.local.md AGENTS.md; do
+    if [[ "${name}" == AGENTS.md ]] && (( AGENTS_POINTER_NEEDED == 0 )); then
+      continue
+    fi
+    if [[ "${name}" == AGENTS.local.md ]]; then
+      LOCAL_BLOCK_TARGET="$(resolve_instruction_chain "${name}")"
+    else
+      resolve_instruction_chain "${name}" > /dev/null
+    fi
+  done
+}
+
+#######################################
+# Follow one instruction file's link chain and print its final target.
+# Every link in the chain must name a file of the same basename; the
+# final target must be a regular file with one hard link. A Claude file
+# that links to the AGENTS file (the README's wiring) changes neither
+# and stays supported; a hard link of the AGENTS file fails the one-hard
+# -link check.
+# Arguments:
+#   The file name (AGENTS.local.md or AGENTS.md).
+# Globals:
+#   PROJECT_REPO
+#######################################
+resolve_instruction_chain() {
+  python3 - "${PROJECT_REPO}" "$1" <<'PY'
+import os
+import stat
+import sys
+
+root, name = sys.argv[1:3]
+
+def refuse():
+    sys.exit(f"ribbon-new-project: {name} is a link to another file or has "
+             "other names; refusing to write it")
+
+current = os.path.join(root, name)
+seen = set()
+while os.path.islink(current):
+    target = os.readlink(current)
+    if os.path.basename(target) != name:
+        refuse()
+    if not os.path.isabs(target):
+        target = os.path.join(os.path.dirname(current), target)
+    current = os.path.normpath(target)
+    if current in seen:
+        refuse()
+    seen.add(current)
+if os.path.lexists(current):
+    info = os.lstat(current)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        refuse()
+sys.stdout.write(current + "\n")
+PY
+}
+
 prepare_instruction_files() {
   prepare_local_block
-  if [[ -n "${LOCAL_BLOCK}" ]]; then
+  if [[ "${BLOCK_MODE}" == append ]]; then
     validate_agents_destination AGENTS.local.md
   fi
   if ! grep -q 'AGENTS\.local\.md' "${PROJECT_REPO}/AGENTS.md"; then
@@ -543,19 +958,58 @@ prepare_instruction_files() {
 }
 
 #######################################
-# Validate that the template repository has everything an instance needs.
+# Validate that the template repository has everything an instance needs,
+# and read everything the run needs afterwards: the seed version and every
+# template file it will copy, before any write.
 # Globals:
-#   RIBBON_HOME
+#   RIBBON_HOME, RENDER_WORK_DIR
 #######################################
 validate_template() {
-  [[ -f "${RIBBON_HOME}/AGENTS.standalone.md" ]] \
-    || die "template not found: ${RIBBON_HOME}/AGENTS.standalone.md (point --ribbon-home at the template repo)"
+  [[ -f "${RIBBON_HOME}/protocol/standalone-structure.md" ]] \
+    || die "template not found: ${RIBBON_HOME}/protocol/standalone-structure.md (point --ribbon-home at the template repo)"
+  [[ -x "${RIBBON_HOME}/scripts/ribbon-render-protocol" ]] \
+    || die "template not found: ${RIBBON_HOME}/scripts/ribbon-render-protocol (point --ribbon-home at the template repo)"
   [[ -d "${RIBBON_HOME}/docs/tasks" && -d "${RIBBON_HOME}/docs/llm-context" ]] \
     || die "template docs not found under ${RIBBON_HOME}/docs"
   [[ -d "${RIBBON_HOME}/rules" ]] \
     || die "template rules not found under ${RIBBON_HOME}/rules"
   [[ -f "${RIBBON_HOME}/scripts/standalone-post-checkout" ]] \
     || die "template not found: ${RIBBON_HOME}/scripts/standalone-post-checkout (point --ribbon-home at the template repo)"
+  validate_seed_version
+  validate_template_files
+}
+
+#######################################
+# Read the seed version: one line 'ribbon N'.
+# Globals:
+#   RIBBON_HOME
+#######################################
+validate_seed_version() {
+  local version_file="${RIBBON_HOME}/VERSION" line
+  [[ -f "${version_file}" && -r "${version_file}" ]] \
+    || die "template file is missing or unreadable: ${version_file}"
+  line="$(head -1 "${version_file}")"
+  if [[ ! "${line}" =~ ^ribbon\ [0-9]+$ ]] \
+    || ! cmp -s "${version_file}" <(printf '%s\n' "${line}"); then
+    die "invalid Ribbon seed version: ${line}"
+  fi
+}
+
+#######################################
+# Every template file the run will copy is a readable regular file.
+# Globals:
+#   RIBBON_HOME, RENDER_WORK_DIR
+#######################################
+validate_template_files() {
+  local listing="${RENDER_WORK_DIR}/template-files" file
+  if ! find "${RIBBON_HOME}/docs/tasks" "${RIBBON_HOME}/docs/llm-context" \
+      "${RIBBON_HOME}/rules" \( -type f -o -type l \) -print0 > "${listing}"; then
+    die "cannot inspect the template files under ${RIBBON_HOME}"
+  fi
+  while IFS= read -r -d '' file; do
+    [[ -f "${file}" && -r "${file}" ]] \
+      || die "template file is missing or unreadable: ${file}"
+  done < "${listing}"
 }
 
 #######################################
@@ -596,6 +1050,8 @@ resolve_repo() {
     [[ -w "${PROJECT_REPO}/AGENTS.local.md" ]] \
       || die "AGENTS.local.md is not writable with your permissions: ${PROJECT_REPO}/AGENTS.local.md"
   fi
+  validate_path_characters 'the project repo path' "${PROJECT_REPO}"
+  validate_canonical_path 'the project repo path' "${PROJECT_REPO}"
   PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
   local instance_resolved ribbon_resolved home_resolved
   instance_resolved="$(canonical_path "${INSTANCE}")"
@@ -697,6 +1153,43 @@ seed_rules() {
 }
 
 #######################################
+# Write stdin to a target through an exclusively created temporary file
+# (os.open with O_CREAT|O_EXCL, a random name) in the same directory and
+# os.replace, never through the existing inode. The new file keeps the
+# mode of the file it replaces, or 0644 for a new one.
+# Arguments:
+#   The target path.
+#######################################
+write_through_temp() {
+  python3 -c "$(cat <<'PY'
+import os
+import secrets
+import stat
+import sys
+
+target = sys.argv[1]
+data = sys.stdin.buffer.read()
+try:
+    mode = stat.S_IMODE(os.stat(target).st_mode)
+except FileNotFoundError:
+    mode = 0o644
+directory = os.path.dirname(target) or "."
+temporary = os.path.join(directory, ".ribbon-write-" + secrets.token_hex(12))
+fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+try:
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(data)
+        os.fchmod(stream.fileno(), mode)
+    os.replace(temporary, target)
+    temporary = None
+finally:
+    if temporary is not None:
+        os.unlink(temporary)
+PY
+)" "$1"
+}
+
+#######################################
 # Write the instance's docs/README.md with the current template version.
 # Globals:
 #   RIBBON_HOME, INSTANCE, PROJECT_NAME, PROJECT_REPO
@@ -704,12 +1197,12 @@ seed_rules() {
 write_instance_readme() {
   local version
   version="$(head -1 "${RIBBON_HOME}/VERSION")"
-  cat > "${INSTANCE}/docs/README.md" <<EOF
+  write_through_temp "${INSTANCE}/docs/README.md" <<EOF
 ${version}
 
 Standalone Ribbon Protocol instance for ${PROJECT_NAME}.
 Linked project repo: ${PROJECT_REPO}
-Seeded from: ${RIBBON_HOME} — the protocol text (AGENTS.md) and the field guide are read from there, unchanged.
+Seeded from: ${RIBBON_HOME} — the field guide is read from there; each seat's files are rendered under ${INSTANCE}/.ribbon/protocol/.
 Final artifacts are written into the project repo: ${PROJECT_REPO}/docs/adrs and ${PROJECT_REPO}/docs/diagrams.
 EOF
 }
@@ -720,16 +1213,107 @@ EOF
 #   INSTANCE, PROJECT_REPO
 #######################################
 write_pointer() {
-  printf '%s\n' "${PROJECT_REPO}" > "${INSTANCE}/project-repo"
+  printf '%s\n' "${PROJECT_REPO}" | write_through_temp "${INSTANCE}/project-repo"
 }
 
 #######################################
-# Append the standalone block if preflight found it missing.
+# Write the standalone block: appended when preflight found none, or the
+# old block's span replaced by the rendering, through a temporary file in
+# the project directory and os.replace, keeping the file's mode. The bytes
+# outside the block do not change.
+# Globals:
+#   PROJECT_REPO, BLOCK_MODE, BLOCK_RENDERING_FILE
 #######################################
-write_local_block() {
-  if [[ -n "${LOCAL_BLOCK}" ]]; then
-    printf '%s\n' "${LOCAL_BLOCK}" >> "${PROJECT_REPO}/AGENTS.local.md"
-  fi
+write_block() {
+  python3 - "${LOCAL_BLOCK_TARGET}" "${BLOCK_RENDERING_FILE}" \
+    "${BLOCK_MODE}" "${START_MARK}" "${END_MARK}" <<'PY'
+import os
+import stat
+import sys
+import tempfile
+
+local_md, rendering_file, mode, start, end = sys.argv[1:6]
+start = start.encode()
+end = end.encode()
+
+with open(rendering_file, "rb") as stream:
+    rendering = stream.read()
+
+try:
+    with open(local_md, "rb") as stream:
+        content = stream.read()
+    file_mode = stat.S_IMODE(os.stat(local_md).st_mode)
+except FileNotFoundError:
+    content = b""
+    file_mode = None
+
+block = start + b"\n" + rendering.rstrip() + b"\n" + end + b"\n"
+
+if mode == "append":
+    separator = (b"\n" if content.endswith(b"\n") else b"\n\n") if content else b""
+    with open(local_md, "ab") as stream:
+        stream.write(separator + block)
+    sys.exit(0)
+
+def mark_lines(data, mark):
+    lines = data.split(b"\n")
+    found = []
+    for index, line in enumerate(lines):
+        if line == mark or (index < len(lines) - 1 and line == mark + b"\r"):
+            found.append(index)
+    return found, lines
+
+starts, lines = mark_lines(content, start)
+ends, _ = mark_lines(content, end)
+offsets = []
+position = 0
+for line in lines:
+    offsets.append(position)
+    position += len(line) + 1
+begin = offsets[starts[0]]
+finish = offsets[ends[0]] + len(end)
+if content[finish:finish + 1] == b"\r" and content[finish + 1:finish + 2] == b"\n":
+    finish += 2
+elif content[finish:finish + 1] == b"\n":
+    finish += 1
+new_content = content[:begin] + block + content[finish:]
+
+fd, temporary = tempfile.mkstemp(dir=os.path.dirname(local_md) or ".")
+try:
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(new_content)
+    if file_mode is not None:
+        os.chmod(temporary, file_mode)
+    os.replace(temporary, local_md)
+except BaseException:
+    os.unlink(temporary)
+    raise
+PY
+}
+
+#######################################
+# Write each rendered seat file under <instance>/.ribbon/protocol/ and
+# remove a file there that the template no longer names (the instance is
+# the installer's).
+# Globals:
+#   INSTANCE, SEAT_LIST_FILE, SEAT_RENDER_DIR
+#######################################
+write_seat_files() {
+  local protocol_dir="${INSTANCE}/.ribbon/protocol" path installed
+  mkdir -p "${protocol_dir}"
+  while IFS=$'\t' read -r path installed; do
+    if [[ "${installed}" == */* ]]; then
+      mkdir -p "${protocol_dir}/${installed%/*}"
+    fi
+    write_through_temp "${protocol_dir}/${installed}" \
+      < "${SEAT_RENDER_DIR}/${installed}"
+  done < "${SEAT_LIST_FILE}"
+  while IFS= read -r -d '' path; do
+    installed="${path#"${protocol_dir}"/}"
+    if ! cut -f2 "${SEAT_LIST_FILE}" | grep -Fqx "${installed}"; then
+      rm -f "${path}"
+    fi
+  done < "${SEAT_SWEEP_FILE}"
 }
 
 #######################################
@@ -741,8 +1325,7 @@ write_local_block() {
 #######################################
 ensure_pointer() {
   if (( AGENTS_POINTER_NEEDED == 1 )); then
-    printf '\n%s\n' \
-      "Ribbon Protocol (standalone): this machine's working files live outside this repository; read AGENTS.local.md for where each file lives." \
+    printf '\n%s\n' "${POINTER_LINE}" \
       >> "${PROJECT_REPO}/AGENTS.md"
   fi
 }
@@ -884,33 +1467,6 @@ pick_rules() {
 }
 
 #######################################
-# Validate the overlay before a rebuild can remove its target. A regular
-# file or working external symlink is kept; an absent file is seeded.
-#######################################
-prepare_herdr_destination() {
-  local overlay="${PROJECT_REPO}/herdr-config.md"
-  HERDR_NOTE='herdr-config.md already present, left unchanged'
-  if [[ -e "${overlay}" || -L "${overlay}" ]]; then
-    [[ -f "${overlay}" ]] || die "herdr-config.md is not a regular file or working symlink"
-    if (( NEEDS_REBUILD == 1 )) && [[ -L "${overlay}" ]] && path_uses_instance "${overlay}"; then
-      die "herdr-config.md points inside the instance; refusing to rebuild ${INSTANCE}"
-    fi
-    return 0
-  fi
-  [[ -f "${RIBBON_HOME}/herdr-config.md" && -r "${RIBBON_HOME}/herdr-config.md" ]] \
-    || die "overlay template is missing or unreadable: ${RIBBON_HOME}/herdr-config.md"
-  validate_refresh_destination "${overlay}"
-  HERDR_COPY_NEEDED=1
-}
-
-wire_herdr() {
-  if (( HERDR_COPY_NEEDED == 1 )); then
-    cp "${RIBBON_HOME}/herdr-config.md" "${PROJECT_REPO}/herdr-config.md"
-    HERDR_NOTE='herdr-config.md copied beside AGENTS.md'
-  fi
-}
-
-#######################################
 # Pick the post-checkout destination without writing anything. Foreign
 # hooks and custom hook paths are left alone.
 #######################################
@@ -969,17 +1525,325 @@ wire_worktree_links() {
 }
 
 #######################################
+# Resolve the project repo for --uninstall: the instance's project-repo
+# pointer when the instance exists (a given path must name the same
+# directory), the given path otherwise. The recorded pointer and the
+# given path pass validate_canonical_path before any command substitution
+# canonicalizes them, so the identity comparison and the assignment lose
+# no byte: a path whose real name ends in an LF is refused, never trimmed
+# into another directory.
+# Globals:
+#   PROJECTS_DIR, PROJECT_NAME, PROJECT_REPO (set), INSTANCE (set)
+#######################################
+resolve_uninstall_repo() {
+  INSTANCE="${PROJECTS_DIR}/${PROJECT_NAME}"
+  if [[ -d "${INSTANCE}" ]]; then
+    local pointer="${INSTANCE}/project-repo" recorded
+    if [[ ! -f "${pointer}" || -L "${pointer}" ]]; then
+      die "the instance has no usable project-repo pointer; nothing removed"
+    fi
+    recorded="$(cat "${pointer}")"
+    if [[ -z "${recorded}" || "${recorded}" == *$'\n'* ]]; then
+      die "the instance has no usable project-repo pointer; nothing removed"
+    fi
+    validate_path_characters 'the project repo path' "${recorded}"
+    validate_canonical_path 'the project repo path' "${recorded}"
+    if [[ -n "${PROJECT_REPO}" ]]; then
+      validate_path_characters 'the project repo path' "${PROJECT_REPO}"
+      validate_canonical_path 'the project repo path' "${PROJECT_REPO}"
+      [[ "$(canonical_path "${PROJECT_REPO}")" == "$(canonical_path "${recorded}")" ]] \
+        || die "the instance links ${recorded}, not ${PROJECT_REPO}"
+    fi
+    PROJECT_REPO="${recorded}"
+  fi
+  [[ -n "${PROJECT_REPO}" ]] \
+    || die "no instance for ${PROJECT_NAME}; give the project repo path"
+  [[ -d "${PROJECT_REPO}" ]] || die "project repo not found: ${PROJECT_REPO}"
+  validate_path_characters 'the project repo path' "${PROJECT_REPO}"
+  validate_canonical_path 'the project repo path' "${PROJECT_REPO}"
+  PROJECT_REPO="$(canonical_path "${PROJECT_REPO}")"
+}
+
+#######################################
+# Print the post-checkout hook of the project's git repository, found as
+# prepare_worktree_hook finds it; print nothing when there is none to
+# consider (no git, not the main worktree, custom hooks path).
+# Globals:
+#   PROJECT_REPO
+#######################################
+find_uninstall_hook() {
+  local worktrees main_checkout hooks_dir common_dir
+  worktrees="$(git -C "${PROJECT_REPO}" worktree list --porcelain 2>/dev/null)" || return 0
+  main_checkout="$(printf '%s\n' "${worktrees}" | sed -n '1s/^worktree //p')"
+  [[ "${main_checkout}" == "${PROJECT_REPO}" ]] || return 0
+  hooks_dir="$(git -C "${PROJECT_REPO}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)" \
+    || return 0
+  common_dir="$(git -C "${PROJECT_REPO}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+    || return 0
+  [[ "${hooks_dir}" == "${common_dir}/hooks" ]] || return 0
+  printf '%s\n' "${hooks_dir}/post-checkout"
+}
+
+#######################################
+# Preview or remove a standalone install: the block of AGENTS.local.md,
+# the pointer line of AGENTS.md and Ribbon's own hook, of either layout.
+# The instance and herdr-config.md are never removed. The plan is printed
+# first; every item is re-verified before the first write; a rewrite goes
+# through a temporary file and os.replace; no link is followed.
+# Globals:
+#   PROJECT_REPO, INSTANCE, RIBBON_HOME, START_MARK, END_MARK,
+#   POINTER_LINE, REMOVE_RIBBON, ASSUME_YES
+#######################################
+uninstall_standalone() {
+  [[ -f "${RIBBON_HOME}/scripts/standalone-post-checkout" ]] \
+    || die "template not found: ${RIBBON_HOME}/scripts/standalone-post-checkout (point --ribbon-home at the template repo)"
+  local hook_path=''
+  hook_path="$(find_uninstall_hook)"
+  python3 -c "$(cat <<'PY'
+from contextlib import contextmanager
+import errno
+import os
+from pathlib import PurePosixPath
+import secrets
+import stat
+import sys
+
+root, instance, hook_path, hook_template, start, end, pointer = sys.argv[1:8]
+apply, yes = sys.argv[8] == "1", sys.argv[9] == "1"
+start = start.encode()
+end = end.encode()
+pointer = pointer.encode()
+with open(hook_template, "rb") as stream:
+    ribbon2_hook = stream.read()
+ribbon1_hook = ribbon2_hook.replace(
+    b"AGENTS.local.md ", b"AGENTS.local.md herdr-config.md ", 1)
+
+def refuse(message):
+    raise SystemExit(f"ribbon-new-project: {message}")
+
+root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+
+@contextmanager
+def bound_parent(name):
+    fd = os.dup(root_fd)
+    parts = PurePosixPath(name).parts
+    try:
+        for component in parts[:-1]:
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=fd)
+            os.close(fd)
+            fd = child
+        yield fd, parts[-1]
+    finally:
+        os.close(fd)
+
+def snapshot(name):
+    """(stat, bytes) of a regular file; (None, b"") when absent;
+    (None, None) when it is not a regular file. No link is followed."""
+    try:
+        with bound_parent(name) as (fd, leaf):
+            before = os.stat(leaf, dir_fd=fd, follow_symlinks=False)
+            if not stat.S_ISREG(before.st_mode):
+                return None, None
+            with os.fdopen(os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd),
+                           "rb") as stream:
+                current = os.fstat(stream.fileno())
+                if (current.st_dev, current.st_ino) != (before.st_dev, before.st_ino):
+                    raise OSError(f"path changed during uninstall: {name}")
+                return before, stream.read()
+    except FileNotFoundError:
+        return None, b""
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            return None, None
+        raise
+
+def same_file(first, second):
+    return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
+
+def replace_file(fd, leaf, replacement, mode):
+    temporary = ".ribbon-uninstall-" + secrets.token_hex(12)
+    temp_fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600,
+                      dir_fd=fd)
+    try:
+        with os.fdopen(temp_fd, "wb") as stream:
+            stream.write(replacement)
+            os.fchmod(stream.fileno(), stat.S_IMODE(mode))
+        os.replace(temporary, leaf, src_dir_fd=fd, dst_dir_fd=fd)
+        temporary = None
+    finally:
+        if temporary is not None:
+            os.unlink(temporary, dir_fd=fd)
+
+def mark_lines(data, mark):
+    """The indices of the lines that are exactly mark, ending in LF, in
+    CR LF, or at the end of the file; a mark's text inside a line is no
+    mark, and a trailing CR counts only before an LF."""
+    lines = data.split(b"\n")
+    found = []
+    for index, line in enumerate(lines):
+        if line == mark or (index < len(lines) - 1 and line == mark + b"\r"):
+            found.append(index)
+    return found, lines
+
+def block_removal(content):
+    """AGENTS.local.md without the standalone block (and the blank line
+    before it), or None when the file has no block."""
+    starts, lines = mark_lines(content, start)
+    ends, _ = mark_lines(content, end)
+    if not starts and not ends:
+        return None
+    if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
+        refuse("AGENTS.local.md has unclosed, duplicated or out-of-order "
+               "Ribbon markers; nothing removed")
+    offsets = []
+    position = 0
+    for line in lines:
+        offsets.append(position)
+        position += len(line) + 1
+    line_start = offsets[starts[0]]
+    line_end = offsets[ends[0]] + len(end)
+    if content[line_end:line_end + 1] == b"\r" and content[line_end + 1:line_end + 2] == b"\n":
+        line_end += 2
+    elif content[line_end:line_end + 1] == b"\n":
+        line_end += 1
+    if line_start > 0:
+        prev_end = line_start - 1
+        prev_start = content.rfind(b"\n", 0, prev_end) + 1
+        if content[prev_start:prev_end] in (b"", b"\r"):
+            line_start = prev_start
+    return content[:line_start] + content[line_end:]
+
+def pointer_removal(content):
+    """AGENTS.md without each pointer line (and the blank line before it),
+    or None when there is no pointer line. The pointer line and the blank
+    line before it are recognized with LF or CR LF endings."""
+    out = []
+    removed = False
+    for line in content.splitlines(keepends=True):
+        body = line
+        if body.endswith(b"\n"):
+            body = body[:-1]
+            if body.endswith(b"\r"):
+                body = body[:-1]
+        if body == pointer:
+            removed = True
+            if out and out[-1] in (b"\n", b"\r\n"):
+                out.pop()
+            continue
+        out.append(line)
+    return b"".join(out) if removed else None
+
+def uninstall():
+    plan = []
+    left = []
+
+    local_stat, local_content = snapshot("AGENTS.local.md")
+    if local_stat is None and local_content is None:
+        refuse("not a regular file: AGENTS.local.md; nothing removed")
+    if local_stat is not None:
+        remaining = block_removal(local_content)
+        if remaining is not None:
+            if remaining.strip() == b"":
+                plan.append(("AGENTS.local.md", "AGENTS.local.md",
+                             local_stat, local_content, None))
+            else:
+                plan.append(("AGENTS.local.md (Ribbon block only)",
+                             "AGENTS.local.md", local_stat, local_content,
+                             remaining))
+
+    agents_stat, agents_content = snapshot("AGENTS.md")
+    if agents_stat is None and agents_content is None:
+        refuse("not a regular file: AGENTS.md; nothing removed")
+    if agents_stat is not None:
+        remaining = pointer_removal(agents_content)
+        if remaining is not None:
+            plan.append(("AGENTS.md (Ribbon pointer line only)", "AGENTS.md",
+                         agents_stat, agents_content, remaining))
+
+    if os.path.lexists(os.path.join(root, "herdr-config.md")):
+        left.append("herdr-config.md (Ribbon cannot prove it wrote it)")
+
+    if hook_path:
+        relative = os.path.relpath(hook_path, root)
+        hook_stat, hook_content = (None, None)
+        if not relative.startswith(".."):
+            hook_stat, hook_content = snapshot(relative)
+        hook_lines = (hook_content or b"").split(b"\n")
+        second_line = hook_lines[1] if len(hook_lines) > 1 else b""
+        if (hook_stat is not None
+                and second_line == b"# ribbon:standalone:post-checkout"
+                and hook_content in (ribbon2_hook, ribbon1_hook)):
+            plan.append((hook_path, relative, hook_stat, hook_content, None))
+        elif os.path.lexists(hook_path):
+            left.append(f"{hook_path} (not Ribbon's hook)")
+
+    print("Would remove Ribbon-owned blocks, lines and files:")
+    for label, _, _, _, _ in plan:
+        print(f"  {label}")
+    print("Left in place:")
+    print(f"  {instance} (the instance: its plans, cards and reports)")
+    for label in left:
+        print(f"  {label}")
+
+    if not apply:
+        print("Dry run only; use --uninstall --remove-ribbon to apply.")
+        return
+    if not yes:
+        if not sys.stdin.isatty():
+            refuse("non-interactive removal requires --yes; nothing removed")
+        print("Remove these Ribbon blocks and files? [y/N] ", end="",
+              file=sys.stderr, flush=True)
+        if input().strip().lower() not in ("y", "yes"):
+            print("Uninstall declined; nothing removed.")
+            return
+
+    for label, name, original, content, replacement in plan:
+        path = os.path.join(root, name)
+        if not os.access(os.path.dirname(path) or root, os.W_OK | os.X_OK) or (
+                replacement is not None and not os.access(path, os.W_OK)):
+            refuse(f"permission denied: {label}; nothing removed")
+    for label, name, original, content, _ in plan:
+        now, current = snapshot(name)
+        if now is None or not same_file(original, now) or current != content:
+            refuse(f"path changed since preview: {label}; nothing removed")
+    for label, name, original, content, replacement in plan:
+        with bound_parent(name) as (fd, leaf):
+            now, current = snapshot(name)
+            if now is None or not same_file(original, now) or current != content:
+                refuse(f"path changed since preview: {label}; nothing removed")
+            if replacement is None:
+                os.unlink(leaf, dir_fd=fd)
+            else:
+                replace_file(fd, leaf, replacement, now.st_mode)
+    print(f"Standalone removal complete. The instance stays: {instance}.")
+
+try:
+    try:
+        uninstall()
+    finally:
+        os.close(root_fd)
+except (OSError, EOFError) as error:
+    refuse(f"uninstall stopped: {error}")
+PY
+)" "${PROJECT_REPO}" "${INSTANCE}" "${hook_path}" \
+  "${RIBBON_HOME}/scripts/standalone-post-checkout" \
+  "${START_MARK}" "${END_MARK}" "${POINTER_LINE}" \
+  "${REMOVE_RIBBON}" "${ASSUME_YES}"
+}
+
+#######################################
 # Print a summary of what happened.
 # Globals:
-#   UPDATE, INSTANCE, PROJECT_NAME, PROJECT_REPO, LOCAL_BLOCK,
-#   AGENTS_POINTER_NEEDED, HERDR_NOTE, WORKTREE_NOTE
+#   UPDATE, INSTANCE, PROJECT_NAME, PROJECT_REPO, BLOCK_MODE,
+#   AGENTS_POINTER_NEEDED, WORKTREE_NOTE
 #######################################
 print_summary() {
   local mode='Unpacked'
-  local local_note='existing standalone block left unchanged'
+  local local_note='existing standalone block replaced, roster and gate kept'
   local pointer_note='existing reference left unchanged'
   (( UPDATE == 1 )) && mode='Updated'
-  [[ -n "${LOCAL_BLOCK}" ]] && local_note='standalone block appended'
+  [[ "${BLOCK_MODE}" == append ]] && local_note='standalone block appended'
   (( AGENTS_POINTER_NEEDED == 1 )) && pointer_note='one-line pointer appended (see AGENTS.local.md)'
   local import_line=''
   if [[ -n "${IMPORT_NOTE}" ]]; then
@@ -997,10 +1861,10 @@ ${mode} Ribbon Protocol instance for ${PROJECT_NAME}:
   AGENTS.md:       ${pointer_note}
   rules:           existing project themes left unchanged; missing themes added when seeding
 ${import_line}  gitignore:       add AGENTS.local.md — it is personal to this machine
-  herdr:           ${HERDR_NOTE}
+  herdr:           the overlay is the architect's seat file, handlers/herdr.md
   worktrees:       ${WORKTREE_NOTE}
 
-Next: read the protocol at ${RIBBON_HOME}/AGENTS.md — it governs unchanged.
+Next: fill the roster and the gate in AGENTS.local.md, between their ribbon:belt and ribbon:gate marks.
 EOF
 }
 
@@ -1013,33 +1877,55 @@ main() {
   parse_args "$@"
   validate_flags
   find_gnu_realpath
+  validate_canonical_path 'the template repository' "${RIBBON_HOME}"
+  RIBBON_HOME="$(canonical_path "${RIBBON_HOME}")"
   validate_import_rules
   validate_projects_dir
+  RENDER_WORK_DIR="$(mktemp -d)"
+  OLD_BLOCK_FILE="${RENDER_WORK_DIR}/old-block"
+  BELT_ROWS_FILE="${RENDER_WORK_DIR}/belt-rows"
+  BLOCK_RENDERING_FILE="${RENDER_WORK_DIR}/block-rendering"
+  SEAT_LIST_FILE="${RENDER_WORK_DIR}/seat-list"
+  SEAT_RENDER_DIR="${RENDER_WORK_DIR}/seats"
+  RENDER_ERROR_FILE="${RENDER_WORK_DIR}/renderer-stderr"
+  SEAT_SWEEP_FILE="${RENDER_WORK_DIR}/seat-sweep"
+  mkdir -p "${SEAT_RENDER_DIR}"
+  : > "${SEAT_SWEEP_FILE}"
+  if (( UNINSTALL == 1 )); then
+    resolve_uninstall_repo
+    uninstall_standalone
+    return
+  fi
   validate_template
   resolve_repo
+  refuse_full_install
   validate_project_rules_directory
   validate_instance_write_directories
   collect_existing_project_docs_and_rules
   validate_instance_seed_instruction_links
   prepare_instruction_files
+  render_the_protocol
+  validate_block_seat_pointers
   validate_update_instruction_aliases
+  prepare_seat_sweep
   if ! path_present "${PROJECT_REPO}/rules"; then
     validate_refresh_destination "${PROJECT_REPO}/rules"
   fi
   visit_project_rule_copies validate_refresh_destination
-  prepare_herdr_destination
+  validate_instruction_link_safety
   prepare_worktree_hook
   confirm_target
   prepare_user_rule_imports
+  validate_write_destinations
   rebuild_instance
   unpack_docs
   write_instance_readme
   write_pointer
-  write_local_block
+  write_block
+  write_seat_files
   ensure_pointer
   seed_rules
   import_user_rules
-  wire_herdr
   wire_worktree_links
   print_summary
   warn_unlinked_claude_files
