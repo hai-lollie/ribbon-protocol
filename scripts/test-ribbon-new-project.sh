@@ -1347,10 +1347,12 @@ test_update_keeps_the_roster_and_the_gate() {
   install example-project "${repo}" >/dev/null 2>&1 || return 1
   sed -i 's/TODO(belt): "Kuro-chan" or "Claude Opus"/Kuro-chan/' "${local_md}"
   sed -i 's/The gate: TODO(belt): the exact commands, in order\./The gate: make check./' "${local_md}"
+  sed -i '/ribbon:standalone:start/a stale line inside the block' "${local_md}"
   cp "${local_md}" "${SANDBOX}/old-block"
 
   install example-project --update >/dev/null 2>&1 || return 1
 
+  ! grep -q 'stale line inside the block' "${local_md}" || return 1
   render_standalone --keep-from "${SANDBOX}/old-block" standalone-structure.md \
     > "${SANDBOX}/expected" || return 1
   assert_block_is_rendering "${local_md}" "${SANDBOX}/expected" || return 1
@@ -1437,10 +1439,12 @@ test_update_keeps_the_roster_of_a_crlf_file() {
   local local_md="${repo}/AGENTS.local.md"
   install example-project "${repo}" >/dev/null 2>&1 || return 1
   sed -i "s/TODO(belt): a person's name/Ana/" "${local_md}"
+  sed -i '/ribbon:standalone:start/a stale line inside the block' "${local_md}"
   sed -i 's/$/\r/' "${local_md}"
 
   install example-project --update >/dev/null 2>&1 || return 1
 
+  ! grep -q 'stale line inside the block' "${local_md}" || return 1
   grep -q '^| Senior architect | Ana |' "${local_md}"
 }
 
@@ -1448,6 +1452,8 @@ test_writes_no_herdr_config_and_names_the_handler() {
   new_sandbox
   local repo="${SANDBOX}/repos/example-project"
   install example-project "${repo}" > "${SANDBOX}/summary" 2>&1 || return 1
+  [[ -f "${repo}/AGENTS.local.md" ]] || return 1
+  [[ -d "${PROJECTS}/example-project" ]] || return 1
   [[ ! -e "${repo}/herdr-config.md" ]] || return 1
   grep -Fq 'handlers/herdr.md' "${SANDBOX}/summary" || return 1
   grep -Fxq "Seeded from: ${RIBBON_HOME} — the field guide is read from there; each seat's files are rendered under ${PROJECTS}/example-project/.ribbon/protocol/." \
@@ -1619,6 +1625,164 @@ test_uninstall_then_install_brings_the_new_layout() {
   [[ -f "${PROJECTS}/example-project/.ribbon/protocol/actors/architect.md" ]]
 }
 
+test_force_refuses_a_template_without_version_before_deleting_the_instance() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  printf 'live work\n' > "${instance}/docs/tasks/live-card.yaml"
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/before"
+  local fake="${SANDBOX}/no-version-template"
+  mkdir -p "${fake}/protocol" "${fake}/docs/tasks" "${fake}/docs/llm-context" \
+    "${fake}/rules" "${fake}/scripts"
+  cp "${RIBBON_HOME}/protocol/standalone-structure.md" "${fake}/protocol/"
+  cp "${RIBBON_HOME}/scripts/ribbon-render-protocol" "${fake}/scripts/"
+  cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${fake}/scripts/"
+
+  install example-project "${repo}" --force --yes --ribbon-home "${fake}" \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'VERSION' "${SANDBOX}/stderr" || return 1
+  grep -Fxq 'live work' "${instance}/docs/tasks/live-card.yaml" || return 1
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.local.md"
+}
+
+test_update_refuses_a_seat_directory_link() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  mv "${instance}/.ribbon/protocol/actors" "${SANDBOX}/outside-actors"
+  ln -s "${SANDBOX}/outside-actors" "${instance}/.ribbon/protocol/actors"
+  cp "${SANDBOX}/outside-actors/architect.md" "${SANDBOX}/architect.before"
+
+  install example-project --update > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'unsafe seat file:' "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/architect.before" "${SANDBOX}/outside-actors/architect.md"
+}
+
+test_update_refuses_a_hard_linked_seat_file() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  printf 'live work\n' > "${instance}/docs/tasks/live.yaml"
+  ln -f "${instance}/docs/tasks/live.yaml" "${instance}/.ribbon/protocol/actors/architect.md"
+
+  install example-project --update > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'unsafe seat file:' "${SANDBOX}/stderr" || return 1
+  grep -Fxq 'live work' "${instance}/docs/tasks/live.yaml"
+}
+
+test_update_stops_when_the_sweep_cannot_list() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" instance="${PROJECTS}/example-project" rc=0
+  install example-project "${repo}" >/dev/null 2>&1 || return 1
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/before-block"
+  cp "${instance}/.ribbon/protocol/actors/architect.md" "${SANDBOX}/before-seat"
+  local standin="${SANDBOX}/find-standin"
+  mkdir -p "${standin}"
+  # The single quotes are the point: the stand-in is a script, written literally.
+  # shellcheck disable=SC2016
+  printf '#!/usr/bin/env bash\nfor a in "$@"; do [[ "${a}" == *".ribbon/protocol"* ]] && exit 7; done\nexec %q "$@"\n' \
+    "$(command -v find)" > "${standin}/find"
+  chmod +x "${standin}/find"
+
+  PATH="${standin}:${PATH}" "${INSTALLER}" --projects "${PROJECTS}" --update example-project \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'cannot list' "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/before-block" "${repo}/AGENTS.local.md" || return 1
+  cmp -s "${SANDBOX}/before-seat" "${instance}/.ribbon/protocol/actors/architect.md"
+}
+
+test_refuses_a_crlf_full_install_mark() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  printf '# example-project AGENTS\r\n<!-- ribbon:full-install:start -->\r\n' \
+    > "${repo}/AGENTS.md"
+
+  install example-project "${repo}" > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'has a full install' "${SANDBOX}/stderr" || return 1
+  [[ ! -e "${PROJECTS}/example-project" ]] || return 1
+  [[ ! -e "${repo}/AGENTS.local.md" ]]
+}
+
+test_gate_mark_inside_a_sentence_is_no_region() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  cat > "${repo}/AGENTS.local.md" <<'EOF'
+<!-- ribbon:standalone:start -->
+# Ribbon Protocol, standalone mode
+<!-- ribbon:belt:start -->
+| Seat | Agent | Model |
+|---|---|---|
+<!-- ribbon:belt:end -->
+Explain <!-- ribbon:gate:start --> as text.
+<!-- ribbon:standalone:end -->
+EOF
+  cp "${repo}/AGENTS.local.md" "${SANDBOX}/before"
+
+  install example-project "${repo}" > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'holds an older standalone block' "${SANDBOX}/stderr" || return 1
+  cmp -s "${SANDBOX}/before" "${repo}/AGENTS.local.md"
+}
+
+test_refuses_an_agents_local_md_that_links_to_the_overlay() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  printf '# my overlay\n' > "${repo}/herdr-config.md"
+  ln -s herdr-config.md "${repo}/AGENTS.local.md"
+
+  install example-project "${repo}" > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'is a link to another file' "${SANDBOX}/stderr" || return 1
+  printf '# my overlay\n' | cmp -s - "${repo}/herdr-config.md" || return 1
+  [[ ! -e "${PROJECTS}/example-project" ]]
+}
+
+test_refuses_a_backtick_in_the_project_repo_path() {
+  new_sandbox
+  local weird="${SANDBOX}/repos/back\`tick" rc=0
+  mkdir -p "${weird}"
+  printf '# backtick project AGENTS\n' > "${weird}/AGENTS.md"
+
+  install example-project "${weird}" > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'unsupported character in the project repo path:' "${SANDBOX}/stderr" || return 1
+  [[ ! -e "${PROJECTS}/example-project" ]]
+}
+
+test_refuses_a_block_that_names_a_missing_seat_file() {
+  new_sandbox
+  local repo="${SANDBOX}/repos/example-project" rc=0
+  local fake="${SANDBOX}/missing-seat-template"
+  mkdir -p "${fake}/docs/tasks" "${fake}/docs/llm-context" "${fake}/rules" "${fake}/scripts"
+  cp -R "${RIBBON_HOME}/protocol" "${fake}/protocol"
+  rm "${fake}/protocol/actors/general-coder_template.md"
+  cp "${RIBBON_HOME}/scripts/ribbon-render-protocol" "${fake}/scripts/"
+  cp "${RIBBON_HOME}/scripts/standalone-post-checkout" "${fake}/scripts/"
+  printf 'ribbon 2\n' > "${fake}/VERSION"
+
+  install example-project "${repo}" --ribbon-home "${fake}" \
+    > "${SANDBOX}/stdout" 2> "${SANDBOX}/stderr" || rc=$?
+
+  [[ "${rc}" == 1 ]] || return 1
+  grep -Fq 'the block names a seat file that the template does not have: actors/general-coder.md' \
+    "${SANDBOX}/stderr" || return 1
+  [[ ! -e "${PROJECTS}/example-project" ]] || return 1
+  [[ ! -e "${repo}/AGENTS.local.md" ]]
+}
+
 readonly TESTS=(
   test_installer_exists
   test_creates_layout
@@ -1723,6 +1887,15 @@ readonly TESTS=(
   test_uninstall_refuses_broken_marks_and_removes_nothing
   test_uninstall_without_an_instance_takes_the_repo_path
   test_uninstall_then_install_brings_the_new_layout
+  test_force_refuses_a_template_without_version_before_deleting_the_instance
+  test_update_refuses_a_seat_directory_link
+  test_update_refuses_a_hard_linked_seat_file
+  test_update_stops_when_the_sweep_cannot_list
+  test_refuses_a_crlf_full_install_mark
+  test_gate_mark_inside_a_sentence_is_no_region
+  test_refuses_an_agents_local_md_that_links_to_the_overlay
+  test_refuses_a_backtick_in_the_project_repo_path
+  test_refuses_a_block_that_names_a_missing_seat_file
 )
 
 #######################################
