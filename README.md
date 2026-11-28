@@ -65,16 +65,17 @@ practical, cites a best practice once and asks no circular question. It writes
 `docs/llm-context/<adr-id>-security-r<N>.md`, then reports back and stops. It neither edits the
 ADR nor commits it. This is design review, not permission to run attacks or load tests.
 
-The architect answers every question itself, without asking the senior architect: it follows the
-pointers, searches, and tries a proposed change with its own experiment card under `/tmp` or
-`~/tmp`. It records a disposition for every finding and has the final say on what to solve: each
-response solves every `critical` and `security incident` finding and at least 51 percent of the
-report's findings other than nitpicks. It decides whether to revise the current ADR or, when the
-extent of the changes justifies a separate design decision, create a focused ADR linked from the
-original, with a link back. That ADR passes the same security checkpoint. The architect commits
-the reconciled ADRs, diagrams, reports and responses on the contract branch, then asks the senior
-architect to review the design together. A `critical` or `security incident` finding that the
-architect cannot solve requires her decision. Security-relevant design changes get the next run
+The architect answers every question itself, without asking the senior architect what it means or
+where to look: it follows the pointers, searches, and tries a proposed change with its own
+experiment card under `/tmp` or `~/tmp`. It records a disposition for every finding and has the
+final say on what to solve: each response solves every `critical` and `security incident` finding
+that it can and at least 51 percent of the findings other than nitpicks and escalated ones. It
+decides whether to revise the current ADR or, when the extent of the changes justifies a separate
+design decision, create a focused ADR linked from the original, with a link back. That ADR passes
+the same security checkpoint, within the same three runs. The architect commits the reconciled
+ADRs, diagrams, reports and responses on the contract branch, then asks the senior architect to
+review the design together. A `critical` or `security incident` finding that the architect cannot
+solve is escalated: it requires her decision. Security-relevant design changes get the next run
 before another approval request; the third run is the last.
 
 Use a **new Herdr tab** for every run whenever Herdr is installed. The report-writing subagent

@@ -29,11 +29,12 @@ review or a journal. What a card needs from one, the architect copies into the c
   where to look, an attack path or design-gap counterexample, a mitigation and a verification
   condition, and limits. It returns to the architect and stops. Only the architect appends
   `## Architect response`, with a disposition for every finding, its experiment cards and the
-  count; the engineer's sections remain intact. A security-relevant design change gets the next run
-  and a new report revision, not a rewritten finding. The architect incorporates accepted rules in
-  the ADR and future card contracts; coders never read the security report. Herdr authors are
-  visible in a new tab for each run; the report-writing subagent exception applies only when Herdr
-  is absent from the system.
+  count; the engineer's sections remain intact. Up to the third run, a security-relevant design
+  change gets the next run and a new report revision, not a rewritten finding; after it, the change
+  goes to the senior architect with the architect's analysis. The architect incorporates accepted
+  rules in the ADR and future card contracts; coders never read the security report. Herdr authors
+  are visible in a new tab for each run; the report-writing subagent exception applies only when
+  Herdr is absent from the system.
 - **A note is answered by a revised card**, committed on the story's contract branch and merged
   into the main branch, and by one line under
   `## Answer` naming the revision and the decision-log entry, or "no change" and why.
