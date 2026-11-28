@@ -28,9 +28,9 @@ fourth cycle.
 ## Done
 
 The five of "Done, and when the loop stops" in the root `AGENTS.md`, each with its
-evidence and whose run it is; the reviewer runs the boot itself.
+evidence and whose run or judgment it is; the reviewer runs the boot itself.
 
-| Holds | Run by | Evidence |
+| Holds | By | Evidence |
 |---|---|---|
 | the gate, locally and on the trusted verifier | <the reviewer, locally; the trusted verifier> | <each command, its exit code, the verifier's run id> |
 | the boot by the entry point a person runs, its smoke check, its stop | the reviewer | <the command, its output's first lines, the exit code> |
