@@ -62,7 +62,7 @@ LLMs, named by a nickname or by a vendor and a model id, except the trusted veri
 |---|---|---|---|---|
 | Senior architect | TODO(belt): a person's name | human | the problem, the constraints, what success looks like, the acceptance criteria or test bodies; validates ADRs and plans | reads code line by line |
 | Architect | TODO(belt): "Kuro-chan" or "Claude Opus" | TODO(belt): claude-opus-5-5 | ADRs, plans, cards, answers to notes | directly editing production code for its own card; a Herdr post-budget solution is contract text applied and verified by the coder |
-| Security engineer | a fresh agent selected by the architect | OpenAI GPT Sol 6.1+ or Moonshot Kimi K3.1+; Kimi at high effort | an ADR security report with findings and mitigations | ADRs, code, commits; accepting risk for the senior architect |
+| Security engineer | a fresh agent selected by the architect | OpenAI GPT Sol 6.1+ or Moonshot Kimi K3.1+; Kimi at high effort | an ADR security report: labelled findings, each a question with where to look | ADRs, code, commits; accepting risk for the senior architect; a circular question |
 | Independent reviewer | TODO(belt): "Kodo-chan" or "GPT Sol" | TODO(belt): gpt-6.1-sol | findings and verdicts | code; a review of a plan it architected |
 | General coder | TODO(belt): "Lyn-chan" or "GLM 5.3" | TODO(belt): glm-5.3 | the patch and its evidence, inside scope | a shape the contract does not define; a protected path |
 | Entry-level coder | TODO(belt): "Lyn-chan flash" or "GLM 5.3 Flash" | TODO(belt): glm-5.3-flash | small patches inside the allowlist | a correctness decision |
@@ -136,7 +136,7 @@ approval evidence in its assignment journal or in the record named by the Herdr 
    looks like and when to stop and ask; the architect resolves semantics and risk, one
    draft ADR per design problem, and brings what it cannot decide as open questions.
 2. **Security review.** The architect launches a fresh security engineer. The engineer
-   reviews the draft ADR and its diagrams, writes its report and returns it to the architect.
+   questions the draft ADR and its diagrams, writes its report and returns it to the architect.
    The architect incorporates the findings, in the current ADR or a justified linked ADR,
    and records a disposition for each finding. Only then does the architect commit the ADRs,
    diagrams and report on the contract branch and ask the senior architect to validate the design.
@@ -183,7 +183,8 @@ credential access, configuration change or remote mutation is authorized by a de
 The briefing names the draft ADRs, diagrams and relevant constraints; the reviewed snapshot;
 the exact provider, model and effort; and the permitted report and evidence paths. The snapshot
 records each input's path and content hash, since the draft is not yet committed. The engineer
-reads the supplied design and references, not unrelated repository trees or secrets.
+reads the supplied design and references, the project's conventions under `rules/` and the code
+that the design changes or builds on, never unrelated repository trees or secrets.
 
 It checks, where applicable:
 
@@ -194,14 +195,38 @@ It checks, where applicable:
 - injection, untrusted input, dependency and supply-chain risks, and unsafe design assumptions;
 - abuse, denial of service and DDoS: request and payload limits, bounded work, concurrency, queues,
   timeouts, backpressure and deployment-layer controls; an application rate limit alone is not DDoS protection;
-- sensitive-data lifecycle, auditability, safe errors and failure or recovery paths.
+- sensitive-data lifecycle, auditability, safe errors and failure or recovery paths;
+- anti-patterns of the project's language and framework, and those that its own conventions
+  under `rules/` forbid, in the design and in the code that it builds on.
+
+The engineer questions the architect relentlessly about these areas: every gap that the draft
+leaves in them is a question, and an answer that opens a new gap gets a new question. Every
+question says where to look for the answer: a reference, a standard, an ADR, a project file or
+a code example. The engineer stays practical. It asks for the smallest change that the project
+can deploy and that closes the path, never for a perfect control that the project cannot deploy.
+It cites a common pattern or a best practice once, where it applies, and does not audit the
+design against every practice there is. It does not hunt for nitpicks. It asks no circular
+question: none that the draft answers, and none that an earlier report asked, unless the ADR does
+not hold what that report's response claims.
+
+Each finding has one label:
+
+- `critical`: as designed, an attacker takes a core asset or the whole system, for example by an
+  authentication bypass, remote code execution, access across tenants or an exposed secret;
+- `security incident`: as designed, a realistic path leads to a breach, a leak or an outage that
+  is narrower than `critical`, for example one user's data, one feature down or a lost audit trail;
+- `best-practice violation`: the design departs from an established practice for its stack or
+  its problem, cited once, with no exploit path shown in this design;
+- `desirable`: defense in depth against a threat that the design already blocks;
+- `nitpick`: wording, naming or form, with no effect on security.
 
 The engineer writes `docs/llm-context/<adr-id>-security-r<N>.md` from `_security.md`, then reports
-back and stops. Each finding has a stable id, severity with a reason, an ADR or diagram location,
-a concrete attack path or design-gap counterexample, impact, mitigation and a verification condition.
-It distinguishes a supported finding from an assumption or open question, cites its sources, states
-review limits and writes no praise. `NO_FINDINGS` means no findings in this snapshot, not proof of safety.
-The report records the actual model and effort, not only the intended assignment.
+back and stops. Each finding has a stable id, its question, its label with a reason, an ADR or
+diagram location, a concrete attack path or design-gap counterexample, impact, mitigation, where
+to look and a verification condition. It distinguishes a supported finding from an assumption,
+cites its sources, states review limits and writes no praise. `NO_FINDINGS` means no findings in
+this snapshot, not proof of safety. The report records the actual model and effort, not only the
+intended assignment.
 
 ### Incorporation and senior approval
 
