@@ -137,10 +137,10 @@ approval evidence in its assignment journal or in the record named by the Herdr 
    draft ADR per design problem, and brings what it cannot decide as open questions.
 2. **Security review.** The architect launches a fresh security engineer for each run, at most
    three. The engineer questions the draft ADR and its diagrams, writes its report and returns
-   it to the architect.
-   The architect incorporates the findings, in the current ADR or a justified linked ADR,
-   and records a disposition for each finding. Only then does the architect commit the ADRs,
-   diagrams and report on the contract branch and ask the senior architect to validate the design.
+   it to the architect. The architect answers every question itself, with research and its own
+   experiments, in the current ADR or a justified linked ADR, and records a disposition for each
+   finding. Only then does the architect commit the ADRs, diagrams and reports on the contract
+   branch and ask the senior architect to validate the design.
    The section "Security design review" defines this checkpoint and its repeat conditions.
 3. **Contract.** The architect cuts the design into one plan (one deliverable, one
    branch) and its cards (one green commit each), in dependency order, never while an
@@ -237,20 +237,39 @@ intended assignment.
 
 ### Incorporation and senior approval
 
-The architect reads the whole report, checks its claims and incorporates applicable suggestions.
-It may revise the current ADR, or write a separate focused ADR when the extent of the changes
-justifies another design decision. The ADR under review links the new ADR; the new ADR links back.
-A separate ADR is not a way to postpone a required mitigation: it follows the same security
-checkpoint inside the same three runs, and all ADRs needed by the design go to the senior
-architect together.
+The architect reads the whole report and answers every question itself; it does not ask the
+senior architect what a question means or where to look. It checks each claim, follows the
+engineer's pointers, and searches the project, its references and, when the harness and the
+organisation's policy allow it, the internet, under the rules of "Security" below.
+
+To try a proposed change before the ADR holds it, the architect writes an experiment card and
+runs it itself, only under `/tmp` or `~/tmp`. Before the run, the card names the finding, the
+change it tries and the result that confirms or refutes it; after the run, the command, its exit
+code, its output's path and the result. The card lives in the run's report, under the architect's
+response. An experiment changes nothing in the project and is not production evidence: the
+plan's cards still implement the change and prove it.
+
+The architect may revise the current ADR, or write a separate focused ADR when the extent of the
+changes justifies another design decision. The ADR under review links the new ADR; the new ADR
+links back. A separate ADR is not a way to postpone a required mitigation: it follows the same
+security checkpoint inside the same three runs, and all ADRs needed by the design go to the
+senior architect together.
+
+The architect has the final say on what to solve and when, within one rule: in each response it
+solves every `critical` and `security incident` finding, and at least 51 percent of the report's
+findings other than nitpicks. A finding is solved when the ADR, or a linked ADR, holds the change
+that closes its path, or the evidence that the path does not exist, and its verification
+condition. A finding that the architect does not solve is deferred to a named later ADR or plan,
+with an owner, or rejected with the reason; neither counts as solved.
 
 The engineer's report remains intact. Under its `## Architect response`, the architect appends a
-disposition for every finding: incorporated, adapted, deferred or rejected, with the reason,
-the ADR section or linked ADR, and an owner for any remaining action. Serious unresolved risks
-are explicit open questions for the senior architect, never silently accepted or converted to debt.
-Any proposed risk acceptance names the impact and alternatives and needs her explicit decision.
+disposition for every finding: incorporated, adapted, deferred or rejected, with the reason, the
+ADR section or linked ADR, its experiment cards and an owner for any remaining action, then the
+count. A `critical` or `security incident` finding that the architect cannot solve is an explicit
+open question for the senior architect, with its impact and alternatives, and needs her decision;
+the architect never defers it, rejects it or accepts it as a risk.
 
-The architect commits the reconciled ADRs, diagrams, report and response on the contract branch
+The architect commits the reconciled ADRs, diagrams, reports and responses on the contract branch
 before asking for senior-architect review. A missing report or incomplete response stops that
 request. The senior architect alone accepts the ADRs and every later edit. Before another approval
 request, a security-relevant change to the design, trust boundaries, exposure or mitigations gets

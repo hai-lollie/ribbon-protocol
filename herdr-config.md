@@ -325,6 +325,8 @@ before sending input; it never blindly repeats a prompt or presses a key.
 For a security engineer, completion also requires the report's reviewed snapshot, findings or
 explicit `NO_FINDINGS`, review limits, verified model record and report-only scope comparison.
 The architect then owns incorporation and the response; the engineer never commits the draft.
+The architect answers the report's questions itself, under the core protocol's "Incorporation and
+senior approval"; they are not questions for the senior architect.
 
 The architect may answer a technical question when it can establish the answer from the contract,
 verified repository facts, documentation, internet references or a disposable spike. It records
