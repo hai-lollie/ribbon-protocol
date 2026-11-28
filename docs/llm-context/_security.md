@@ -67,10 +67,10 @@ With no findings, write `None in the reviewed snapshot` and retain the coverage 
 - Label and reason: <critical | security incident | best-practice violation | desirable | nitpick; why this label; the higher one when two fit>
 - Location: <ADR section or diagram participant/message>
 - Attack path or counterexample: <actor, access/preconditions, action and violated boundary or invariant; for desirable, the threat that the design already blocks and what the extra control adds; for nitpick, the wording or form to change>
-- Impact: <asset, unauthorized capability, availability loss or design consequence>
-- Mitigation: <the smallest change that the project can deploy and that closes the path>
+- Impact: <asset, unauthorized capability, availability loss or design consequence; for desirable or nitpick, the line above stands in for it>
+- Mitigation: <the smallest change that the project can deploy and that closes the path; for desirable, the extra control; for nitpick, the correction>
 - Where to look: <a reference, a standard, an ADR, a project file or a code example, named precisely enough to find the part that applies, such as a section, a line or a version>
-- Verification condition: <observable acceptance condition that can enter a plan/card>
+- Verification condition: <observable acceptance condition that can enter a plan/card; for nitpick, where the correction shows>
 - Evidence and sources: <design excerpt or concrete omission; a common pattern or a best practice is cited once>
 - Earlier run: <the earlier finding and response that this question follows up, and what the ADR lacks; or none>
 - Assumptions: <what must be confirmed, or none>
@@ -97,7 +97,7 @@ review with the design.
 
 | Finding | Label | Disposition | Solved | Reason | ADR section or linked ADR | Experiment cards | Remaining action and owner |
 |---|---|---|---|---|---|---|---|
-| <adr-id>-sec-01 | <label> | <incorporated/adapted/deferred/rejected/escalated; choose one> | <yes: the ADR holds the change that closes the path, or the evidence that the path does not exist, and the verification condition; or no> | <reason> | <link and section> | <ids, or none> | <action and owner, or none; deferred: the named later ADR or plan> |
+| <adr-id>-sec-01 | <label> | <incorporated/adapted/deferred/rejected/escalated; choose one> | <yes: the ADR holds the verification condition and either a change that closes the gap that the finding names or the evidence that this gap does not exist; or no> | <reason> | <link and section> | <ids, or none> | <action and owner, or none; deferred: the named later ADR or plan> |
 
 Count: <critical and security incident findings solved or escalated, of their total: every one>;
 <solved findings other than nitpicks and escalated ones, of their total: at least 51 percent; none
@@ -105,7 +105,7 @@ needed when the total is 0>
 
 - Actual model verification and report-only scope check: <commands/records, results and evidence paths>
 - Final design coverage: <this run covers the security-relevant design; or the next run; after the third run, what no run covered>
-- Escalated findings: <the ADR open questions for the senior architect, with impact and alternatives; the response is complete with them; or none>
+- Escalated findings: <the ADR open questions for the senior architect, with impact and alternatives; the constraint, missing evidence or reserved decision that prevents a solution, and why each viable option does not close the path now; escalation completes their dispositions and waives nothing else; or none>
 - Senior-review bundle: <reconciled ADRs, diagrams, reports and responses; commit on the contract branch before asking for review>
 - Follow-through: <accepted mitigations and verification conditions to carry into acceptance criteria and card contracts>
 
