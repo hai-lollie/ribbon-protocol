@@ -807,6 +807,24 @@ shell_word() {
 }
 
 #######################################
+# The template checkout as an absolute path, for a command that a person
+# pastes from another directory. A relative --ribbon-home would make that
+# command point into the project's own scripts directory.
+# Globals:
+#   RIBBON_HOME
+# Outputs:
+# The path on STDOUT: RIBBON_HOME when it is absolute, else the directory
+# it names, made absolute.
+#######################################
+absolute_template_path() {
+  if [[ "${RIBBON_HOME}" == /* ]]; then
+    printf '%s\n' "${RIBBON_HOME}"
+  else
+    (cd "${RIBBON_HOME}" && pwd)
+  fi
+}
+
+#######################################
 # Append the worktree block when preflight found that Ribbon's hook will
 # not be in place and the file has no block yet. A new line goes first when
 # the file does not end with one; existing bytes are never rewritten.
@@ -1086,7 +1104,7 @@ prepare_worktree_hook() {
       # summary says why the block is missing.
       WORKTREE_BLOCK_NOTE="not appended: AGENTS.local.md is the same file as ${AGENTS_ALIAS_OF}"
     else
-      WORKTREE_BLOCK="${WORKTREE_BLOCK_BODY//\{\{RIBBON_HOME\}\}/"$(shell_word "${RIBBON_HOME}")"}"
+      WORKTREE_BLOCK="${WORKTREE_BLOCK_BODY//\{\{RIBBON_HOME\}\}/"$(shell_word "$(absolute_template_path)")"}"
       # Any other reason not to append is a skip too, and the summary says
       # why: an optional block never fails the run, and nothing is written.
       local reason
@@ -1172,7 +1190,7 @@ print_summary() {
   local worktree_links_line=''
   if (( WORKTREE_HOOK_SKIPPED == 1 || WORKTREE_LINK_COMMAND_NEEDED == 1 )); then
     worktree_links_line="  worktree links:  Ribbon's post-checkout hook is not in place. After each 'git worktree add <path>', run
-                   $(shell_word "${RIBBON_HOME}/scripts/ribbon-link-worktree") <path>
+                   $(shell_word "$(absolute_template_path)/scripts/ribbon-link-worktree") <path>
 "
   fi
   local worktree_block_line=''

@@ -1297,6 +1297,43 @@ test_command_exits_1_and_prints_nothing_when_a_link_cannot_be_made() {
   [[ -s "${SANDBOX}/err" ]]
 }
 
+# The installer started from the template root, with the template named by a
+# relative path: the command it prints has to work from another directory,
+# where a relative path would point somewhere else.
+install_with_relative_template() {
+  ( cd "${SCRIPT_DIR}/.." && install_with_managed_hooks example-project "${PROJ}" \
+    --ribbon-home . > "${SANDBOX}/summary.txt" 2>&1 )
+}
+
+test_printed_command_works_from_the_project_for_a_relative_template_path() {
+  new_sandbox
+  managed_hooks
+  install_with_relative_template || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed relative-template "${WT}" || return 1
+  local command
+  command="$(sed -n 's#^ *\(.*ribbon-link-worktree\) <path>$#\1#p' "${PROJ}/AGENTS.local.md")"
+  [[ -n "${command}" ]] || return 1
+  ( cd "${PROJ}" && sh -c "${command} ${WT}" ) >/dev/null 2>&1 || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+}
+
+test_summary_command_works_from_the_project_for_a_relative_template_path() {
+  new_sandbox
+  managed_hooks
+  install_with_relative_template || return 1
+  printf '# claude\n' > "${PROJ}/CLAUDE.md"
+  WT="${SANDBOX}/wt"
+  worktree_add_managed relative-template-summary "${WT}" || return 1
+  local command
+  command="$(command_to_paste "${SANDBOX}/summary.txt" '  worktree links:' "$(printf '%19s' '')")"
+  command="${command% <path>}"
+  one_executable_word "${command}" || return 1
+  ( cd "${PROJ}" && sh -c "${command} ${WT}" ) >/dev/null 2>&1 || return 1
+  assert_linked AGENTS.local.md herdr-config.md CLAUDE.md
+}
+
 TESTS=(
   test_install_writes_managed_hook
   test_worktree_gets_links_to_local_files
@@ -1376,6 +1413,8 @@ TESTS=(
   test_summary_command_can_be_pasted_from_a_template_path_with_a_space
   test_printed_command_can_be_pasted_from_a_template_path_with_a_new_line
   test_summary_command_can_be_pasted_from_a_template_path_with_a_new_line
+  test_printed_command_works_from_the_project_for_a_relative_template_path
+  test_summary_command_works_from_the_project_for_a_relative_template_path
 )
 
 main() {
